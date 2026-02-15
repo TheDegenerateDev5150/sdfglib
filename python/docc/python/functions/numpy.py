@@ -922,14 +922,14 @@ class NumPyHandler:
         return func_name in self.function_handlers
 
     def handle_array_unary_op(self, op_type, operand):
-        shape = []
-        if operand in self.tensor_table:
-            shape = self.tensor_table[operand].shape
-
         dtype = self._ev._element_type(operand)
+        if operand in self.tensor_table:
+            tensor = self.tensor_table[operand]
+        else:
+            tensor = Tensor(dtype, [])
 
-        if not shape or len(shape) == 0:
-            tmp_name = self._create_array_temp(shape, dtype)
+        if len(tensor.shape) == 0:
+            tmp_name = self._create_array_temp([], dtype)
 
             func_map = {
                 "sqrt": CMathFunction.sqrt,
@@ -949,8 +949,14 @@ class NumPyHandler:
 
             return tmp_name
 
-        tmp_name = self._create_array_temp(shape, dtype)
-        self.builder.add_elementwise_unary_op(op_type, operand, tmp_name, shape)
+        output_strides = self._get_contiguous_output_strides(
+            tensor.shape, tensor.strides
+        )
+        tmp_name = self._create_array_temp(tensor.shape, dtype, strides=output_strides)
+        tmp_tensor = self.tensor_table[tmp_name]
+        self.builder.add_elementwise_unary_op(
+            op_type, operand, tensor, tmp_name, tmp_tensor
+        )
 
         return tmp_name
 
@@ -959,10 +965,15 @@ class NumPyHandler:
         dtype_right = self._ev._element_type(right)
         dtype = promote_element_types(dtype_left, dtype_right)
 
-        left_tensor = self.tensor_table[left]
-        right_tensor = self.tensor_table[right]
+        if left in self.tensor_table:
+            left_tensor = self.tensor_table[left]
+        else:
+            left_tensor = Tensor(dtype, [])
 
-        # shape = self._compute_broadcast_shape(left_tensor, right_tensor)
+        if right in self.tensor_table:
+            right_tensor = self.tensor_table[right]
+        else:
+            right_tensor = Tensor(dtype, [])
 
         # real_left = left
         # real_right = right
@@ -1011,20 +1022,44 @@ class NumPyHandler:
         # if not right_is_scalar and self._needs_broadcast(right_shape, shape):
         #     real_right = self._broadcast_array(real_right, right_shape, shape, dtype)
 
-        tmp_name = self._create_array_temp(shape, dtype)
-        self.builder.add_elementwise_op(op_type, real_left, real_right, tmp_name, shape)
+        if len(left_tensor.shape) == 0:
+            output_strides = self._get_contiguous_output_strides(
+                right_tensor.shape, right_tensor.strides
+            )
+            tmp_name = self._create_array_temp(
+                right_tensor.shape, dtype, strides=output_strides
+            )
+        else:
+            output_strides = self._get_contiguous_output_strides(
+                left_tensor.shape, left_tensor.strides
+            )
+            tmp_name = self._create_array_temp(
+                left_tensor.shape, dtype, strides=output_strides
+            )
+
+        tmp_tensor = self.tensor_table[tmp_name]
+        self.builder.add_elementwise_op(
+            op_type, left, left_tensor, right, right_tensor, tmp_name, tmp_tensor
+        )
 
         return tmp_name
 
     def handle_array_negate(self, operand):
-        shape = self.tensor_table[operand].shape
+        operand_tensor = self.tensor_table[operand]
         dtype = self._ev._element_type(operand)
 
-        tmp_name = self._create_array_temp(shape, dtype)
+        output_strides = self._get_contiguous_output_strides(
+            operand_tensor.shape, operand_tensor.strides
+        )
+        tmp_name = self._create_array_temp(
+            operand_tensor.shape, dtype, strides=output_strides
+        )
+        tmp_tensor = self.tensor_table[tmp_name]
 
         zero_name = f"_tmp_{self._get_unique_id()}"
         self.builder.add_container(zero_name, dtype, False)
         self.container_table[zero_name] = dtype
+        self.tensor_table[zero_name] = Tensor(dtype, [])
 
         zero_block = self.builder.add_block()
         t_const = self.builder.add_constant(
@@ -1039,7 +1074,10 @@ class NumPyHandler:
         self.builder.add_memlet(zero_block, t_const, "void", t_assign, "_in", "")
         self.builder.add_memlet(zero_block, t_assign, "_out", t_zero, "void", "")
 
-        self.builder.add_elementwise_op("sub", zero_name, operand, tmp_name, shape)
+        zero_tensor = self.tensor_table[zero_name]
+        self.builder.add_elementwise_op(
+            "sub", zero_name, zero_tensor, operand, operand_tensor, tmp_name, tmp_tensor
+        )
 
         return tmp_name
 
@@ -2060,6 +2098,35 @@ class NumPyHandler:
         self.builder.add_cast_op(array_name, input_tensor, tmp_name, output_tensor)
 
         return tmp_name
+
+    def _get_contiguous_output_strides(self, shape, input_strides):
+        """Get contiguous output strides, preserving C or F order if input is contiguous.
+
+        For non-contiguous input strides (e.g., from slices), returns C-order strides.
+        This ensures output allocation matches the stride pattern.
+
+        Args:
+            shape: Output shape
+            input_strides: Strides from input tensor
+
+        Returns:
+            List of stride expressions for a contiguous output array
+        """
+        if not shape or not input_strides:
+            return self._compute_strides(shape, "C")
+
+        # Check if input strides match F-order for the given shape
+        f_strides = self._compute_strides(shape, "F")
+        if input_strides == f_strides:
+            return f_strides
+
+        # Check if input strides match C-order for the given shape
+        c_strides = self._compute_strides(shape, "C")
+        if input_strides == c_strides:
+            return c_strides
+
+        # Non-contiguous input (e.g., sliced view) - default to C-order output
+        return c_strides
 
     def _compute_strides(self, shape, order="C"):
         """Compute strides for a given shape and memory order.
