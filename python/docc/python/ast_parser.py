@@ -606,6 +606,14 @@ class ASTParser(ast.NodeVisitor):
                     if idx.lower is not None or idx.upper is not None:
                         all_full_slices = False
                         break
+                    # Also check for non-trivial step (step != None and step != 1)
+                    if idx.step is not None:
+                        # Check if step is a constant 1; if not, it's not a full slice
+                        if isinstance(idx.step, ast.Constant) and idx.step.value == 1:
+                            pass  # step=1 is equivalent to no step
+                        else:
+                            all_full_slices = False
+                            break
                 else:
                     all_full_slices = False
                     break
@@ -1456,8 +1464,16 @@ class ASTParser(ast.NodeVisitor):
                 if idx.step is not None:
                     step_str = self.visit(idx.step)
 
-                dim_size = f"({stop_str} - {start_str})"
-                dim_size_runtime = f"({stop_str_runtime} - {start_str_runtime})"
+                # Compute dimension size accounting for step: ceil((stop - start) / step)
+                # For symbolic expressions, use integer ceiling formula: (n + d - 1) / d
+                if step_str == "1":
+                    dim_size = f"({stop_str} - {start_str})"
+                    dim_size_runtime = f"({stop_str_runtime} - {start_str_runtime})"
+                else:
+                    dim_size = (
+                        f"(({stop_str} - {start_str} + {step_str} - 1) / {step_str})"
+                    )
+                    dim_size_runtime = f"(({stop_str_runtime} - {start_str_runtime} + {step_str} - 1) / {step_str})"
                 result_shapes.append(dim_size)
                 result_shapes_runtime.append(dim_size_runtime)
                 slice_info.append((i, start_str, stop_str, step_str))
@@ -1514,7 +1530,13 @@ class ASTParser(ast.NodeVisitor):
                 self.builder.add_container(loop_var, Scalar(PrimitiveType.Int64), False)
                 self.container_table[loop_var] = Scalar(PrimitiveType.Int64)
 
-            count_str = f"({stop_str} - {start_str})"
+            # Account for step in loop count: ceil((stop - start) / step)
+            if step_str == "1":
+                count_str = f"({stop_str} - {start_str})"
+            else:
+                count_str = (
+                    f"(({stop_str} - {start_str} + {step_str} - 1) / {step_str})"
+                )
             self.builder.begin_for(loop_var, "0", count_str, "1", debug_info)
 
         src_indices = [""] * ndim
