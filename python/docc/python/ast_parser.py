@@ -1588,7 +1588,7 @@ class ASTParser(ast.NodeVisitor):
                     if step_str == "1":
                         dim_size = f"({stop_str} - {start_str})"
                     else:
-                        dim_size = f"(({stop_str} - {start_str} + {step_str} - 1) / {step_str})"
+                        dim_size = f"idiv({stop_str} - {start_str} + {step_str} - 1, {step_str})"
                     out_shape.append(dim_size)
 
                     # Compute new stride: old_stride * step
@@ -1705,15 +1705,15 @@ class ASTParser(ast.NodeVisitor):
                     step_str = self.visit(idx.step)
 
                 # Compute dimension size accounting for step: ceil((stop - start) / step)
-                # For symbolic expressions, use integer ceiling formula: (n + d - 1) / d
+                # For symbolic expressions, use integer ceiling formula: idiv(n + d - 1, d)
                 if step_str == "1":
                     dim_size = f"({stop_str} - {start_str})"
                     dim_size_runtime = f"({stop_str_runtime} - {start_str_runtime})"
                 else:
                     dim_size = (
-                        f"(({stop_str} - {start_str} + {step_str} - 1) / {step_str})"
+                        f"idiv({stop_str} - {start_str} + {step_str} - 1, {step_str})"
                     )
-                    dim_size_runtime = f"(({stop_str_runtime} - {start_str_runtime} + {step_str} - 1) / {step_str})"
+                    dim_size_runtime = f"idiv({stop_str_runtime} - {start_str_runtime} + {step_str} - 1, {step_str})"
                 result_shapes.append(dim_size)
                 result_shapes_runtime.append(dim_size_runtime)
                 slice_info.append((i, start_str, stop_str, step_str))
@@ -1775,7 +1775,7 @@ class ASTParser(ast.NodeVisitor):
                 count_str = f"({stop_str} - {start_str})"
             else:
                 count_str = (
-                    f"(({stop_str} - {start_str} + {step_str} - 1) / {step_str})"
+                    f"idiv({stop_str} - {start_str} + {step_str} - 1, {step_str})"
                 )
             self.builder.begin_for(loop_var, "0", count_str, "1", debug_info)
 

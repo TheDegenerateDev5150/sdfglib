@@ -1356,6 +1356,11 @@ class NumPyHandler:
                 else:
                     right = float_name
 
+        # Get tensor info for array operands
+        left_tensor = self.tensor_table.get(left) if left_is_array else None
+        right_tensor = self.tensor_table.get(right) if right_is_array else None
+        tmp_tensor = self.tensor_table[tmp_name]
+
         loop_vars = []
         for i, dim in enumerate(shape):
             loop_var = f"_cmp_i{i}_{self._get_unique_id()}"
@@ -1365,19 +1370,20 @@ class NumPyHandler:
             loop_vars.append(loop_var)
             self.builder.begin_for(loop_var, "0", str(dim), "1")
 
-        linear_idx = self._compute_linear_index(loop_vars, shape, tmp_name, len(shape))
+        # Multi-dimensional subset - TensorToPointerConversion handles strides/offset
+        multi_dim_subset = ",".join(loop_vars)
 
         block = self.builder.add_block()
 
         if left_is_array:
             t_left = self.builder.add_access(block, left)
-            left_sub = linear_idx
+            left_sub = multi_dim_subset
         else:
             t_left, left_sub = self._add_read(block, left)
 
         if right_is_array:
             t_right = self.builder.add_access(block, right)
-            right_sub = linear_idx
+            right_sub = multi_dim_subset
         else:
             t_right, right_sub = self._add_read(block, right)
 
@@ -1387,9 +1393,24 @@ class NumPyHandler:
             block, tasklet_code, ["_in1", "_in2"], ["_out"]
         )
 
-        self.builder.add_memlet(block, t_left, "void", t_task, "_in1", left_sub)
-        self.builder.add_memlet(block, t_right, "void", t_task, "_in2", right_sub)
-        self.builder.add_memlet(block, t_task, "_out", t_out, "void", linear_idx)
+        # Pass tensor type so TensorToPointerConversion uses correct strides/offset
+        if left_is_array and left_tensor:
+            self.builder.add_memlet(
+                block, t_left, "void", t_task, "_in1", left_sub, left_tensor
+            )
+        else:
+            self.builder.add_memlet(block, t_left, "void", t_task, "_in1", left_sub)
+
+        if right_is_array and right_tensor:
+            self.builder.add_memlet(
+                block, t_right, "void", t_task, "_in2", right_sub, right_tensor
+            )
+        else:
+            self.builder.add_memlet(block, t_right, "void", t_task, "_in2", right_sub)
+
+        self.builder.add_memlet(
+            block, t_task, "_out", t_out, "void", multi_dim_subset, tmp_tensor
+        )
 
         for _ in loop_vars:
             self.builder.end_for()
@@ -1684,6 +1705,7 @@ class NumPyHandler:
                 dtype = y_type
 
         tmp_name = self._create_array_temp(shape, dtype)
+        tmp_tensor = self.tensor_table[tmp_name]
 
         loop_vars = []
         for i, dim in enumerate(shape):
@@ -1693,8 +1715,7 @@ class NumPyHandler:
                 self.container_table[loop_var] = Scalar(PrimitiveType.Int64)
             loop_vars.append(loop_var)
             self.builder.begin_for(loop_var, "0", str(dim), "1")
-
-        linear_idx = self._compute_linear_index(loop_vars, shape, tmp_name, len(shape))
+        multi_dim_subset = ",".join(loop_vars)
 
         cond_tmp = f"_where_cond_{self._get_unique_id()}"
         self.builder.add_container(cond_tmp, Scalar(PrimitiveType.Bool), False)
@@ -1702,13 +1723,20 @@ class NumPyHandler:
 
         block_cond = self.builder.add_block()
         if cond_name in self.tensor_table:
+            cond_tensor = self.tensor_table[cond_name]
             t_cond_arr = self.builder.add_access(block_cond, cond_name)
             t_cond_out = self.builder.add_access(block_cond, cond_tmp)
             t_cond_task = self.builder.add_tasklet(
                 block_cond, TaskletCode.assign, ["_in"], ["_out"]
             )
             self.builder.add_memlet(
-                block_cond, t_cond_arr, "void", t_cond_task, "_in", linear_idx
+                block_cond,
+                t_cond_arr,
+                "void",
+                t_cond_task,
+                "_in",
+                multi_dim_subset,
+                cond_tensor,
             )
             self.builder.add_memlet(
                 block_cond, t_cond_task, "_out", t_cond_out, "void", ""
@@ -1731,12 +1759,13 @@ class NumPyHandler:
         block_true = self.builder.add_block()
         t_out_true = self.builder.add_access(block_true, tmp_name)
         if x_name in self.tensor_table:
+            x_tensor = self.tensor_table[x_name]
             t_x = self.builder.add_access(block_true, x_name)
             t_task_true = self.builder.add_tasklet(
                 block_true, TaskletCode.assign, ["_in"], ["_out"]
             )
             self.builder.add_memlet(
-                block_true, t_x, "void", t_task_true, "_in", linear_idx
+                block_true, t_x, "void", t_task_true, "_in", multi_dim_subset, x_tensor
             )
         else:
             t_x, x_sub = self._add_read(block_true, x_name)
@@ -1745,20 +1774,34 @@ class NumPyHandler:
             )
             self.builder.add_memlet(block_true, t_x, "void", t_task_true, "_in", x_sub)
         self.builder.add_memlet(
-            block_true, t_task_true, "_out", t_out_true, "void", linear_idx
+            block_true,
+            t_task_true,
+            "_out",
+            t_out_true,
+            "void",
+            multi_dim_subset,
+            tmp_tensor,
         )
 
         self.builder.begin_else()
 
+        # False branch: read from y, write to output
         block_false = self.builder.add_block()
         t_out_false = self.builder.add_access(block_false, tmp_name)
         if y_name in self.tensor_table:
+            y_tensor = self.tensor_table[y_name]
             t_y = self.builder.add_access(block_false, y_name)
             t_task_false = self.builder.add_tasklet(
                 block_false, TaskletCode.assign, ["_in"], ["_out"]
             )
             self.builder.add_memlet(
-                block_false, t_y, "void", t_task_false, "_in", linear_idx
+                block_false,
+                t_y,
+                "void",
+                t_task_false,
+                "_in",
+                multi_dim_subset,
+                y_tensor,
             )
         else:
             t_y, y_sub = self._add_read(block_false, y_name)
@@ -1769,7 +1812,13 @@ class NumPyHandler:
                 block_false, t_y, "void", t_task_false, "_in", y_sub
             )
         self.builder.add_memlet(
-            block_false, t_task_false, "_out", t_out_false, "void", linear_idx
+            block_false,
+            t_task_false,
+            "_out",
+            t_out_false,
+            "void",
+            multi_dim_subset,
+            tmp_tensor,
         )
 
         self.builder.end_if()
