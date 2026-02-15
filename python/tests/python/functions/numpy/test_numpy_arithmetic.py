@@ -35,7 +35,7 @@ def test_numpy_add():
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
-    # Test 2D F-order addition preserves layout
+    # Test 2D F-order addition - output is contiguous C-order
     @native
     def add_2d_f(a, b):
         return a + b
@@ -45,7 +45,7 @@ def test_numpy_add():
     result = add_2d_f(a, b)
     expected = a + b
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
@@ -189,7 +189,7 @@ def test_numpy_mul():
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
-    # Test 2D F-order multiplication preserves layout
+    # Test 2D F-order multiplication - output is contiguous C-order
     @native
     def mul_2d_f(a, b):
         return a * b
@@ -199,7 +199,7 @@ def test_numpy_mul():
     result = mul_2d_f(a, b)
     expected = a * b
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
@@ -389,7 +389,7 @@ def test_numpy_negate():
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
-    # Test 2D F-order negation preserves layout
+    # Test 2D F-order negation - output is contiguous C-order
     @native
     def negate_2d_f(a):
         return -a
@@ -398,7 +398,7 @@ def test_numpy_negate():
     result = negate_2d_f(a)
     expected = -a
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
@@ -425,7 +425,7 @@ def test_numpy_negate():
     result = negate_mul(a, b)
     expected = -a * b
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides preserved
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 

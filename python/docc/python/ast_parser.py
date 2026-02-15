@@ -1142,15 +1142,17 @@ class ASTParser(ast.NodeVisitor):
                     # Convert to string expressions
                     self.captured_return_shapes[ret_name] = [str(s) for s in shape]
 
-                    # Capture strides (as element strides - compiled_sdfg multiplies by itemsize)
-                    if hasattr(res_info, "strides") and res_info.strides:
-                        self.captured_return_strides[ret_name] = [
-                            str(s) for s in res_info.strides
-                        ]
+                    # Return arrays are always contiguous - compute fresh strides
+                    contiguous_strides = self.numpy_visitor._compute_strides(shape, "C")
+                    self.captured_return_strides[ret_name] = [
+                        str(s) for s in contiguous_strides
+                    ]
 
-                    # Ensure destination array info exists
-                    if ret_name not in self.tensor_table:
-                        self.tensor_table[ret_name] = self.tensor_table[res]
+                    # Always overwrite tensor_table for return arrays with contiguous strides
+                    # (source tensor may have non-standard strides from views/flip)
+                    self.tensor_table[ret_name] = Tensor(
+                        res_info.element_type, shape, contiguous_strides
+                    )
 
                 # Copy Logic using visit_Assign
                 ndim = 1

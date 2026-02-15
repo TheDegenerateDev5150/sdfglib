@@ -173,10 +173,7 @@ std::unique_ptr<Tensor> Tensor::flip(size_t axis) const {
     auto shape_minus_one = SymEngine::sub(this->shape_[axis], SymEngine::integer(1));
     auto offset_adjustment = SymEngine::mul(this->strides_[axis], shape_minus_one);
 
-    symbolic::Expression new_offset = this->offset_;
-    if (SymEngine::is_a<SymEngine::Integer>(*offset_adjustment)) {
-        new_offset = SymEngine::add(new_offset, offset_adjustment);
-    }
+    symbolic::Expression new_offset = SymEngine::add(this->offset_, offset_adjustment);
 
     return std::make_unique<Tensor>(
         this->storage_type(),

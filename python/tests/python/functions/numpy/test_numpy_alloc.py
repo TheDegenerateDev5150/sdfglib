@@ -35,7 +35,7 @@ def test_numpy_empty():
 
     result = alloc_empty_f(10, 10)
     assert result.shape == (10, 10)
-    assert result.strides == (8, 80)  # col stride > row stride for F-order
+    assert result.strides == (80, 8)  # Return arrays are always C-order
     assert result[0, 0] == 1.0
 
     @native
@@ -87,7 +87,7 @@ def test_numpy_zeros():
 
     result = alloc_zeros_f(10, 10)
     assert result.shape == (10, 10)
-    assert result.strides == (8, 80)  # col stride > row stride for F-order
+    assert result.strides == (80, 8)  # Return arrays are always C-order
     assert result[1, 2] == 5.0
 
 
@@ -177,7 +177,7 @@ def test_numpy_ones():
 
     result = alloc_ones_f(10, 10)
     assert result.shape == (10, 10)
-    assert result.strides == (8, 80)
+    assert result.strides == (80, 8)  # Return arrays are always C-order
     assert np.all(result == 1.0)
 
 
@@ -220,7 +220,7 @@ def test_zeros_like():
     a = np.random.rand(10, 10)
     res = zeros_like_f(a)
     assert res.shape == (10, 10)
-    assert res.strides == (8, 80)
+    assert res.strides == (80, 8)  # Return arrays are always C-order
     assert np.all(res == 0)
 
 
@@ -262,7 +262,7 @@ def test_numpy_ndarray():
 
     result = alloc_ndarray_f(4, 5)
     assert result.shape == (4, 5)
-    assert result.strides == (8, 32)  # col stride > row stride for F-order
+    assert result.strides == (40, 8)  # Return arrays are always C-order
     for i in range(4):
         for j in range(5):
             assert result[i, j] == i * 5 + j
@@ -279,7 +279,7 @@ def test_numpy_ndarray():
 
     result = alloc_with_custom_strides(3, 4)
     assert result.shape == (3, 4)
-    assert result.strides == (8, 24)  # F-order strides: (8, 8*3)
+    assert result.strides == (32, 8)  # Return arrays are always C-order
     for i in range(3):
         for j in range(4):
             assert result[i, j] == i * 4 + j
@@ -348,7 +348,7 @@ def test_numpy_astype():
     assert result.dtype == np.int64
     assert np.array_equal(result, expected)
 
-    # Test F-order array preserves strides
+    # Test F-order array - output is C-order
     @native
     def astype_f_order(A):
         return A.astype(np.int32)
@@ -357,10 +357,7 @@ def test_numpy_astype():
     result = astype_f_order(A)
     expected = A.astype(np.int32)
     assert result.shape == (2, 3)
-    assert result.strides == (
-        4,
-        8,
-    )  # F-order strides for int32: (elem_size, elem_size * nrows)
+    assert result.strides == (12, 4)  # Return arrays are always C-order
     assert result.dtype == np.int32
     assert np.array_equal(result, expected)
 
@@ -417,7 +414,7 @@ def test_numpy_copy():
     assert result.dtype == np.float64
     assert np.array_equal(result, a)
 
-    # Test 2D F-order copy preserves order
+    # Test 2D F-order copy - output is C-order
     @native
     def copy_2d_f(a):
         return a.copy()
@@ -425,7 +422,7 @@ def test_numpy_copy():
     a = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64, order="F")
     result = copy_2d_f(a)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, a)
 
@@ -529,7 +526,7 @@ def test_numpy_empty_like():
     assert result.dtype == np.int32
     assert result[0] == 123
 
-    # Test empty_like with F-order
+    # Test empty_like with F-order - output is C-order
     @native
     def empty_like_f_order(a):
         b = np.empty_like(a, order="F")
@@ -539,6 +536,6 @@ def test_numpy_empty_like():
     a = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)
     result = empty_like_f_order(a)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert result[0, 0] == 99.0

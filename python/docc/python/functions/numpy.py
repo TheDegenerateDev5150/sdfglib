@@ -60,6 +60,10 @@ class NumPyHandler:
             "where": self._handle_numpy_where,
             "clip": self._handle_numpy_clip,
             "transpose": self._handle_numpy_transpose,
+            "flip": self._handle_numpy_flip,
+            "fliplr": self._handle_numpy_fliplr,
+            "flipud": self._handle_numpy_flipud,
+            "reshape": self._handle_numpy_reshape,
         }
 
     # Expose parent properties for convenience
@@ -898,12 +902,11 @@ class NumPyHandler:
         if in_strides is None:
             in_strides = self._compute_strides(in_shape, "C")
 
-        if self._is_contiguous(in_shape, in_strides):
-            # For contiguous inputs, output strides are permuted input strides
-            out_strides = [in_strides[p] for p in perm]
-        else:
-            # For non-contiguous inputs, output is C-order for the new shape
-            out_strides = self._compute_strides(out_shape, "C")
+        # Always permute input strides (works for both contiguous and view inputs)
+        out_strides = [in_strides[p] for p in perm]
+
+        # Inherit offset from input tensor (for chained views like flip->transpose)
+        in_offset = getattr(in_info, "offset", "0") or "0"
 
         # Create new pointer container
         tmp_name = f"_tmp_{self._get_unique_id()}"
@@ -911,9 +914,9 @@ class NumPyHandler:
         self.builder.add_container(tmp_name, ptr_type, False)
         self.container_table[tmp_name] = ptr_type
 
-        # Register tensor with permuted shape and strides
+        # Register tensor with permuted shape, strides, and inherited offset
         self.tensor_table[tmp_name] = Tensor(
-            in_info.element_type, out_shape, out_strides
+            in_info.element_type, out_shape, out_strides, in_offset
         )
 
         # Create reference memlet to alias the source array
@@ -923,6 +926,198 @@ class NumPyHandler:
         self.builder.add_reference_memlet(block, t_src, t_dst, "0", ptr_type)
 
         return tmp_name
+
+    def _handle_numpy_flip(self, node, func_name):
+        """Handle np.flip(arr, axis=None) - flip array along specified axis.
+
+        Uses negative strides and offset to create a view without copying.
+        """
+        if len(node.args) < 1:
+            raise ValueError("np.flip requires at least one argument")
+
+        input_name = self.visit(node.args[0])
+        if input_name not in self.tensor_table:
+            raise ValueError(f"Array {input_name} not found in tensor_table")
+
+        in_info = self.tensor_table[input_name]
+        in_shape = in_info.shape
+        ndim = len(in_shape)
+
+        # Parse axis argument
+        axis = None
+        if len(node.args) > 1:
+            axis_node = node.args[1]
+            if isinstance(axis_node, ast.Constant):
+                axis = axis_node.value
+            elif isinstance(axis_node, ast.UnaryOp) and isinstance(
+                axis_node.op, ast.USub
+            ):
+                if isinstance(axis_node.operand, ast.Constant):
+                    axis = -axis_node.operand.value
+        for kw in node.keywords:
+            if kw.arg == "axis":
+                if isinstance(kw.value, ast.Constant):
+                    axis = kw.value.value
+                elif isinstance(kw.value, ast.UnaryOp) and isinstance(
+                    kw.value.op, ast.USub
+                ):
+                    if isinstance(kw.value.operand, ast.Constant):
+                        axis = -kw.value.operand.value
+
+        # Determine which axes to flip
+        if axis is None:
+            # Flip all axes
+            axes_to_flip = list(range(ndim))
+        else:
+            if axis < 0:
+                axis = ndim + axis
+            axes_to_flip = [axis]
+
+        return self._create_flip_view(input_name, axes_to_flip)
+
+    def _handle_numpy_fliplr(self, node, func_name):
+        """Handle np.fliplr(arr) - flip array left-right (axis=1)."""
+        if len(node.args) < 1:
+            raise ValueError("np.fliplr requires one argument")
+
+        input_name = self.visit(node.args[0])
+        if input_name not in self.tensor_table:
+            raise ValueError(f"Array {input_name} not found in tensor_table")
+
+        in_info = self.tensor_table[input_name]
+        if len(in_info.shape) < 2:
+            raise ValueError("np.fliplr requires array with ndim >= 2")
+
+        return self._create_flip_view(input_name, [1])
+
+    def _handle_numpy_flipud(self, node, func_name):
+        """Handle np.flipud(arr) - flip array up-down (axis=0)."""
+        if len(node.args) < 1:
+            raise ValueError("np.flipud requires one argument")
+
+        input_name = self.visit(node.args[0])
+        if input_name not in self.tensor_table:
+            raise ValueError(f"Array {input_name} not found in tensor_table")
+
+        return self._create_flip_view(input_name, [0])
+
+    def _create_flip_view(self, input_name, axes_to_flip):
+        """Create a flipped view of an array using Tensor.flip().
+
+        Uses the Tensor type's flip() method which computes the correct
+        negative strides and offset adjustment.
+        """
+        in_tensor = self.tensor_table[input_name]
+
+        # Apply flip for each axis
+        flipped_tensor = in_tensor
+        for axis in axes_to_flip:
+            flipped_tensor = flipped_tensor.flip(axis)
+
+        # Create new pointer container pointing to same data
+        tmp_name = f"_tmp_{self._get_unique_id()}"
+        ptr_type = Pointer(in_tensor.element_type)
+        self.builder.add_container(tmp_name, ptr_type, False)
+        self.container_table[tmp_name] = ptr_type
+
+        # Store the flipped tensor with its offset in tensor_table
+        self.tensor_table[tmp_name] = flipped_tensor
+
+        # Create reference memlet (offset is handled by tensor's offset property)
+        block = self.builder.add_block()
+        t_src = self.builder.add_access(block, input_name)
+        t_dst = self.builder.add_access(block, tmp_name)
+        self.builder.add_reference_memlet(block, t_src, t_dst, "0", ptr_type)
+
+        return tmp_name
+
+    def _handle_numpy_reshape(self, node, func_name):
+        """Handle np.reshape(arr, newshape) - reshape array without copying.
+
+        Only works for contiguous arrays; creates a view with new shape/strides.
+        """
+        if len(node.args) < 2:
+            raise ValueError("np.reshape requires array and new shape")
+
+        input_name = self.visit(node.args[0])
+        if input_name not in self.tensor_table:
+            raise ValueError(f"Array {input_name} not found in tensor_table")
+
+        in_info = self.tensor_table[input_name]
+        in_shape = in_info.shape
+
+        # Parse new shape
+        new_shape = self._parse_shape(node.args[1])
+
+        # Get input strides
+        in_strides = (
+            in_info.strides if hasattr(in_info, "strides") and in_info.strides else None
+        )
+        if in_strides is None:
+            in_strides = self._compute_strides(in_shape, "C")
+
+        # Check if input is contiguous (C or F order)
+        c_contig = self._is_contiguous(in_shape, in_strides)
+        f_contig = self._is_contiguous_f(in_shape, in_strides)
+
+        if c_contig:
+            out_strides = self._compute_strides(new_shape, "C")
+        elif f_contig:
+            out_strides = self._compute_strides(new_shape, "F")
+        else:
+            # Non-contiguous array cannot be reshaped without copy
+            raise NotImplementedError(
+                "np.reshape on non-contiguous array not supported (would require copy)"
+            )
+
+        # Create new pointer container
+        tmp_name = f"_tmp_{self._get_unique_id()}"
+        ptr_type = Pointer(in_info.element_type)
+        self.builder.add_container(tmp_name, ptr_type, False)
+        self.container_table[tmp_name] = ptr_type
+
+        # Register tensor with new shape and computed strides
+        self.tensor_table[tmp_name] = Tensor(
+            in_info.element_type, new_shape, out_strides
+        )
+
+        # Create reference memlet to alias the source array (view, no copy)
+        block = self.builder.add_block()
+        t_src = self.builder.add_access(block, input_name)
+        t_dst = self.builder.add_access(block, tmp_name)
+        self.builder.add_reference_memlet(block, t_src, t_dst, "0", ptr_type)
+
+        return tmp_name
+
+    def _parse_shape(self, shape_node):
+        """Parse a shape argument (tuple, list, or single int)."""
+        if isinstance(shape_node, ast.Tuple) or isinstance(shape_node, ast.List):
+            result = []
+            for elt in shape_node.elts:
+                if isinstance(elt, ast.Constant):
+                    result.append(str(elt.value))
+                elif isinstance(elt, ast.Name):
+                    result.append(elt.id)
+                elif isinstance(elt, ast.UnaryOp) and isinstance(elt.op, ast.USub):
+                    if isinstance(elt.operand, ast.Constant):
+                        result.append(str(-elt.operand.value))
+                else:
+                    result.append(self._shape_to_runtime_expr(elt))
+            return result
+        elif isinstance(shape_node, ast.Constant):
+            return [str(shape_node.value)]
+        elif isinstance(shape_node, ast.Name):
+            # Could be a variable holding a shape tuple - not supported yet
+            raise NotImplementedError("Shape variable not supported, use literal tuple")
+        else:
+            raise ValueError(f"Cannot parse shape: {ast.dump(shape_node)}")
+
+    def _is_contiguous_f(self, shape, strides):
+        """Check if array is F-order contiguous."""
+        if not shape or not strides:
+            return True
+        f_strides = self._compute_strides(shape, "F")
+        return [str(s) for s in strides] == [str(s) for s in f_strides]
 
     def handle_numpy_call(self, node, func_name):
         if func_name in self.function_handlers:

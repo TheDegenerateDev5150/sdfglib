@@ -35,7 +35,7 @@ def test_numpy_pow():
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
-    # Test 2D F-order power preserves layout
+    # Test 2D F-order power - output is C-order
     @native
     def pow_2d_f(a, b):
         return np.power(a, b)
@@ -45,7 +45,7 @@ def test_numpy_pow():
     result = pow_2d_f(a, b)
     expected = np.power(a, b)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
@@ -103,7 +103,7 @@ def test_numpy_abs():
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
-    # Test 2D F-order abs preserves layout
+    # Test 2D F-order abs - output is C-order
     @native
     def abs_2d_f(a):
         return np.abs(a)
@@ -112,7 +112,7 @@ def test_numpy_abs():
     result = abs_2d_f(a)
     expected = np.abs(a)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
@@ -177,7 +177,7 @@ def test_numpy_sqrt():
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
-    # Test 2D F-order sqrt preserves layout
+    # Test 2D F-order sqrt - output is C-order
     @native
     def sqrt_2d_f(a):
         return np.sqrt(a)
@@ -186,7 +186,7 @@ def test_numpy_sqrt():
     result = sqrt_2d_f(a)
     expected = np.sqrt(a)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
@@ -238,7 +238,7 @@ def test_numpy_tanh():
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
-    # Test 2D F-order tanh preserves layout
+    # Test 2D F-order tanh - output is C-order
     @native
     def tanh_2d_f(a):
         return np.tanh(a)
@@ -247,7 +247,7 @@ def test_numpy_tanh():
     result = tanh_2d_f(a)
     expected = np.tanh(a)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
@@ -299,7 +299,7 @@ def test_numpy_exp():
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
-    # Test 2D F-order exp preserves layout
+    # Test 2D F-order exp - output is C-order
     @native
     def exp_2d_f(a):
         return np.exp(a)
@@ -308,7 +308,7 @@ def test_numpy_exp():
     result = exp_2d_f(a)
     expected = np.exp(a)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.allclose(result, expected)
 
@@ -362,7 +362,7 @@ def test_numpy_minimum():
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
-    # Test 2D F-order minimum preserves layout
+    # Test 2D F-order minimum - output is C-order
     @native
     def minimum_2d_f(a, b):
         return np.minimum(a, b)
@@ -372,7 +372,7 @@ def test_numpy_minimum():
     result = minimum_2d_f(a, b)
     expected = np.minimum(a, b)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
@@ -446,7 +446,7 @@ def test_numpy_maximum():
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
-    # Test 2D F-order maximum preserves layout
+    # Test 2D F-order maximum - output is C-order
     @native
     def maximum_2d_f(a, b):
         return np.maximum(a, b)
@@ -456,7 +456,7 @@ def test_numpy_maximum():
     result = maximum_2d_f(a, b)
     expected = np.maximum(a, b)
     assert result.shape == (2, 3)
-    assert result.strides == (8, 16)  # F-order strides
+    assert result.strides == (24, 8)  # Return arrays are always C-order
     assert result.dtype == np.float64
     assert np.array_equal(result, expected)
 
