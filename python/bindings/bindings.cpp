@@ -311,15 +311,6 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("debug_info") = sdfg::DebugInfo()
         )
         .def(
-            "add_transpose",
-            &PyStructuredSDFGBuilder::add_transpose,
-            py::arg("A"),
-            py::arg("C"),
-            py::arg("shape"),
-            py::arg("perm"),
-            py::arg("debug_info") = sdfg::DebugInfo()
-        )
-        .def(
             "add_conv",
             &PyStructuredSDFGBuilder::add_conv,
             py::arg("X"),

@@ -798,6 +798,20 @@ class NumPyHandler:
 
         out_shape = [in_strings[p] for p in perm]
 
+        # Get input strides and check if input is contiguous
+        in_strides = (
+            in_info.strides if hasattr(in_info, "strides") and in_info.strides else None
+        )
+        if in_strides is None:
+            in_strides = self._compute_strides(in_shape, "C")
+
+        if self._is_contiguous(in_shape, in_strides):
+            # For contiguous inputs, output strides are permuted input strides
+            out_strides = [in_strides[p] for p in perm]
+        else:
+            # For non-contiguous inputs, output is C-order for the new shape
+            out_strides = self._compute_strides(out_shape, "C")
+
         target_name = ""
         if isinstance(target, ast.Name):
             target_name = target.id
@@ -814,31 +828,18 @@ class NumPyHandler:
 
         ptr_type = Pointer(dtype)
 
+        # Create target container if it doesn't exist
         if not self.builder.exists(target_name):
             self.builder.add_container(target_name, ptr_type, False)
             self.container_table[target_name] = ptr_type
-            self.tensor_table[target_name] = Tensor(dtype, out_shape)
+        self.tensor_table[target_name] = Tensor(dtype, out_shape, out_strides)
 
-            block_alloc = self.builder.add_block()
-            size_expr = "1"
-            for dim in out_shape:
-                size_expr = f"({size_expr} * {dim})"
-            element_size = self.builder.get_sizeof(dtype)
-            total_size = f"({size_expr} * {element_size})"
+        # Create reference memlet to alias the source array (view, not copy)
+        block = self.builder.add_block()
+        t_src = self.builder.add_access(block, input_name)
+        t_dst = self.builder.add_access(block, target_name)
+        self.builder.add_reference_memlet(block, t_src, t_dst, "0", ptr_type)
 
-            t_malloc = self.builder.add_malloc(block_alloc, total_size)
-            t_ptr = self.builder.add_access(block_alloc, target_name)
-            self.builder.add_memlet(
-                block_alloc, t_malloc, "_ret", t_ptr, "void", "", ptr_type
-            )
-
-        debug_info = get_debug_info(
-            value_node, getattr(self.builder, "filename", ""), ""
-        )
-
-        self.builder.add_transpose(
-            input_name, target_name, in_strings, perm, debug_info
-        )
         return True
 
     def handle_transpose_expr(self, node):
@@ -852,24 +853,9 @@ class NumPyHandler:
 
         in_info = self.tensor_table[input_name]
         in_shape = in_info.shape
-        in_strings = [str(s) for s in in_shape]
         perm = list(range(len(in_shape)))[::-1]
-        out_shape = [in_strings[p] for p in perm]
 
-        dtype = Scalar(PrimitiveType.Double)
-        if input_name in self.container_table:
-            input_type = self.container_table[input_name]
-            if isinstance(input_type, Pointer):
-                dtype = input_type.pointee_type
-            else:
-                dtype = input_type
-
-        tmp_name = self._create_array_temp(out_shape, dtype)
-
-        debug_info = get_debug_info(node, getattr(self.builder, "filename", ""), "")
-        self.builder.add_transpose(input_name, tmp_name, in_strings, perm, debug_info)
-
-        return tmp_name
+        return self._create_transpose_view(input_name, perm)
 
     def _handle_numpy_transpose(self, node, func_name):
         """Handle np.transpose(arr, axes=...) function call."""
@@ -884,7 +870,6 @@ class NumPyHandler:
 
         in_info = self.tensor_table[input_name]
         in_shape = in_info.shape
-        in_strings = [str(s) for s in in_shape]
 
         perm = []
         if len(node.args) > 1:
@@ -896,20 +881,46 @@ class NumPyHandler:
         if not perm:
             perm = list(range(len(in_shape)))[::-1]
 
+        return self._create_transpose_view(input_name, perm)
+
+    def _create_transpose_view(self, input_name, perm):
+        in_info = self.tensor_table[input_name]
+        in_shape = in_info.shape
+        in_strings = [str(s) for s in in_shape]
+
+        # Compute output shape by permuting
         out_shape = [in_strings[p] for p in perm]
 
-        dtype = Scalar(PrimitiveType.Double)
-        if input_name in self.container_table:
-            input_type = self.container_table[input_name]
-            if isinstance(input_type, Pointer):
-                dtype = input_type.pointee_type
-            else:
-                dtype = input_type
+        # Get input strides and check if input is contiguous
+        in_strides = (
+            in_info.strides if hasattr(in_info, "strides") and in_info.strides else None
+        )
+        if in_strides is None:
+            in_strides = self._compute_strides(in_shape, "C")
 
-        tmp_name = self._create_array_temp(out_shape, dtype)
+        if self._is_contiguous(in_shape, in_strides):
+            # For contiguous inputs, output strides are permuted input strides
+            out_strides = [in_strides[p] for p in perm]
+        else:
+            # For non-contiguous inputs, output is C-order for the new shape
+            out_strides = self._compute_strides(out_shape, "C")
 
-        debug_info = get_debug_info(node, getattr(self.builder, "filename", ""), "")
-        self.builder.add_transpose(input_name, tmp_name, in_strings, perm, debug_info)
+        # Create new pointer container
+        tmp_name = f"_tmp_{self._get_unique_id()}"
+        ptr_type = Pointer(in_info.element_type)
+        self.builder.add_container(tmp_name, ptr_type, False)
+        self.container_table[tmp_name] = ptr_type
+
+        # Register tensor with permuted shape and strides
+        self.tensor_table[tmp_name] = Tensor(
+            in_info.element_type, out_shape, out_strides
+        )
+
+        # Create reference memlet to alias the source array
+        block = self.builder.add_block()
+        t_src = self.builder.add_access(block, input_name)
+        t_dst = self.builder.add_access(block, tmp_name)
+        self.builder.add_reference_memlet(block, t_src, t_dst, "0", ptr_type)
 
         return tmp_name
 
@@ -2115,17 +2126,13 @@ class NumPyHandler:
         if not shape or not input_strides:
             return self._compute_strides(shape, "C")
 
-        # Check if input strides match F-order for the given shape
-        f_strides = self._compute_strides(shape, "F")
-        if input_strides == f_strides:
-            return f_strides
-
-        # Check if input strides match C-order for the given shape
+        # Preserve order if contiguous, otherwise default to C-order
         c_strides = self._compute_strides(shape, "C")
         if input_strides == c_strides:
             return c_strides
-
-        # Non-contiguous input (e.g., sliced view) - default to C-order output
+        f_strides = self._compute_strides(shape, "F")
+        if input_strides == f_strides:
+            return f_strides
         return c_strides
 
     def _compute_strides(self, shape, order="C"):
@@ -2168,6 +2175,43 @@ class NumPyHandler:
                         strides.append("(" + " * ".join(suffix_shapes) + ")")
 
         return strides
+
+    def _is_contiguous(self, shape, strides):
+        """Check if strides represent a contiguous (C or F order) layout."""
+        if not shape or not strides:
+            return True
+
+        def normalize(s):
+            # Normalize stride expression by removing spaces and outer parens
+            s = s.replace(" ", "")
+            while s.startswith("(") and s.endswith(")"):
+                # Only strip if balanced parens
+                inner = s[1:-1]
+                depth = 0
+                balanced = True
+                for c in inner:
+                    if c == "(":
+                        depth += 1
+                    elif c == ")":
+                        depth -= 1
+                        if depth < 0:
+                            balanced = False
+                            break
+                if balanced and depth == 0:
+                    s = inner
+                else:
+                    break
+            return s
+
+        c_strides = self._compute_strides(shape, "C")
+        if all(
+            normalize(str(a)) == normalize(str(b)) for a, b in zip(strides, c_strides)
+        ):
+            return True
+        f_strides = self._compute_strides(shape, "F")
+        return all(
+            normalize(str(a)) == normalize(str(b)) for a, b in zip(strides, f_strides)
+        )
 
     def _create_array_temp(
         self,
