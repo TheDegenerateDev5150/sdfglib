@@ -69,7 +69,8 @@ class SciPyHandler:
         if array_name not in self.tensor_table:
             raise ValueError(f"Softmax input must be an array, got {array_name}")
 
-        input_shape = self.tensor_table[array_name].shape
+        input_tensor = self.tensor_table[array_name]
+        input_shape = input_tensor.shape
         ndim = len(input_shape)
 
         axis = None
@@ -115,8 +116,9 @@ class SciPyHandler:
 
         tmp_name = self._create_array_temp(input_shape, dtype)
 
+        output_tensor = self.tensor_table[tmp_name]
         self.builder.add_reduce_op(
-            func_name, array_name, tmp_name, input_shape, axes, False
+            func_name, array_name, input_tensor, tmp_name, output_tensor, axes, False
         )
 
         return tmp_name

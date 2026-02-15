@@ -32,7 +32,7 @@ public:
         const data_flow::Subset& output_subset
     ) override;
 
-    std::string identity() const override;
+    std::string identity(types::PrimitiveType primitive_type) const override;
 
     bool supports_integer_types() const override { return true; }
 

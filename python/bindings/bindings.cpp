@@ -339,8 +339,9 @@ PYBIND11_MODULE(_sdfg, m) {
             &PyStructuredSDFGBuilder::add_reduce_op,
             py::arg("op_type"),
             py::arg("input"),
+            py::arg("input_type"),
             py::arg("output"),
-            py::arg("input_shape"),
+            py::arg("output_type"),
             py::arg("axes"),
             py::arg("keepdims"),
             py::arg("debug_info") = sdfg::DebugInfo()

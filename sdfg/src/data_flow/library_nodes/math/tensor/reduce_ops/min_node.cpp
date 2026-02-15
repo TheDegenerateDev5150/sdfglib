@@ -70,7 +70,28 @@ bool MinNode::expand_reduction(
     return true;
 }
 
-std::string MinNode::identity() const { return "INFINITY"; }
+std::string MinNode::identity(types::PrimitiveType primitive_type) const {
+    switch (primitive_type) {
+        case types::PrimitiveType::Int8:
+            return "INT8_MAX";
+        case types::PrimitiveType::Int16:
+            return "INT16_MAX";
+        case types::PrimitiveType::Int32:
+            return "INT32_MAX";
+        case types::PrimitiveType::Int64:
+            return "INT64_MAX";
+        case types::PrimitiveType::UInt8:
+            return "UINT8_MAX";
+        case types::PrimitiveType::UInt16:
+            return "UINT16_MAX";
+        case types::PrimitiveType::UInt32:
+            return "UINT32_MAX";
+        case types::PrimitiveType::UInt64:
+            return "UINT64_MAX";
+        default:
+            return "INFINITY";
+    }
+}
 
 std::unique_ptr<data_flow::DataFlowNode> MinNode::
     clone(size_t element_id, const graph::Vertex vertex, data_flow::DataFlowGraph& parent) const {

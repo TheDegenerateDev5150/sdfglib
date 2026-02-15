@@ -148,7 +148,7 @@ bool MeanNode::expand_reduction(
     throw std::runtime_error("MeanNode::expand_reduction should not be called");
 }
 
-std::string MeanNode::identity() const { return "0"; }
+std::string MeanNode::identity(types::PrimitiveType primitive_type) const { return "0"; }
 
 std::unique_ptr<data_flow::DataFlowNode> MeanNode::
     clone(size_t element_id, const graph::Vertex vertex, data_flow::DataFlowGraph& parent) const {

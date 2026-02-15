@@ -184,9 +184,10 @@ public:
      * - Max: "-inf" or minimum value
      * - Min: "inf" or maximum value
      *
+     * @param primitive_type The primitive type of the reduction element
      * @return Identity value as string expression
      */
-    virtual std::string identity() const = 0;
+    virtual std::string identity(types::PrimitiveType primitive_type) const = 0;
 };
 
 template<typename T>

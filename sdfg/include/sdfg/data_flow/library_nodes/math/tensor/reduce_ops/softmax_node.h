@@ -38,7 +38,7 @@ public:
         return false;
     }
 
-    std::string identity() const override { return ""; }
+    std::string identity(types::PrimitiveType primitive_type) const override { return ""; }
 
     bool supports_integer_types() const override { return false; }
 

@@ -49,7 +49,12 @@ bool SumNode::expand_reduction(
     return true;
 }
 
-std::string SumNode::identity() const { return "0.0"; }
+std::string SumNode::identity(types::PrimitiveType primitive_type) const {
+    if (types::is_integer(primitive_type)) {
+        return "0";
+    }
+    return "0.0";
+}
 
 std::unique_ptr<data_flow::DataFlowNode> SumNode::
     clone(size_t element_id, const graph::Vertex vertex, data_flow::DataFlowGraph& parent) const {

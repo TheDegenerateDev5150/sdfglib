@@ -218,8 +218,9 @@ public:
     void add_reduce_op(
         const std::string& op_type,
         const std::string& input,
+        const sdfg::types::Tensor& input_type,
         const std::string& output,
-        const std::vector<std::string>& input_shape,
+        const sdfg::types::Tensor& output_type,
         const std::vector<int64_t>& axes,
         bool keepdims,
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()

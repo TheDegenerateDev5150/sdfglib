@@ -1048,8 +1048,9 @@ void PyStructuredSDFGBuilder::add_cast_op(
 void PyStructuredSDFGBuilder::add_reduce_op(
     const std::string& op_type,
     const std::string& input,
+    const sdfg::types::Tensor& input_type,
     const std::string& output,
-    const std::vector<std::string>& input_shape,
+    const sdfg::types::Tensor& output_type,
     const std::vector<int64_t>& axes,
     bool keepdims,
     const sdfg::DebugInfo& debug_info
@@ -1057,70 +1058,38 @@ void PyStructuredSDFGBuilder::add_reduce_op(
     auto& parent = current_sequence();
     auto& block = builder_.add_block(parent, {}, debug_info);
 
-    std::vector<sdfg::symbolic::Expression> shape_exprs;
-    for (const auto& s : input_shape) {
-        shape_exprs.push_back(parse_and_expand(s));
-    }
-
     sdfg::math::tensor::ReduceNode* node = nullptr;
     if (op_type == "sum") {
-        node = static_cast<sdfg::math::tensor::ReduceNode*>(
-            &builder_.add_library_node<sdfg::math::tensor::SumNode>(block, debug_info, shape_exprs, axes, keepdims)
-        );
+        node = static_cast<sdfg::math::tensor::ReduceNode*>(&builder_.add_library_node<sdfg::math::tensor::SumNode>(
+            block, debug_info, input_type.shape(), axes, keepdims
+        ));
     } else if (op_type == "max") {
-        node = static_cast<sdfg::math::tensor::ReduceNode*>(
-            &builder_.add_library_node<sdfg::math::tensor::MaxNode>(block, debug_info, shape_exprs, axes, keepdims)
-        );
+        node = static_cast<sdfg::math::tensor::ReduceNode*>(&builder_.add_library_node<sdfg::math::tensor::MaxNode>(
+            block, debug_info, input_type.shape(), axes, keepdims
+        ));
     } else if (op_type == "min") {
-        node = static_cast<sdfg::math::tensor::ReduceNode*>(
-            &builder_.add_library_node<sdfg::math::tensor::MinNode>(block, debug_info, shape_exprs, axes, keepdims)
-        );
+        node = static_cast<sdfg::math::tensor::ReduceNode*>(&builder_.add_library_node<sdfg::math::tensor::MinNode>(
+            block, debug_info, input_type.shape(), axes, keepdims
+        ));
     } else if (op_type == "mean") {
-        node = static_cast<sdfg::math::tensor::ReduceNode*>(
-            &builder_.add_library_node<sdfg::math::tensor::MeanNode>(block, debug_info, shape_exprs, axes, keepdims)
-        );
+        node = static_cast<sdfg::math::tensor::ReduceNode*>(&builder_.add_library_node<sdfg::math::tensor::MeanNode>(
+            block, debug_info, input_type.shape(), axes, keepdims
+        ));
     } else if (op_type == "std") {
-        node = static_cast<sdfg::math::tensor::ReduceNode*>(
-            &builder_.add_library_node<sdfg::math::tensor::StdNode>(block, debug_info, shape_exprs, axes, keepdims)
-        );
+        node = static_cast<sdfg::math::tensor::ReduceNode*>(&builder_.add_library_node<sdfg::math::tensor::StdNode>(
+            block, debug_info, input_type.shape(), axes, keepdims
+        ));
     } else if (op_type == "softmax") {
-        node = static_cast<sdfg::math::tensor::ReduceNode*>(
-            &builder_.add_library_node<sdfg::math::tensor::SoftmaxNode>(block, debug_info, shape_exprs, axes, keepdims)
-        );
+        node = static_cast<sdfg::math::tensor::ReduceNode*>(&builder_.add_library_node<sdfg::math::tensor::SoftmaxNode>(
+            block, debug_info, input_type.shape(), axes, keepdims
+        ));
     } else {
         throw std::runtime_error("Unsupported reduce operation: " + op_type);
     }
 
     auto& in_access = builder_.add_access(block, input, debug_info);
     auto& out_access = builder_.add_access(block, output, debug_info);
+    builder_.add_computational_memlet(block, in_access, *node, "X", {}, input_type, debug_info);
 
-    auto& in_type = builder_.subject().type(input);
-    sdfg::types::Tensor in_tensor_type(in_type.primitive_type(), shape_exprs);
-    builder_.add_computational_memlet(block, in_access, *node, "X", {}, in_tensor_type, debug_info);
-
-    // Softmax is special: output has same shape as input (it normalizes, doesn't reduce)
-    sdfg::symbolic::MultiExpression out_shape;
-    if (op_type == "softmax") {
-        out_shape = shape_exprs;
-    } else {
-        for (const auto& s : shape_exprs) {
-            out_shape.push_back(s);
-        }
-        for (int64_t axis : axes) {
-            if (keepdims) {
-                out_shape[axis] = sdfg::symbolic::one();
-            } else {
-                out_shape.erase(out_shape.begin() + axis);
-            }
-        }
-    }
-
-    auto& out_type = builder_.subject().type(output);
-    if (out_type.type_id() == sdfg::types::TypeID::Scalar) {
-        sdfg::types::Tensor out_tensor_type(out_type.primitive_type(), {});
-        builder_.add_computational_memlet(block, *node, "Y", out_access, {}, out_tensor_type, debug_info);
-    } else {
-        sdfg::types::Tensor out_tensor_type(out_type.primitive_type(), out_shape);
-        builder_.add_computational_memlet(block, *node, "Y", out_access, {}, out_tensor_type, debug_info);
-    }
+    builder_.add_computational_memlet(block, *node, "Y", out_access, {}, output_type, debug_info);
 }

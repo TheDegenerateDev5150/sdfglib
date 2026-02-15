@@ -218,7 +218,9 @@ bool ReduceNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
         auto& init_tasklet =
             builder.add_tasklet(init_block, data_flow::TaskletCode::assign, {"_out"}, {"_in"}, block.debug_info());
 
-        auto& const_node = builder.add_constant(init_block, this->identity(), element_type, block.debug_info());
+        auto& const_node =
+            builder
+                .add_constant(init_block, this->identity(element_type.primitive_type()), element_type, block.debug_info());
         auto& out_access = builder.add_access(init_block, output_node.data(), block.debug_info());
 
         builder
