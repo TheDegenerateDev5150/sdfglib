@@ -1271,7 +1271,7 @@ class ASTParser(ast.NodeVisitor):
                 f"Argument count mismatch for {func_obj.__name__}"
             )
 
-        suffix = f"_{func_obj.__name__}_{self.builder.find_new_name()}"
+        suffix = f"_{func_obj.__name__}_{self._get_unique_id()}"
         res_name = f"_res{suffix}"
 
         # Combine globals with closure variables of the inlined function

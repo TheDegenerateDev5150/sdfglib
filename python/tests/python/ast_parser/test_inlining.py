@@ -115,3 +115,17 @@ def test_inlining_conditional_return():
 
     assert inlining_conditional(5) == 5
     assert inlining_conditional(-5) == 5
+
+
+def test_inlining_multiple_calls_unique_containers():
+    def double_it(x):
+        return x * 2
+
+    @native
+    def chained_calls(a):
+        x = double_it(a)
+        y = double_it(x)
+        z = double_it(y)
+        return z
+
+    assert chained_calls(3) == 24  # 3 * 2 * 2 * 2

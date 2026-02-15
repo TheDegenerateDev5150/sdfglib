@@ -126,10 +126,9 @@ def test_cavity_flow(target):
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
-                "MAP": 18,
-                "Memcpy": 4,
-                "SEQUENTIAL": 18,
-                "FOR": 22,
+                "MAP": 26,
+                "SEQUENTIAL": 26,
+                "FOR": 30,
                 "Memset": 1,
                 "Malloc": 8,
             }
@@ -138,11 +137,10 @@ def test_cavity_flow(target):
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
-                "HIGHWAY": 10,
-                "MAP": 18,
-                "Memcpy": 4,
-                "SEQUENTIAL": 8,
-                "FOR": 22,
+                "HIGHWAY": 14,
+                "MAP": 26,
+                "SEQUENTIAL": 12,
+                "FOR": 30,
                 "Memset": 1,
                 "Malloc": 8,
             }
@@ -150,13 +148,12 @@ def test_cavity_flow(target):
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 6,
+                "HIGHWAY": 10,
                 "CMath": 14,
-                "CPU_PARALLEL": 11,
-                "MAP": 18,
-                "Memcpy": 4,
-                "SEQUENTIAL": 1,
-                "FOR": 22,
+                "CPU_PARALLEL": 14,
+                "MAP": 26,
+                "SEQUENTIAL": 2,
+                "FOR": 30,
                 "Memset": 1,
                 "Malloc": 8,
             }
@@ -165,12 +162,11 @@ def test_cavity_flow(target):
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
-                "CUDA": 12,
-                "MAP": 18,
-                "CUDAOffloading": 34,
-                "Memcpy": 4,
+                "CUDA": 20,
+                "MAP": 26,
+                "CUDAOffloading": 50,
                 "SEQUENTIAL": 6,
-                "FOR": 22,
+                "FOR": 30,
                 "Memset": 1,
                 "Malloc": 8,
             }
