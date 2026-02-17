@@ -2004,13 +2004,23 @@ class ASTParser(ast.NodeVisitor):
         return visitor.max_ndim
 
     def _handle_broadcast_slice_assignment(
-        self, target, value, target_name, indices, target_ndim, value_ndim, debug_info
+        self,
+        target,
+        materialized_rhs,
+        target_name,
+        indices,
+        target_ndim,
+        value_ndim,
+        debug_info,
     ):
-        """Handle slice assignment with broadcasting (e.g., 2D -= 1D)."""
-        # Number of broadcast dimensions (outer loops)
-        broadcast_dims = target_ndim - value_ndim
+        """Handle slice assignment with broadcasting (e.g., 2D[:,:] = 1D[:]).
 
+        materialized_rhs is the already-evaluated RHS array name (not AST node).
+        """
+        broadcast_dims = target_ndim - value_ndim
         shapes = self.tensor_table[target_name].shape
+        rhs_tensor = self.tensor_table.get(materialized_rhs)
+        rhs_shapes = rhs_tensor.shape if rhs_tensor else []
 
         # Create outer loops for broadcast dimensions
         outer_loop_vars = []
@@ -2023,86 +2033,51 @@ class ASTParser(ast.NodeVisitor):
                 self.container_table[loop_var] = Scalar(PrimitiveType.Int64)
 
             dim_size = shapes[i] if i < len(shapes) else f"_{target_name}_shape_{i}"
-            self.builder.begin_for(loop_var, "0", dim_size, "1", debug_info)
+            self.builder.begin_for(loop_var, "0", str(dim_size), "1", debug_info)
 
-        # Create a row view (reference) for the inner dimensions
-        row_view_name = self.builder.find_new_name("_row_view_")
+        # Create inner loops for value dimensions
+        inner_loop_vars = []
+        for i in range(value_ndim):
+            loop_var = self.builder.find_new_name(f"_inner_iter_{i}_")
+            inner_loop_vars.append(loop_var)
 
-        # Get inner shape for the row view
-        inner_shapes = shapes[broadcast_dims:] if len(shapes) > broadcast_dims else []
+            if not self.builder.exists(loop_var):
+                self.builder.add_container(loop_var, Scalar(PrimitiveType.Int64), False)
+                self.container_table[loop_var] = Scalar(PrimitiveType.Int64)
 
-        # Determine element type from the target
-        target_type = self.container_table.get(target_name)
-        if isinstance(target_type, Pointer) and target_type.has_pointee_type():
-            element_type = target_type.pointee_type
-        else:
-            element_type = Scalar(PrimitiveType.Double)
-
-        # Create pointer type for row view
-        row_type = Pointer(element_type)
-        self.builder.add_container(row_view_name, row_type, False)
-        self.container_table[row_view_name] = row_type
-
-        # Register row view in tensor_table
-        self.tensor_table[row_view_name] = Tensor(element_type, list(inner_shapes))
-
-        # Create reference memlet: row_view = &target[i, 0, 0, ...]
-        # The index is: outer_loop_vars joined, then zeros for inner dims
-        ref_index_parts = outer_loop_vars[:]
-        for _ in range(value_ndim):
-            ref_index_parts.append("0")
-
-        # Compute linearized index for reference
-        # For target[i, j] with shape (n, m), linear index for row i is i * m
-        linear_idx = outer_loop_vars[0] if outer_loop_vars else "0"
-        for dim_idx in range(1, broadcast_dims):
+            # Use RHS shape for inner dimension bounds
             dim_size = (
-                shapes[dim_idx]
-                if dim_idx < len(shapes)
-                else f"_{target_name}_shape_{dim_idx}"
+                rhs_shapes[i] if i < len(rhs_shapes) else shapes[broadcast_dims + i]
             )
-            linear_idx = f"({linear_idx}) * ({dim_size}) + {outer_loop_vars[dim_idx]}"
+            self.builder.begin_for(loop_var, "0", str(dim_size), "1", debug_info)
 
-        # Multiply by inner dimension sizes to get the start of the row
-        for dim_idx in range(broadcast_dims, target_ndim):
-            dim_size = (
-                shapes[dim_idx]
-                if dim_idx < len(shapes)
-                else f"_{target_name}_shape_{dim_idx}"
-            )
-            linear_idx = f"({linear_idx}) * ({dim_size})"
-
-        # Create the reference memlet block
+        # Create assignment block: target[outer_vars, inner_vars] = rhs[inner_vars]
         block = self.builder.add_block(debug_info)
-        t_src = self.builder.add_access(block, target_name, debug_info)
-        t_dst = self.builder.add_access(block, row_view_name, debug_info)
-        self.builder.add_reference_memlet(
-            block, t_src, t_dst, linear_idx, row_type, debug_info
+        t_src = self.builder.add_access(block, materialized_rhs, debug_info)
+        t_dst = self.builder.add_access(block, target_name, debug_info)
+        t_task = self.builder.add_tasklet(
+            block, TaskletCode.assign, ["_in"], ["_out"], debug_info
         )
 
-        # Now handle the inner slice assignment with the row view
-        # Create inner indices (all slices for the inner dimensions)
-        inner_indices = [
-            ast.Slice(lower=None, upper=None, step=None) for _ in range(value_ndim)
-        ]
+        # Source index: just inner loop vars
+        src_index = ",".join(inner_loop_vars) if inner_loop_vars else "0"
 
-        # Create new target using row view
-        new_target = ast.Subscript(
-            value=ast.Name(id=row_view_name, ctx=ast.Load()),
-            slice=(
-                ast.Tuple(elts=inner_indices, ctx=ast.Load())
-                if len(inner_indices) > 1
-                else inner_indices[0]
-            ),
-            ctx=ast.Store(),
+        # Target index: outer_vars + inner_vars combined
+        all_target_vars = outer_loop_vars + inner_loop_vars
+        target_index = ",".join(all_target_vars) if all_target_vars else "0"
+
+        self.builder.add_memlet(
+            block, t_src, "void", t_task, "_in", src_index, rhs_tensor, debug_info
         )
 
-        # Recursively handle the inner assignment (now same-dimension)
-        self._handle_slice_assignment(
-            new_target, value, row_view_name, inner_indices, debug_info
+        tensor_dst = self.tensor_table[target_name]
+        self.builder.add_memlet(
+            block, t_task, "_out", t_dst, "void", target_index, tensor_dst, debug_info
         )
 
-        # Close outer loops
+        # Close all loops (inner first, then outer)
+        for _ in inner_loop_vars:
+            self.builder.end_for()
         for _ in outer_loop_vars:
             self.builder.end_for()
 
@@ -2132,6 +2107,9 @@ class ASTParser(ast.NodeVisitor):
         target_slice_ndim = sum(1 for idx in indices if isinstance(idx, ast.Slice))
         value_max_ndim = self._get_max_array_ndim_in_expr(value)
 
+        # ALWAYS evaluate RHS first (NumPy semantics) - before any loops
+        materialized_rhs = self.visit(value)
+
         if (
             target_slice_ndim > 0
             and value_max_ndim > 0
@@ -2140,7 +2118,7 @@ class ASTParser(ast.NodeVisitor):
             # Broadcasting case: use row-by-row approach with reference memlets
             self._handle_broadcast_slice_assignment(
                 target,
-                value,
+                materialized_rhs,
                 target_name,
                 indices,
                 target_slice_ndim,
@@ -2224,15 +2202,33 @@ class ASTParser(ast.NodeVisitor):
         else:
             new_target.slice = ast.Tuple(elts=new_target_indices, ctx=ast.Load())
 
-        rhs_temp = self.visit(new_value)
+        rhs_memlet_type = None
+        rhs_indexed_subset = ""
+        if materialized_rhs in self.tensor_table:
+            rhs_tensor = self.tensor_table[materialized_rhs]
+            rhs_ndim = len(rhs_tensor.shape)
+            if rhs_ndim > 0 and rhs_ndim == len(loop_vars):
+                # RHS is an array matching the slice dimensions - index it with loop vars
+                rhs_indexed_subset = ",".join(loop_vars)
+                rhs_memlet_type = rhs_tensor
+
         block = self.builder.add_block(debug_info)
         t_task = self.builder.add_tasklet(
             block, TaskletCode.assign, ["_in"], ["_out"], debug_info
         )
 
-        t_src, src_sub = self._add_read(block, rhs_temp, debug_info)
+        t_src, src_sub = self._add_read(block, materialized_rhs, debug_info)
+        # Use indexed subset if RHS is an array that needs indexing
+        actual_src_sub = rhs_indexed_subset if rhs_indexed_subset else src_sub
         self.builder.add_memlet(
-            block, t_src, "void", t_task, "_in", src_sub, None, debug_info
+            block,
+            t_src,
+            "void",
+            t_task,
+            "_in",
+            actual_src_sub,
+            rhs_memlet_type,
+            debug_info,
         )
 
         lhs_expr = self.visit(new_target)
