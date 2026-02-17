@@ -30,7 +30,6 @@ def kernel(r):
     return y
 
 
-@pytest.mark.skip("np.flip not yet supported")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda"])
 def test_durbin(target):
     if target == "none":

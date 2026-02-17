@@ -793,3 +793,102 @@ def test_reshape_large():
     expected = np.reshape(a, (2, 3, 4, 5))
     assert result.shape == (2, 3, 4, 5)
     assert np.array_equal(result, expected)
+
+
+def test_view_expressions():
+
+    # Test flip of 1D slice
+    @native
+    def flip_slice_1d(a):
+        return np.flip(a[:5])
+
+    a = np.arange(10, dtype=np.float64)
+    result = flip_slice_1d(a)
+    expected = np.flip(a[:5])
+    assert result.shape == (5,)
+    assert np.array_equal(result, expected)
+
+    # Test flip of 2D slice (row slice)
+    @native
+    def flip_slice_2d_rows(a):
+        return np.flip(a[:2, :], axis=0)
+
+    a = np.arange(12, dtype=np.float64).reshape(3, 4)
+    result = flip_slice_2d_rows(a)
+    expected = np.flip(a[:2, :], axis=0)
+    assert result.shape == (2, 4)
+    assert np.array_equal(result, expected)
+
+    # Test flip of 2D slice (column slice)
+    @native
+    def flip_slice_2d_cols(a):
+        return np.flip(a[:, 1:3], axis=1)
+
+    a = np.arange(12, dtype=np.float64).reshape(3, 4)
+    result = flip_slice_2d_cols(a)
+    expected = np.flip(a[:, 1:3], axis=1)
+    assert result.shape == (3, 2)
+    assert np.array_equal(result, expected)
+
+    # Test scalar * flip(slice)
+    @native
+    def scalar_times_flip(a):
+        return 2.0 * np.flip(a[:5])
+
+    a = np.arange(10, dtype=np.float64)
+    result = scalar_times_flip(a)
+    expected = 2.0 * np.flip(a[:5])
+    assert result.shape == (5,)
+    assert np.allclose(result, expected)
+
+    @native
+    def flip_plus_flip(a):
+        return np.flip(a[:5]) + np.flip(a[5:])
+
+    a = np.arange(10, dtype=np.float64)
+    result = flip_plus_flip(a)
+    expected = np.flip(a[:5]) + np.flip(a[5:])
+    assert result.shape == (5,)
+    assert np.allclose(result, expected)
+
+    @native
+    def flip_times_array(a, b):
+        return np.flip(a[:5]) * b
+
+    a = np.arange(10, dtype=np.float64)
+    b = np.ones(5, dtype=np.float64) * 3.0
+    result = flip_times_array(a, b)
+    expected = np.flip(a[:5]) * b
+    assert result.shape == (5,)
+    assert np.allclose(result, expected)
+
+    @native
+    def flip_assign_simple(y):
+        y[:5] = 2.0 * np.flip(y[:5])
+
+    a = np.arange(10, dtype=np.float64)
+    expected = a.copy()
+    expected[:5] = 2.0 * np.flip(expected[:5])
+    flip_assign_simple(a)
+    assert np.allclose(a, expected)
+
+    @native
+    def flip_aug_assign(y):
+        y[:5] += 2.0 * np.flip(y[:5])
+
+    a = np.arange(10, dtype=np.float64)
+    expected = a.copy()
+    expected[:5] += 2.0 * np.flip(expected[:5])
+    flip_aug_assign(a)
+    assert np.allclose(a, expected)
+
+    @native
+    def durbin_pattern(y, k, alpha):
+        y[:k] += alpha * np.flip(y[:k])
+
+    for k_val in [2, 5, 8]:
+        a = np.arange(10, dtype=np.float64)
+        expected = a.copy()
+        expected[:k_val] += 0.5 * np.flip(expected[:k_val])
+        durbin_pattern(a, k_val, 0.5)
+        assert np.allclose(a, expected), f"Failed for k={k_val}"

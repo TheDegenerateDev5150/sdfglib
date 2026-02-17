@@ -454,8 +454,17 @@ class ASTParser(ast.NodeVisitor):
             block, tasklet_code, ["_in1", "_in2"], ["_out"]
         )
 
-        self.builder.add_memlet(block, t_left, "void", t_task, "_in1", left_sub)
-        self.builder.add_memlet(block, t_right, "void", t_task, "_in2", right_sub)
+        # For indexed array accesses like "arr(i,j)", we need to pass the Tensor type
+        # to ensure correct type inference during validation
+        left_type = self._get_memlet_type_for_access(real_left, left_sub)
+        right_type = self._get_memlet_type_for_access(real_right, right_sub)
+
+        self.builder.add_memlet(
+            block, t_left, "void", t_task, "_in1", left_sub, left_type
+        )
+        self.builder.add_memlet(
+            block, t_right, "void", t_task, "_in2", right_sub, right_type
+        )
         self.builder.add_memlet(block, t_task, "_out", t_out, "void", "")
 
         return tmp_name
@@ -2543,6 +2552,28 @@ class ASTParser(ast.NodeVisitor):
     def _get_unique_id(self):
         self._unique_counter_ref[0] += 1
         return self._unique_counter_ref[0]
+
+    def _get_memlet_type_for_access(self, expr_str, subset):
+        """Get the Tensor type for an indexed array access expression.
+
+        When accessing an array like "arr(i,j)" with a multi-dimensional subset,
+        we need to pass the Tensor type to add_memlet for correct type inference.
+        If the expression is a simple scalar variable or constant, returns None.
+        """
+        if not subset:
+            return None
+
+        # Check if expr_str is an indexed array access like "arr(i,j)"
+        if "(" in expr_str and expr_str.endswith(")"):
+            name = expr_str.split("(")[0]
+            if name in self.tensor_table:
+                return self.tensor_table[name]
+
+        # Check if expr_str is a simple array name with a non-empty subset from _add_read
+        if expr_str in self.tensor_table:
+            return self.tensor_table[expr_str]
+
+        return None
 
     def _element_type(self, name):
         if name in self.container_table:

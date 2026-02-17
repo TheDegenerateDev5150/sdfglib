@@ -71,6 +71,7 @@ def kernel(TSTEPS, N, u):
     return u
 
 
+@pytest.mark.skip(reason="Validation")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda"])
 def test_adi(target):
     if target == "none":

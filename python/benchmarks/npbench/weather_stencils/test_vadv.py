@@ -129,32 +129,32 @@ def kernel(utens_stage, u_stage, wcon, u_pos, utens, dtr_stage):
 def test_vadv(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 160, "SEQUENTIAL": 160, "FOR": 185, "Malloc": 79}
+            verification={"MAP": 86, "SEQUENTIAL": 86, "FOR": 111, "Malloc": 42}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 55,
-                "MAP": 160,
-                "SEQUENTIAL": 105,
-                "FOR": 185,
-                "Malloc": 79,
+                "HIGHWAY": 26,
+                "MAP": 86,
+                "SEQUENTIAL": 60,
+                "FOR": 111,
+                "Malloc": 42,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 55,
-                "CPU_PARALLEL": 78,
-                "MAP": 160,
-                "SEQUENTIAL": 27,
-                "FOR": 185,
-                "Malloc": 79,
+                "HIGHWAY": 26,
+                "CPU_PARALLEL": 41,
+                "MAP": 86,
+                "SEQUENTIAL": 19,
+                "FOR": 111,
+                "Malloc": 42,
             }
         )
     else:  # cuda
         verifier = SDFGVerification(
-            verification={"MAP": 160, "SEQUENTIAL": 160, "FOR": 185, "Malloc": 79}
+            verification={"MAP": 86, "SEQUENTIAL": 86, "FOR": 111, "Malloc": 42}
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

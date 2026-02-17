@@ -1207,7 +1207,11 @@ class NumPyHandler:
                 left_shape, left_strides, output_shape
             )
             # Create a new tensor view with broadcast shape and strides
-            real_left_tensor = Tensor(dtype, output_shape, broadcast_strides)
+            # Preserve the offset from the original tensor (important for views like flip)
+            left_offset = left_tensor.offset if left_tensor.offset else "0"
+            real_left_tensor = Tensor(
+                dtype, output_shape, broadcast_strides, left_offset
+            )
 
         # Broadcast right operand if needed (stride-based, no copy)
         if right_needs_broadcast:
@@ -1216,7 +1220,11 @@ class NumPyHandler:
                 right_shape, right_strides, output_shape
             )
             # Create a new tensor view with broadcast shape and strides
-            real_right_tensor = Tensor(dtype, output_shape, broadcast_strides)
+            # Preserve the offset from the original tensor (important for views like flip)
+            right_offset = right_tensor.offset if right_tensor.offset else "0"
+            real_right_tensor = Tensor(
+                dtype, output_shape, broadcast_strides, right_offset
+            )
 
         # Create output array with broadcast shape
         # Preserve F-order if both inputs are F-order and no broadcasting needed
@@ -2655,13 +2663,15 @@ class NumPyHandler:
         for in_dim, in_stride, out_dim in zip(
             padded_shape, padded_strides, output_shape
         ):
-            # If input dim differs from output dim, it must be 1 (by broadcasting rules),
-            # so we set stride to 0 for that dimension to repeat values
-            if str(in_dim) != str(out_dim):
+            # Only use stride 0 when input dimension is exactly "1" (broadcast case).
+            # For other cases (including symbolic dimensions that may be equal at runtime),
+            # keep the original stride.
+            if str(in_dim) == "1" and str(out_dim) != "1":
                 # Broadcast dimension: use stride 0
                 broadcast_strides.append("0")
             else:
-                # Non-broadcast dimension: keep original stride
+                # Non-broadcast dimension or potentially equal symbolic dimensions:
+                # keep original stride
                 broadcast_strides.append(in_stride)
 
         return broadcast_strides

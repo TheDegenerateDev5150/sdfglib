@@ -264,7 +264,7 @@ class PythonProgram(DoccProgram):
             # Multiple python processes running the same code?
             shutil.rmtree(output_folder)
         sdfg, out_args, out_shapes, out_strides = self._build_sdfg(
-            arg_types, args, arg_shape_mapping, len(shape_values), shape_to_scalar
+            arg_types, args, arg_shape_mapping, shape_values, shape_to_scalar
         )
         sdfg.validate()
 
@@ -355,7 +355,7 @@ class PythonProgram(DoccProgram):
                 shape_to_scalar[s_idx] = scalar_int_params[s_val]
 
         sdfg, _, _, _ = self._build_sdfg(
-            arg_types, args, arg_shape_mapping, len(shape_values), shape_to_scalar
+            arg_types, args, arg_shape_mapping, shape_values, shape_to_scalar
         )
         return sdfg
 
@@ -445,7 +445,7 @@ class PythonProgram(DoccProgram):
         arg_types,
         args,
         arg_shape_mapping,
-        num_unique_shapes,
+        shape_values,
         shape_to_scalar=None,
     ):
         if shape_to_scalar is None:
@@ -577,11 +577,17 @@ class PythonProgram(DoccProgram):
 
                 shapes = []
                 for dim_idx in range(arg.ndim):
-                    u_idx = arg_shape_mapping[(i, dim_idx)]
-                    if u_idx in shape_to_scalar:
-                        shapes.append(shape_to_scalar[u_idx])
+                    dim_val = arg.shape[dim_idx]
+                    if dim_val == 1:
+                        # Always use literal "1" for size-1 dimensions to enable
+                        # proper broadcasting detection
+                        shapes.append("1")
                     else:
-                        shapes.append(f"_s{u_idx}")
+                        u_idx = arg_shape_mapping[(i, dim_idx)]
+                        if u_idx in shape_to_scalar:
+                            shapes.append(shape_to_scalar[u_idx])
+                        else:
+                            shapes.append(f"_s{u_idx}")
 
                 strides = []
                 if arg.flags["C_CONTIGUOUS"]:
@@ -616,8 +622,9 @@ class PythonProgram(DoccProgram):
                 tensor_table[name] = Tensor(element_type, shapes, strides, offset)
 
         # Add unified shape arguments only for shapes without scalar equivalents
-        for i in range(num_unique_shapes):
-            if i not in shape_to_scalar:
+        # and skip size-1 dimensions (they use literal "1" instead)
+        for i in range(len(shape_values)):
+            if i not in shape_to_scalar and shape_values[i] != 1:
                 builder.add_container(
                     f"_s{i}", Scalar(PrimitiveType.Int64), is_argument=True
                 )
@@ -627,8 +634,8 @@ class PythonProgram(DoccProgram):
         for i, ((name, param), dtype, arg) in enumerate(zip(params, arg_types, args)):
             container_table[name] = dtype
 
-        for i in range(num_unique_shapes):
-            if i not in shape_to_scalar:
+        for i in range(len(shape_values)):
+            if i not in shape_to_scalar and shape_values[i] != 1:
                 container_table[f"_s{i}"] = Scalar(PrimitiveType.Int64)
 
         # Parse AST

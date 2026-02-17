@@ -31,7 +31,6 @@ def kernel(M, float_n, data):
     return corr
 
 
-@pytest.mark.skip("Array masking not yet supported")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda"])
 def test_correlation(target):
     if target == "none":
