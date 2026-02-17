@@ -124,14 +124,7 @@ def kernel(nx, ny, nt, nit, u, v, dt, dx, dy, p, rho, nu):
 def test_cavity_flow(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "CMath": 14,
-                "MAP": 182,
-                "SEQUENTIAL": 182,
-                "FOR": 186,
-                "Memset": 1,
-                "Malloc": 86,
-            }
+            verification={"MAP": 46, "SEQUENTIAL": 46, "FOR": 51, "Malloc": 27}
         )
     elif target == "sequential":
         verifier = SDFGVerification(

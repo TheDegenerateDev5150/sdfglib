@@ -48,13 +48,7 @@ def kernel(alpha, beta, C, A, B):
 def test_symm(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "GEMM": 1,
-                "SEQUENTIAL": 13,
-                "FOR": 15,
-                "MAP": 13,
-                "Malloc": 9,
-            }
+            verification={"GEMM": 1, "SEQUENTIAL": 7, "FOR": 9, "MAP": 7, "Malloc": 3}
         )
     elif target == "sequential":
         verifier = SDFGVerification(

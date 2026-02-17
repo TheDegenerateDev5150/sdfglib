@@ -32,7 +32,7 @@ def kernel(alpha, beta, C, A, B):
 def test_syr2k(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 9, "Malloc": 7, "SEQUENTIAL": 9, "FOR": 11}
+            verification={"Malloc": 3, "MAP": 5, "SEQUENTIAL": 5, "FOR": 7}
         )
     elif target == "sequential":
         verifier = SDFGVerification(

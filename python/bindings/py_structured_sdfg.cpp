@@ -242,6 +242,10 @@ void PyStructuredSDFG::simplify() {
     dde.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
     dataflow_simplification.run(builder_opt, analysis_manager);
+
+    // Fuse maps
+    auto map_fusion = sdfg::passes::Pipeline::map_fusion();
+    map_fusion.run(builder_opt, analysis_manager);
 }
 
 void PyStructuredSDFG::dump(const std::string& path) {

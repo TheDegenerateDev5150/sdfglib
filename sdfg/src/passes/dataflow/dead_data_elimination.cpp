@@ -1,6 +1,7 @@
 #include "sdfg/passes/dataflow/dead_data_elimination.h"
 
 #include "sdfg/analysis/data_dependency_analysis.h"
+#include "sdfg/data_flow/library_nodes/stdlib/malloc.h"
 
 namespace sdfg {
 namespace passes {
@@ -22,10 +23,6 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
         if (!sdfg.is_transient(name)) {
             continue;
         }
-        if (sdfg.type(name).type_id() != types::TypeID::Scalar) {
-            continue;
-        }
-
         if (users.num_views(name) > 0 || users.num_moves(name) > 0) {
             continue;
         }
@@ -60,7 +57,7 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
                     builder.clear_node(block, *tasklet);
                     applied = true;
                 } else if (auto library_node = dynamic_cast<data_flow::LibraryNode*>(&src)) {
-                    if (!library_node->side_effect()) {
+                    if (!library_node->side_effect() || library_node->code() == stdlib::LibraryNodeType_Malloc) {
                         auto& block = dynamic_cast<structured_control_flow::Block&>(*graph.get_parent());
                         builder.clear_node(block, *library_node);
                         applied = true;

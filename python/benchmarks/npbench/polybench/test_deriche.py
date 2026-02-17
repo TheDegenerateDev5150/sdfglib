@@ -95,11 +95,11 @@ def test_deriche(target):
     if target == "none":
         verifier = SDFGVerification(
             verification={
-                "SEQUENTIAL": 62,
-                "FOR": 70,
-                "MAP": 62,
+                "MAP": 26,
+                "SEQUENTIAL": 26,
+                "FOR": 34,
                 "CMath": 9,
-                "Malloc": 48,
+                "Malloc": 12,
             }
         )
     elif target == "sequential":

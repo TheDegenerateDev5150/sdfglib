@@ -28,9 +28,7 @@ def kernel(alpha, beta, C, A):
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda"])
 def test_syrk(target):
     if target == "none":
-        verifier = SDFGVerification(
-            verification={"MAP": 5, "Malloc": 3, "SEQUENTIAL": 5, "FOR": 7}
-        )
+        verifier = SDFGVerification(verification={"MAP": 2, "SEQUENTIAL": 2, "FOR": 4})
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={

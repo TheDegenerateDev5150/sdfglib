@@ -28,16 +28,7 @@ def kernel(alpha, beta, A, B, x):
 def test_gesummv(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 6,
-                "MAP": 6,
-                "SEQUENTIAL": 6,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 2,
-                "DOT": 0,
-            }
+            verification={"GEMM": 2, "SEQUENTIAL": 5, "FOR": 5, "MAP": 5, "Malloc": 4}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
