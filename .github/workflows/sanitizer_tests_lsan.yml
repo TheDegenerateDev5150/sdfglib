@@ -1,4 +1,4 @@
-name: Unit Tests (Address Sanitizer)
+name: Sanitizer Tests (Leak)
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review]
 
 jobs:
-  build:
+  sanitizer-linux-lsan:
     runs-on:
       group: dahlia
       labels: openmp
@@ -37,7 +37,7 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++-19 \
             -DCMAKE_BUILD_TYPE=Debug \
             -DSDFG_ENABLE_SANITIZER=ON \
-            -DSDFG_SANITIZER=address \
+            -DSDFG_SANITIZER=leak \
             -DBUILD_TESTS:BOOL=OFF \
             -DBUILD_BENCHMARKS:BOOL=OFF \
             -DBUILD_BENCHMARKS_GOOGLE:BOOL=OFF  \

@@ -1,4 +1,4 @@
-name: Unit Tests (Undefined Behavior Sanitizer)
+name: Sanitizer Tests (Undefined Behavior)
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review]
 
 jobs:
-  build:
+  sanitizer-linux-ubsan:
     runs-on:
       group: dahlia
       labels: openmp
