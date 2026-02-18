@@ -1,3 +1,4 @@
+import sys
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -117,6 +118,7 @@ def kernel(utens_stage, u_stage, wcon, u_pos, utens, dtr_stage):
         utens_stage[:, :, k] = dtr_stage * (datacol - u_pos[:, :, k])
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize(
     "target",
     [

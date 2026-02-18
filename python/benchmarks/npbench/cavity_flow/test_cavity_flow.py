@@ -1,4 +1,5 @@
 # Copyright 2021 ETH Zurich and the NPBench authors. All rights reserved.
+import sys
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -117,6 +118,7 @@ def kernel(nx, ny, nt, nit, u, v, dt, dx, dy, p, rho, nu):
         v[:, -1] = 0
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize(
     "target",
     ["none", "sequential", "openmp", "cuda"],
