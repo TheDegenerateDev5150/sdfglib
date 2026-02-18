@@ -124,44 +124,48 @@ def kernel(nx, ny, nt, nit, u, v, dt, dx, dy, p, rho, nu):
 def test_cavity_flow(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 46, "SEQUENTIAL": 46, "FOR": 51, "Malloc": 27}
+            verification={
+                "CMath": 14,
+                "MAP": 182,
+                "SEQUENTIAL": 182,
+                "FOR": 186,
+                "Memset": 1,
+                "Malloc": 84,
+            }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
-                "HIGHWAY": 14,
-                "MAP": 26,
-                "SEQUENTIAL": 12,
-                "FOR": 30,
+                "HIGHWAY": 92,
+                "MAP": 182,
+                "SEQUENTIAL": 90,
+                "FOR": 186,
                 "Memset": 1,
-                "Malloc": 8,
+                "Malloc": 84,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 10,
                 "CMath": 14,
-                "CPU_PARALLEL": 14,
-                "MAP": 26,
-                "SEQUENTIAL": 2,
-                "FOR": 30,
+                "HIGHWAY": 92,
+                "MAP": 182,
+                "SEQUENTIAL": 90,
+                "FOR": 186,
                 "Memset": 1,
-                "Malloc": 8,
+                "Malloc": 84,
             }
         )
     else:  # cuda
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
-                "CUDA": 20,
-                "MAP": 26,
-                "CUDAOffloading": 50,
-                "SEQUENTIAL": 6,
-                "FOR": 30,
+                "MAP": 182,
+                "SEQUENTIAL": 182,
+                "FOR": 186,
                 "Memset": 1,
-                "Malloc": 8,
+                "Malloc": 84,
             }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

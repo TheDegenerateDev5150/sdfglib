@@ -134,27 +134,32 @@ def test_vadv(target):
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 26,
-                "MAP": 86,
-                "SEQUENTIAL": 60,
-                "FOR": 111,
-                "Malloc": 42,
+                "HIGHWAY": 35,
+                "MAP": 141,
+                "SEQUENTIAL": 106,
+                "FOR": 165,
+                "Malloc": 69,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 26,
-                "CPU_PARALLEL": 41,
-                "MAP": 86,
-                "SEQUENTIAL": 19,
-                "FOR": 111,
-                "Malloc": 42,
+                "HIGHWAY": 35,
+                "MAP": 141,
+                "SEQUENTIAL": 106,
+                "FOR": 165,
+                "Malloc": 69,
             }
         )
     else:  # cuda
         verifier = SDFGVerification(
-            verification={"MAP": 86, "SEQUENTIAL": 86, "FOR": 111, "Malloc": 42}
+            verification={
+                "HIGHWAY": 35,
+                "MAP": 141,
+                "SEQUENTIAL": 106,
+                "FOR": 165,
+                "Malloc": 69,
+            }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

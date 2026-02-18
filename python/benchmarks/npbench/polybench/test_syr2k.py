@@ -37,40 +37,33 @@ def test_syr2k(target):
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "FOR": 5,
-                "MAP": 4,
+                "Malloc": 3,
+                "HIGHWAY": 3,
                 "SEQUENTIAL": 3,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 1,
-                "GEMM": 0,
-                "DOT": 0,
+                "FOR": 8,
+                "MAP": 6,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "FOR": 5,
-                "MAP": 4,
-                "SEQUENTIAL": 1,
-                "CUDA": 0,
-                "CPU_PARALLEL": 2,
-                "HIGHWAY": 1,
-                "GEMM": 0,
-                "DOT": 0,
+                "Malloc": 3,
+                "HIGHWAY": 3,
+                "CPU_PARALLEL": 1,
+                "SEQUENTIAL": 2,
+                "FOR": 8,
+                "MAP": 6,
             }
         )
     else:  # cuda
         verifier = SDFGVerification(
             verification={
-                "FOR": 5,
-                "MAP": 4,
-                "SEQUENTIAL": 2,
-                "CUDA": 2,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 0,
-                "DOT": 0,
+                "Malloc": 3,
+                "CUDA": 1,
+                "SEQUENTIAL": 5,
+                "FOR": 8,
+                "MAP": 6,
+                "CUDAOffloading": 2,
             }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

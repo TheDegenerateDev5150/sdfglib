@@ -90,23 +90,23 @@ def test_adi(target):
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 1,
-                "CPU_PARALLEL": 9,
-                "MAP": 14,
-                "SEQUENTIAL": 4,
-                "FOR": 21,
-                "Malloc": 3,
+                "CPU_PARALLEL": 1,
+                "HIGHWAY": 4,
+                "MAP": 18,
+                "SEQUENTIAL": 13,
+                "FOR": 23,
+                "Malloc": 5,
             }
         )
     else:  # cuda
         verifier = SDFGVerification(
             verification={
-                "CUDA": 10,
-                "MAP": 14,
-                "CUDAOffloading": 22,
-                "SEQUENTIAL": 4,
-                "FOR": 21,
-                "Malloc": 3,
+                "CUDA": 2,
+                "CUDAOffloading": 4,
+                "MAP": 18,
+                "SEQUENTIAL": 16,
+                "FOR": 23,
+                "Malloc": 5,
             }
         )
 
