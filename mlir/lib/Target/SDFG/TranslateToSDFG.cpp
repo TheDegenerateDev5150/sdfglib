@@ -21,6 +21,7 @@
 #include <sdfg/data_flow/library_nodes/math/blas/blas_node.h>
 #include <sdfg/data_flow/library_nodes/math/blas/gemm_node.h>
 #include <sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/fill_node.h>
+#include <sdfg/data_flow/library_nodes/stdlib/malloc.h>
 #include <sdfg/data_flow/tasklet.h>
 #include <sdfg/element.h>
 #include <sdfg/function.h>
@@ -242,6 +243,35 @@ public:
                         libnodes.insert(
                             {fill_op.getLoc()->getImpl(),
                              &builder.add_library_node<::sdfg::math::tensor::FillNode>(block, ::sdfg::DebugInfo(), shape)
+                            }
+                        );
+                        return success();
+                    })
+                    .Case<MallocOp>([&](MallocOp malloc_op) {
+                        Type output_type = malloc_op->getResult(0).getType();
+
+                        // Extract shape dimensions
+                        std::vector<::sdfg::symbolic::Expression> shape;
+                        ::sdfg::symbolic::Expression element_size;
+                        if (auto tensor_type = dyn_cast<TensorType>(output_type)) {
+                            for (int64_t dim : tensor_type.getShape()) {
+                                shape.push_back(::sdfg::symbolic::integer(dim));
+                            }
+                            auto docc_type = this->convertType(tensor_type.getElementType());
+                            element_size = ::sdfg::symbolic::size_of_type(*docc_type);
+                        } else {
+                            malloc_op->emitError("Expected tensor type");
+                            return failure();
+                        }
+                        // Calculate total size (multiply all dimensions)
+                        ::sdfg::symbolic::Expression num_elements = ::sdfg::symbolic::integer(1);
+                        for (const auto& dim_expr : shape) {
+                            num_elements = ::sdfg::symbolic::mul(num_elements, dim_expr);
+                        }
+                        auto total_size = ::sdfg::symbolic::mul(num_elements, element_size);
+                        this->get_or_create_container(builder, malloc_op->getResult(0));
+                        libnodes.insert(
+                            {malloc_op->getLoc()->getImpl(), &builder.add_library_node<::sdfg::stdlib::MallocNode>(block, ::sdfg::DebugInfo(), total_size)
                             }
                         );
                         return success();
@@ -550,6 +580,10 @@ public:
                         return success();
                     })
                     .Case<ConstantOp>([&](ConstantOp constant_op) {
+                        // Has per definition no input
+                        return success();
+                    })
+                    .Case<MallocOp>([&](MallocOp malloc_op) {
                         // Has per definition no input
                         return success();
                     })
