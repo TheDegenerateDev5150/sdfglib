@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <ranges>
 #include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 
 namespace sdfg::passes::rpc {
