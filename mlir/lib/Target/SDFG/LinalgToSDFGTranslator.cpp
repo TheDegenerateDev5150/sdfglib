@@ -8,8 +8,10 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Target/SDFG/SDFGTranslator.h"
 #include "sdfg/data_flow/library_nodes/math/blas/gemm_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
 #include "sdfg/element.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg/types/tensor.h"
 
 namespace mlir {
 namespace sdfg {
@@ -68,10 +70,6 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
 
     auto& lhs_access = translator.builder().add_access(block, in_container_lhs);
     auto& rhs_access = translator.builder().add_access(block, in_container_rhs);
-    auto& out_access = translator.builder().add_access(block, out_container);
-
-    auto& alpha = translator.builder().add_constant(block, "1.0", *translator.convertType(lhs_type.getElementType()));
-    auto& beta = translator.builder().add_constant(block, "0.0", *translator.convertType(output_type.getElementType()));
 
     auto& tensor_info_lhs = translator.get_or_create_tensor_info(in_container_lhs, lhs_type);
     auto& tensor_info_rhs = translator.get_or_create_tensor_info(in_container_rhs, rhs_type);
@@ -82,55 +80,52 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
         return op->emitError("Only tensors with 0 offset are supported for now");
     }
 
-    auto m = ::sdfg::symbolic::integer(tensor_info_lhs.shape().at(0));
-    auto n = ::sdfg::symbolic::integer(tensor_info_rhs.shape().at(1));
-    auto k = ::sdfg::symbolic::integer(tensor_info_lhs.shape().at(1));
-
-    auto lda = ::sdfg::symbolic::integer(tensor_info_lhs.strides().at(0));
-    auto ldb = ::sdfg::symbolic::integer(tensor_info_rhs.strides().at(0));
-    auto ldc = ::sdfg::symbolic::integer(tensor_info_out.strides().at(0));
-
-    ::sdfg::math::blas::BLAS_Precision precision;
-    if (output_type.getElementType().isF16()) {
-        precision = ::sdfg::math::blas::BLAS_Precision::h;
-    } else if (output_type.getElementType().isF32()) {
-        precision = ::sdfg::math::blas::BLAS_Precision::s;
-    } else if (output_type.getElementType().isF64()) {
-        precision = ::sdfg::math::blas::BLAS_Precision::d;
-    } else {
-        op->emitOpError("has unsupported element type. Only f16, f32, and f64 are supported.");
-        return failure();
+    ::sdfg::symbolic::MultiExpression shape_lhs;
+    for (auto entry : tensor_info_lhs.shape()) {
+        shape_lhs.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::symbolic::MultiExpression shape_rhs;
+    for (auto entry : tensor_info_rhs.shape()) {
+        shape_rhs.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::symbolic::MultiExpression shape_out;
+    for (auto entry : tensor_info_out.shape()) {
+        shape_out.push_back(::sdfg::symbolic::integer(entry));
     }
 
-    auto& libnode = translator.builder().add_library_node<::sdfg::math::blas::GEMMNode>(
+    ::sdfg::symbolic::MultiExpression strides_lhs;
+    for (auto entry : tensor_info_lhs.strides()) {
+        strides_lhs.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::symbolic::MultiExpression strides_rhs;
+    for (auto entry : tensor_info_rhs.strides()) {
+        strides_rhs.push_back(::sdfg::symbolic::integer(entry));
+    }
+
+    auto& libnode = translator.builder().add_library_node<::sdfg::math::tensor::MatMulNode>(
         block,
         ::sdfg::DebugInfo(),
-        ::sdfg::math::blas::ImplementationType_BLAS,
-        precision,
-        ::sdfg::math::blas::BLAS_Layout::RowMajor,
-        ::sdfg::math::blas::BLAS_Transpose::No,
-        ::sdfg::math::blas::BLAS_Transpose::No,
-        m,
-        n,
-        k,
-        lda,
-        ldb,
-        ldc
+        shape_lhs,
+        shape_rhs,
+        strides_lhs,
+        strides_rhs,
+        /*offset_a=*/0,
+        /*offset_b=*/0
     );
 
-    translator.builder()
-        .add_computational_memlet(block, lhs_access, libnode, "__A", {}, *translator.convertType(lhs_type));
-    translator.builder()
-        .add_computational_memlet(block, rhs_access, libnode, "__B", {}, *translator.convertType(rhs_type));
-    translator.builder()
-        .add_computational_memlet(block, out_access, libnode, "__C", {}, *translator.convertType(output_type));
-    translator.builder().add_computational_memlet(block, alpha, libnode, "__alpha", {}, alpha.type());
-    translator.builder().add_computational_memlet(block, beta, libnode, "__beta", {}, beta.type());
+    auto lhs_primitive_type = translator.convertType(lhs_type)->primitive_type();
+    ::sdfg::types::Tensor lhs_tensor_type(lhs_primitive_type, shape_lhs, strides_lhs);
+    auto rhs_primitive_type = translator.convertType(rhs_type)->primitive_type();
+    ::sdfg::types::Tensor rhs_tensor_type(rhs_primitive_type, shape_rhs, strides_rhs);
+    auto output_primitive_type = translator.convertType(output_type)->primitive_type();
+    ::sdfg::types::Tensor output_tensor_type(output_primitive_type, shape_out);
+
+    translator.builder().add_computational_memlet(block, lhs_access, libnode, "A", {}, lhs_tensor_type);
+    translator.builder().add_computational_memlet(block, rhs_access, libnode, "B", {}, rhs_tensor_type);
 
     auto& write_access = translator.builder().add_access(block, out_container);
 
-    translator.builder()
-        .add_computational_memlet(block, libnode, "__C", write_access, {}, *translator.convertType(output_type));
+    translator.builder().add_computational_memlet(block, libnode, "Y", write_access, {}, output_tensor_type);
 
     return success();
 }
