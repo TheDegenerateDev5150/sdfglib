@@ -7,7 +7,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Target/SDFG/SDFGTranslator.h"
-#include "sdfg/data_flow/library_nodes/math/blas/gemm_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/fill_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
 #include "sdfg/element.h"
 #include "sdfg/symbolic/symbolic.h"
@@ -37,17 +37,35 @@ LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* 
     Value value = op->value();
     Value result = op->result();
 
-    // TODO: add fill node
+    auto in_type = dyn_cast_or_null<RankedTensorType>(value.getType());
+    if (!in_type) {
+        return op->emitError("Only ranked tensor fill value is supported for now");
+    }
+
+    auto tensor_info = translator.get_or_create_tensor_info(translator.get_or_create_container(result), in_type);
+    ::sdfg::symbolic::MultiExpression shape;
+    for (auto entry : tensor_info.shape()) {
+        shape.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor input_tensor_type(translator.convertType(in_type)->primitive_type(), shape);
+
+    auto& lib_node =
+        translator.builder().add_library_node<::sdfg::math::tensor::FillNode>(block, ::sdfg::DebugInfo(), shape);
 
     if (auto constant_op = dyn_cast_or_null<arith::ConstantOp>(value.getDefiningOp())) {
         auto& inaccess = translator.builder().add_constant(
             block, translator.convertTypedAttr(constant_op.getValue()), *translator.convertType(constant_op.getType())
         );
-        // translator.builder().add_computational_memlet(block, inaccess, )
+        translator.builder().add_computational_memlet(block, inaccess, lib_node, "_in", {}, input_tensor_type);
     } else {
+        auto& in_access = translator.builder().add_access(block, translator.get_or_create_container(value));
+        translator.builder().add_computational_memlet(block, in_access, lib_node, "_in", {}, input_tensor_type);
     }
 
     auto& out_access = translator.builder().add_access(block, translator.get_or_create_container(result));
+    translator.builder().add_computational_memlet(block, lib_node, "_out", out_access, {}, input_tensor_type);
+
+    return success();
 }
 
 LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::MatmulOp* op) {
