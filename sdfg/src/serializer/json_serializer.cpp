@@ -1356,6 +1356,10 @@ void register_default_serializers() {
         .register_library_node_serializer(math::tensor::LibraryNodeType_Transpose.value(), []() {
             return std::make_unique<math::tensor::TransposeNodeSerializer>();
         });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_MatMul.value(), []() {
+            return std::make_unique<math::tensor::MatMulNodeSerializer>();
+        });
 
     // Elementwise
     LibraryNodeSerializerRegistry::instance()

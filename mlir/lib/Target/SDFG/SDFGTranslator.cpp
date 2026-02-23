@@ -84,6 +84,11 @@ bool TensorInfo::is_reshape_valid(ArrayRef<int64_t> new_shape) const {
     if (old_num_elements != new_num_elements) {
         return false;
     }
+
+    return has_basic_strides();
+}
+
+bool TensorInfo::has_basic_strides() const {
     auto expected_strides = compute_strides(shape_);
     if (expected_strides.size() != strides_.size()) {
         return false;

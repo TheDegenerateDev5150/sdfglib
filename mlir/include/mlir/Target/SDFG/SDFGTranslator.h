@@ -45,6 +45,9 @@ public:
     /// Returns true iff a reshape is valid (contiguous layout, same element count).
     bool is_reshape_valid(ArrayRef<int64_t> new_shape) const;
 
+    /// Returns true iff the tensor has basic C-order contiguous strides.
+    bool has_basic_strides() const;
+
     /// Create reshaped view (only valid for contiguous tensors).
     TensorInfo reshape(ArrayRef<int64_t> new_shape) const;
 };
