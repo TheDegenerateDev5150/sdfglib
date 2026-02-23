@@ -27,8 +27,8 @@
  *
  * Creating a batched matrix multiplication:
  * @code
- * std::vector<symbolic::Expression> shape_a = {symbolic::symbol("B"), symbolic::symbol("M"), symbolic::symbol("K")};
- * std::vector<symbolic::Expression> shape_b = {symbolic::symbol("B"), symbolic::symbol("K"), symbolic::symbol("N")};
+ * symbolic::MultiExpression shape_a = {symbolic::symbol("B"), symbolic::symbol("M"), symbolic::symbol("K")};
+ * symbolic::MultiExpression shape_b = {symbolic::symbol("B"), symbolic::symbol("K"), symbolic::symbol("N")};
  *
  * auto& matmul_node = builder.add_library_node<math::tensor::MatMulNode>(
  *     block, debug_info, shape_a, shape_b
@@ -75,10 +75,10 @@ inline data_flow::LibraryNodeCode LibraryNodeType_MatMul("ml::MatMul");
  */
 class MatMulNode : public TensorNode {
 private:
-    std::vector<symbolic::Expression> shape_a_; ///< Shape of input tensor A [..., M, K]
-    std::vector<symbolic::Expression> shape_b_; ///< Shape of input tensor B [..., K, N]
-    std::vector<symbolic::Expression> strides_a_; ///< Strides for tensor A (elements per dimension)
-    std::vector<symbolic::Expression> strides_b_; ///< Strides for tensor B (elements per dimension)
+    symbolic::MultiExpression shape_a_; ///< Shape of input tensor A [..., M, K]
+    symbolic::MultiExpression shape_b_; ///< Shape of input tensor B [..., K, N]
+    symbolic::MultiExpression strides_a_; ///< Strides for tensor A (elements per dimension)
+    symbolic::MultiExpression strides_b_; ///< Strides for tensor B (elements per dimension)
     symbolic::Expression offset_a_; ///< Offset into tensor A (in elements)
     symbolic::Expression offset_b_; ///< Offset into tensor B (in elements)
 
@@ -101,10 +101,10 @@ public:
         const DebugInfo& debug_info,
         const graph::Vertex vertex,
         data_flow::DataFlowGraph& parent,
-        const std::vector<symbolic::Expression>& shape_a,
-        const std::vector<symbolic::Expression>& shape_b,
-        const std::vector<symbolic::Expression>& strides_a = {},
-        const std::vector<symbolic::Expression>& strides_b = {},
+        const symbolic::MultiExpression& shape_a,
+        const symbolic::MultiExpression& shape_b,
+        const symbolic::MultiExpression& strides_a = {},
+        const symbolic::MultiExpression& strides_b = {},
         symbolic::Expression offset_a = symbolic::integer(0),
         symbolic::Expression offset_b = symbolic::integer(0)
     );
@@ -113,25 +113,25 @@ public:
      * @brief Get the shape of input tensor A
      * @return Shape vector for tensor A
      */
-    const std::vector<symbolic::Expression>& shape_a() const { return shape_a_; }
+    const symbolic::MultiExpression& shape_a() const { return shape_a_; }
 
     /**
      * @brief Get the shape of input tensor B
      * @return Shape vector for tensor B
      */
-    const std::vector<symbolic::Expression>& shape_b() const { return shape_b_; }
+    const symbolic::MultiExpression& shape_b() const { return shape_b_; }
 
     /**
      * @brief Get the strides for tensor A
      * @return Strides vector for tensor A
      */
-    const std::vector<symbolic::Expression>& strides_a() const { return strides_a_; }
+    const symbolic::MultiExpression& strides_a() const { return strides_a_; }
 
     /**
      * @brief Get the strides for tensor B
      * @return Strides vector for tensor B
      */
-    const std::vector<symbolic::Expression>& strides_b() const { return strides_b_; }
+    const symbolic::MultiExpression& strides_b() const { return strides_b_; }
 
     /**
      * @brief Get the offset for tensor A

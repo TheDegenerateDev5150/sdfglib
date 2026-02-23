@@ -260,7 +260,7 @@ void free_after_copy(
 ) {
     auto& block = builder.add_block(parent, {}, DebugInfo());
     auto& access = builder.add_access(block, copy_name);
-    auto& free_node = builder.add_library_node<stdlib::FreeNode>(block, DebugInfo(), copy_name);
+    auto& free_node = builder.add_library_node<stdlib::FreeNode>(block, DebugInfo());
     builder.add_computational_memlet(
         block, access, free_node, "_ptr", {}, types::Pointer(types::Scalar(types::PrimitiveType::Void))
     );
