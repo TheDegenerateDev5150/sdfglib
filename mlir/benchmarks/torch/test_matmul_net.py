@@ -75,7 +75,3 @@ def test_compile():
 
     res_ref = torch.matmul(torch.matmul(example_input, weight1), weight2)
     assert torch.allclose(res, res_ref)
-
-
-test_backend()
-test_compile()
