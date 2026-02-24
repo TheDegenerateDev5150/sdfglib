@@ -11,6 +11,8 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
 #include "sdfg/element.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg/types/pointer.h"
+#include "sdfg/types/scalar.h"
 #include "sdfg/types/tensor.h"
 
 namespace mlir {
@@ -32,9 +34,12 @@ LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
 LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* op) {
     auto& sequence = translator.insertion_point();
 
+    auto& ref_block = translator.builder().add_block(sequence);
+
     auto& block = translator.builder().add_block(sequence);
 
     Value value = op->value();
+    Value output = op->output();
     Value result = op->result();
 
     auto in_type = dyn_cast_or_null<RankedTensorType>(value.getType());
@@ -65,11 +70,24 @@ LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* 
     auto& out_access = translator.builder().add_access(block, translator.get_or_create_container(result));
     translator.builder().add_computational_memlet(block, lib_node, "_out", out_access, {}, input_tensor_type);
 
+    auto& out_access_ref = translator.builder().add_access(ref_block, translator.get_or_create_container(output));
+
+    auto& ref_access = translator.builder().add_access(ref_block, translator.get_or_create_container(result));
+    translator.builder().add_reference_memlet(ref_block, out_access_ref, ref_access, {}, input_tensor_type);
+
     return success();
 }
 
 LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::MatmulOp* op) {
     auto& sequence = translator.insertion_point();
+
+    auto& ref_block = translator.builder().add_block(sequence);
+
+    auto output = op->getOutputs()[0];
+    auto result = op->getResult(0);
+
+    auto& ref_access_in = translator.builder().add_access(ref_block, translator.get_or_create_container(output));
+    auto& ref_access_out = translator.builder().add_access(ref_block, translator.get_or_create_container(result));
 
     auto& block = translator.builder().add_block(sequence);
 
@@ -127,8 +145,8 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
         shape_rhs,
         strides_lhs,
         strides_rhs,
-        /*offset_a=*/0,
-        /*offset_b=*/0
+        /*offset_a=*/::sdfg::symbolic::zero(),
+        /*offset_b=*/::sdfg::symbolic::zero()
     );
 
     auto lhs_primitive_type = translator.convertType(lhs_type)->primitive_type();
@@ -144,6 +162,8 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
     auto& write_access = translator.builder().add_access(block, out_container);
 
     translator.builder().add_computational_memlet(block, libnode, "Y", write_access, {}, output_tensor_type);
+
+    translator.builder().add_reference_memlet(ref_block, ref_access_in, ref_access_out, {}, output_tensor_type);
 
     return success();
 }
@@ -171,8 +191,13 @@ LogicalResult translateLinalgTransposeOp(SDFGTranslator& translator, linalg::Tra
     auto& in_access = translator.builder().add_access(block, in_container);
     auto& out_access = translator.builder().add_access(block, out_container);
 
-    translator.builder()
-        .add_reference_memlet(block, in_access, out_access, {}, *translator.convertType(input_tensor_type));
+    translator.builder().add_reference_memlet(
+        block,
+        in_access,
+        out_access,
+        {},
+        ::sdfg::types::Pointer(::sdfg::types::Scalar(::sdfg::types::PrimitiveType::Void))
+    );
 
     // Compute and store tensor info for input and output tensors. This will be used for libnode generation later on.
     auto& in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
