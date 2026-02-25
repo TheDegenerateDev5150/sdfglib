@@ -447,13 +447,13 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     auto& c_access_ref_in = builder.add_access(ref_block, ref_name_c, debug_info());
 
     builder.add_reference_memlet(
-        ref_block, a_access_ref, a_access, {a_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
+        ref_block, a_access, a_access_ref, {a_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
     );
     builder.add_reference_memlet(
-        ref_block, b_access_ref, b_access, {b_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
+        ref_block, b_access, b_access_ref, {b_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
     );
     builder.add_reference_memlet(
-        ref_block, c_access_ref_in, c_access_in, {c_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
+        ref_block, c_access_in, c_access_ref_in, {c_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
     );
 
     // Create block with GEMM library node
