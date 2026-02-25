@@ -113,13 +113,17 @@ LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
 LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* op) {
     auto& sequence = translator.insertion_point();
 
-    auto& ref_block = translator.builder().add_block(sequence);
-
-    auto& block = translator.builder().add_block(sequence);
-
     Value value = op->value();
     Value output = op->output();
     Value result = op->result();
+
+    auto value_container = translator.get_or_create_container(value);
+    auto output_container = translator.get_or_create_container(output);
+    auto result_container = translator.get_or_create_container(result);
+
+    translator.add_reference(output_container, result_container);
+
+    auto& block = translator.builder().add_block(sequence);
 
     auto result_type = dyn_cast_or_null<RankedTensorType>(result.getType());
     if (!result_type) {
@@ -150,25 +154,19 @@ LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* 
     auto& out_access = translator.builder().add_access(block, translator.get_or_create_container(result));
     translator.builder().add_computational_memlet(block, lib_node, "Y", out_access, {}, *tensor_type);
 
-    auto& out_access_ref = translator.builder().add_access(ref_block, translator.get_or_create_container(output));
-
-    auto& ref_access = translator.builder().add_access(ref_block, translator.get_or_create_container(result));
-    translator.builder()
-        .add_reference_memlet(ref_block, out_access_ref, ref_access, {::sdfg::symbolic::zero()}, *tensor_type);
-
     return success();
 }
 
 LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::MatmulOp* op) {
     auto& sequence = translator.insertion_point();
 
-    auto& ref_block = translator.builder().add_block(sequence);
-
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0);
 
-    auto& ref_access_in = translator.builder().add_access(ref_block, translator.get_or_create_container(output));
-    auto& ref_access_out = translator.builder().add_access(ref_block, translator.get_or_create_container(result));
+    auto output_container = translator.get_or_create_container(output);
+    auto result_container = translator.get_or_create_container(result);
+
+    translator.add_reference(output_container, result_container);
 
     auto& block = translator.builder().add_block(sequence);
 
@@ -250,9 +248,6 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
 
     translator.builder().add_computational_memlet(block, libnode, "Y", write_access, {}, output_tensor_type);
 
-    translator.builder()
-        .add_reference_memlet(ref_block, ref_access_in, ref_access_out, {::sdfg::symbolic::zero()}, output_tensor_type);
-
     return success();
 }
 
@@ -276,18 +271,7 @@ LogicalResult translateLinalgTransposeOp(SDFGTranslator& translator, linalg::Tra
     auto in_container = translator.get_or_create_container(input);
     auto out_container = translator.get_or_create_container(result);
 
-    auto& in_access = translator.builder().add_access(block, in_container);
-    auto& out_access = translator.builder().add_access(block, out_container);
-
-    auto primitive_type = translator.convertType(input_tensor_type)->primitive_type();
-
-    translator.builder().add_reference_memlet(
-        block,
-        in_access,
-        out_access,
-        {::sdfg::symbolic::zero()},
-        ::sdfg::types::Pointer(::sdfg::types::Scalar(primitive_type))
-    );
+    translator.add_reference(in_container, out_container);
 
     // Compute and store tensor info for input and output tensors. This will be used for libnode generation later on.
     auto& in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);

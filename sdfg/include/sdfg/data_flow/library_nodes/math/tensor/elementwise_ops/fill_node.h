@@ -18,6 +18,8 @@ public:
         const std::vector<symbolic::Expression>& shape
     );
 
+    bool expand(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
+
     bool expand_operation(
         builder::StructuredSDFGBuilder& builder,
         analysis::AnalysisManager& analysis_manager,

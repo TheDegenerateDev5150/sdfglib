@@ -225,29 +225,40 @@ std::string copy_if_view(
         auto elem_size = types::get_type_size(types::Scalar(type));
         auto copy_size = symbolic::mul(num_elements, elem_size);
 
-        auto& block = builder.add_block(parent, {}, DebugInfo());
+        // Allocate a C-order copy
+        auto& alloc_block = builder.add_block(parent, {}, DebugInfo());
+        auto& out_access = builder.add_access(alloc_block, copy_name);
+        auto& malloc_node = builder.add_library_node<stdlib::MallocNode>(alloc_block, DebugInfo(), copy_size);
+        builder.add_computational_memlet(alloc_block, malloc_node, "_ret", out_access, {}, tensor_type);
 
-        auto& out_access = builder.add_access(block, copy_name);
+        // Build a loop nest over each dimension
+        structured_control_flow::Sequence* inner_scope = &parent;
+        std::vector<symbolic::Expression> loop_vars;
+        std::vector<symbolic::Expression> orig_accesses;
+        for (size_t i = 0; i < shape.size(); ++i) {
+            std::string indvar_str = builder.find_new_name(name + "_ci");
+            builder.add_container(indvar_str, types::Scalar(types::PrimitiveType::UInt64));
+            auto indvar = symbolic::symbol(indvar_str);
+            auto init = symbolic::zero();
+            auto update = symbolic::add(indvar, symbolic::one());
+            auto condition = symbolic::Lt(indvar, shape[i]);
+            auto& copy_map =
+                builder.add_map(*inner_scope, indvar, condition, init, update, ScheduleType_Sequential::create());
+            inner_scope = &copy_map.root();
+            loop_vars.push_back(indvar);
+        }
 
-        auto& malloc_node = builder.add_library_node<stdlib::MallocNode>(block, DebugInfo(), copy_size);
-
-        builder.add_computational_memlet(block, malloc_node, "_ret", out_access, {}, tensor_type);
-
-        std::string copy_indvar = builder.find_new_name(name + "_copy_indvar");
-        builder.add_container(copy_indvar, types::Scalar(types::PrimitiveType::UInt64));
-        auto indvar = symbolic::symbol(copy_indvar);
-        auto init = symbolic::zero();
-        auto update = symbolic::add(indvar, symbolic::one());
-        auto condition = symbolic::Lt(indvar, num_elements);
-        auto& copy_map = builder.add_map(parent, indvar, condition, init, update, ScheduleType_Sequential::create());
-
-        auto& copy_block = builder.add_block(copy_map.root());
+        // Inside the innermost loop: copy one element
+        auto& copy_block = builder.add_block(*inner_scope);
         auto& in_access_copy = builder.add_access(copy_block, name);
         auto& out_access_copy = builder.add_access(copy_block, copy_name);
-        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        auto& tasklet = builder.add_tasklet(copy_block, data_flow::TaskletCode::assign, "_out", {"_in"});
 
-        builder.add_computational_memlet(copy_block, in_access_copy, tasklet, "_in", {indvar}, tensor_type);
-        builder.add_computational_memlet(copy_block, tasklet, "_out", out_access_copy, {indvar}, tensor_type);
+        // Read with original strides/offset
+        builder.add_computational_memlet(copy_block, in_access_copy, tasklet, "_in", loop_vars, tensor_type);
+        // Write with C-order strides (default strides, zero offset)
+        types::Tensor c_order_type(type, shape);
+        builder.add_computational_memlet(copy_block, tasklet, "_out", out_access_copy, loop_vars, c_order_type);
 
         return copy_name;
     } else {
@@ -324,7 +335,7 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
         default:
             // GEMM only supports floating point types, fall back to naive expansion
             return false;
-    }
+    };
 
     // Add new graph after the current block
     auto& new_sequence = builder.add_sequence_before(parent, block, transition.assignments(), block.debug_info());
@@ -345,6 +356,8 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     size_t batch_dims_a = shape_a_.size() - 2;
     size_t batch_dims_b = shape_b_.size() - 2;
     size_t max_batch_dims = std::max(batch_dims_a, batch_dims_b);
+
+    auto& ref_block = builder.add_block(*last_scope, {}, block.debug_info());
 
     // Create maps for batch dimensions (using broadcasting)
     for (size_t i = 0; i < max_batch_dims; ++i) {
@@ -384,7 +397,6 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
         batch_vars.push_back(indvar);
     }
 
-
     auto scalar_type = types::Scalar(prim_type);
 
     // Compute offsets for this batch iteration
@@ -419,8 +431,6 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
         c_batch_offset = symbolic::add(c_batch_offset, symbolic::mul(batch_vars[i], c_stride));
     }
 
-    auto& ref_block = builder.add_block(*last_scope, {}, block.debug_info());
-
     // Create access nodes
     auto& a_access = builder.add_access(ref_block, copy_name_a, debug_info());
     auto& b_access = builder.add_access(ref_block, copy_name_b, debug_info());
@@ -436,12 +446,15 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     builder.add_container(ref_name_c, types::Pointer(types::Scalar(types::PrimitiveType::Void)));
     auto& c_access_ref_in = builder.add_access(ref_block, ref_name_c, debug_info());
 
-    builder
-        .add_reference_memlet(ref_block, a_access_ref, a_access, {a_batch_offset}, iedge_a->base_type(), debug_info());
-    builder
-        .add_reference_memlet(ref_block, b_access_ref, b_access, {b_batch_offset}, iedge_b->base_type(), debug_info());
-    builder
-        .add_reference_memlet(ref_block, c_access_ref_in, c_access_in, {c_batch_offset}, oedge.base_type(), debug_info());
+    builder.add_reference_memlet(
+        ref_block, a_access_ref, a_access, {a_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
+    );
+    builder.add_reference_memlet(
+        ref_block, b_access_ref, b_access, {b_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
+    );
+    builder.add_reference_memlet(
+        ref_block, c_access_ref_in, c_access_in, {c_batch_offset}, ::sdfg::types::Pointer(scalar_type), debug_info()
+    );
 
     // Create block with GEMM library node
     auto& gemm_block = builder.add_block(*last_scope, {}, block.debug_info());
@@ -485,15 +498,15 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     // Connect memlets with batch offsets
     // Input A with offset
     builder.add_computational_memlet(
-        gemm_block, a_access_ref_in_gemm, gemm_node, "__A", {a_batch_offset}, iedge_a->base_type(), debug_info()
+        gemm_block, a_access_ref_in_gemm, gemm_node, "__A", {}, ::sdfg::types::Pointer(scalar_type), debug_info()
     );
     // Input B with offset
     builder.add_computational_memlet(
-        gemm_block, b_access_ref_in_gemm, gemm_node, "__B", {b_batch_offset}, iedge_b->base_type(), debug_info()
+        gemm_block, b_access_ref_in_gemm, gemm_node, "__B", {}, ::sdfg::types::Pointer(scalar_type), debug_info()
     );
     // Input C (for beta * C, but beta=0 so just needs to be connected)
     builder.add_computational_memlet(
-        gemm_block, c_access_ref_in_gemm, gemm_node, "__C", {c_batch_offset}, oedge.base_type(), debug_info()
+        gemm_block, c_access_ref_in_gemm, gemm_node, "__C", {}, ::sdfg::types::Pointer(scalar_type), debug_info()
     );
     // Alpha constant
     builder.add_computational_memlet(gemm_block, alpha_const, gemm_node, "__alpha", {}, scalar_type, debug_info());
@@ -501,7 +514,7 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     builder.add_computational_memlet(gemm_block, beta_const, gemm_node, "__beta", {}, scalar_type, debug_info());
     // Output C
     builder.add_computational_memlet(
-        gemm_block, gemm_node, "__C", c_access_ref_out, {c_batch_offset}, oedge.base_type(), debug_info()
+        gemm_block, gemm_node, "__C", c_access_ref_out, {}, ::sdfg::types::Pointer(scalar_type), debug_info()
     );
 
     // Free copies if we made them
@@ -516,7 +529,9 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     builder.remove_memlet(block, *iedge_a);
     builder.remove_memlet(block, *iedge_b);
     builder.remove_memlet(block, oedge);
-    builder.remove_node(block, input_node_a);
+    if (&input_node_a != &input_node_b) {
+        builder.remove_node(block, input_node_a);
+    }
     builder.remove_node(block, input_node_b);
     builder.remove_node(block, output_node);
     builder.remove_node(block, *this);
