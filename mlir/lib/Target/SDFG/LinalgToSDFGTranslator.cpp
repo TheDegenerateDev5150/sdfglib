@@ -2,25 +2,103 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/LogicalResult.h>
+#include <string>
+#include <vector>
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Target/SDFG/SDFGTranslator.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/fill_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
+#include "sdfg/data_flow/tasklet.h"
 #include "sdfg/element.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/types/pointer.h"
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/tensor.h"
+#include "sdfg/types/type.h"
 
 namespace mlir {
 namespace sdfg {
 
+template<typename ElemOp, ::sdfg::data_flow::TaskletCode fp_code, ::sdfg::data_flow::TaskletCode int_code>
+LogicalResult translateLinalgElementwiseTaskletOp(SDFGTranslator& translator, ElemOp* add_op) {
+    Value input1 = add_op->getInputs()[0];
+    Value input2 = add_op->getInputs()[1];
+    Value output = add_op->getOutputs()[0];
+    Value result = add_op->getResultTensors()[0];
+
+    auto& builder = translator.builder();
+    auto input1_container = translator.get_or_create_container(input1);
+    auto input2_container = translator.get_or_create_container(input2);
+    auto output_container = translator.get_or_create_container(output);
+    auto result_container = translator.get_or_create_container(result);
+
+    auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
+    auto tensor_info = translator.get_or_create_tensor_info(result_container, result_tensor_type);
+
+    auto element_type = translator.convertType(result_tensor_type.getElementType());
+    auto sdfg_tensor = tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
+
+    ::sdfg::data_flow::TaskletCode code;
+    if (::sdfg::types::is_floating_point(sdfg_tensor->primitive_type())) {
+        code = fp_code;
+    } else {
+        code = int_code;
+    }
+
+    translator.add_reference(output_container, result_container);
+
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& input1_access = builder.add_access(block, input1_container);
+    auto& input2_access =
+        *(input1_container == input2_container ? &input1_access : &builder.add_access(block, input2_container));
+    auto& result_access = builder.add_access(block, result_container);
+    auto& libnode = builder.add_library_node<::sdfg::math::tensor::TaskletTensorNode>(
+        block,
+        ::sdfg::DebugInfo(),
+        code,
+        std::vector<std::string>({"_out"}),
+        std::vector<std::string>({"_in1", "_in2"}),
+        sdfg_tensor->shape()
+    );
+    builder.add_computational_memlet(block, input1_access, libnode, "_in1", {}, *sdfg_tensor);
+    builder.add_computational_memlet(block, input2_access, libnode, "_in2", {}, *sdfg_tensor);
+    builder.add_computational_memlet(block, libnode, "_out", result_access, {}, *sdfg_tensor);
+
+    return success();
+}
 
 LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
     return llvm::TypeSwitch<Operation*, LogicalResult>(op)
+        .Case<linalg::AddOp>([&](linalg::AddOp add_op) {
+            return translateLinalgElementwiseTaskletOp<
+                linalg::AddOp,
+                ::sdfg::data_flow::TaskletCode::fp_add,
+                ::sdfg::data_flow::TaskletCode::int_add>(translator, &add_op);
+        })
+        .Case<linalg::DivOp>([&](linalg::DivOp div_op) {
+            return translateLinalgElementwiseTaskletOp<
+                linalg::DivOp,
+                ::sdfg::data_flow::TaskletCode::fp_div,
+                ::sdfg::data_flow::TaskletCode::int_sdiv>(translator, &div_op);
+        })
+        .Case<linalg::MulOp>([&](linalg::MulOp div_op) {
+            return translateLinalgElementwiseTaskletOp<
+                linalg::MulOp,
+                ::sdfg::data_flow::TaskletCode::fp_mul,
+                ::sdfg::data_flow::TaskletCode::int_mul>(translator, &div_op);
+        })
+        .Case<linalg::SubOp>([&](linalg::SubOp div_op) {
+            return translateLinalgElementwiseTaskletOp<
+                linalg::SubOp,
+                ::sdfg::data_flow::TaskletCode::fp_sub,
+                ::sdfg::data_flow::TaskletCode::int_sub>(translator, &div_op);
+        })
         .Case<linalg::FillOp>([&](linalg::FillOp fill_op) { return translateLinalgFillOp(translator, &fill_op); })
         .Case<linalg::MatmulOp>([&](linalg::MatmulOp matmul_op) {
             return translateLinalgMatmulOp(translator, &matmul_op);
