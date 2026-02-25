@@ -1,3 +1,4 @@
+#include <iostream>
 #include <sdfg/data_flow/memlet.h>
 
 #include "sdfg/data_flow/library_node.h"

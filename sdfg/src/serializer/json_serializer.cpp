@@ -1432,6 +1432,10 @@ void register_default_serializers() {
             return std::make_unique<math::tensor::MaximumNodeSerializer>();
         });
     LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Fill.value(), []() {
+            return std::make_unique<math::tensor::FillNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_TensorTasklet.value(), []() {
             return std::make_unique<math::tensor::TaskletTensorNodeSerializer>();
         });
