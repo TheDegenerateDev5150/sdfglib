@@ -90,8 +90,26 @@ bool do_cuda_error_checking() {
     return false;
 }
 
+bool do_hard_sync() {
+    std::string docc_ci = getenv("DOCC_CI");
+    if (docc_ci != "") {
+        return true;
+    }
+
+    auto env = getenv("DOCC_CUDA_HARDSYNC");
+    if (env == nullptr) {
+        return false;
+    }
+    std::string env_str(env);
+    std::transform(env_str.begin(), env_str.end(), env_str.begin(), ::tolower);
+    if (env_str == "1" || env_str == "true") {
+        return true;
+    }
+    return false;
+}
+
 void check_cuda_kernel_launch_errors(codegen::PrettyPrinter& stream, const codegen::LanguageExtension& language_extension) {
-    if (!do_cuda_error_checking()) {
+    if (!do_cuda_error_checking() || do_hard_sync()) {
         return;
     }
     stream << "cudaError_t launch_err = cudaDeviceSynchronize();" << std::endl;
