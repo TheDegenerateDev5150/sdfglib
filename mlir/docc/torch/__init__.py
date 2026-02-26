@@ -272,8 +272,12 @@ class TorchProgram(DoccProgram):
                         ctypes.c_long: np.int64,
                     }
                     np_dtype = dtype_map.get(ctype, np.float32)
-                    arr = np.ctypeslib.as_array(val, shape=(num_elements,)).copy()
-                    arr = arr.astype(np_dtype).reshape(return_shape)
+                    # Cast pointer to a ctypes array of the full size,
+                    # then read with np.frombuffer to get all elements
+                    ArrayType = ctype * num_elements
+                    arr_ptr = ctypes.cast(val, ctypes.POINTER(ArrayType))
+                    arr = np.frombuffer(arr_ptr.contents, dtype=np_dtype).copy()
+                    arr = arr.reshape(return_shape)
                     return torch.from_numpy(arr).to(device)
                 return val
 
@@ -373,8 +377,16 @@ def _docc_backend(gm: "torch.fx.GraphModule", example_inputs):
         category=_backend_options["category"],
     )
 
+    # Wrap in a function that returns a tuple of tensors,
+    # matching the FX graph's output convention expected by dynamo.
+    def compiled_fn(*args):
+        result = program(*args)
+        if isinstance(result, (tuple, list)):
+            return result
+        return (result,)
+
     # Return the compiled callable
-    return program
+    return compiled_fn
 
 
 def _register_backend():
