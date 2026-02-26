@@ -229,7 +229,9 @@ std::string copy_if_view(
         auto& alloc_block = builder.add_block(parent, {}, DebugInfo());
         auto& out_access = builder.add_access(alloc_block, copy_name);
         auto& malloc_node = builder.add_library_node<stdlib::MallocNode>(alloc_block, DebugInfo(), copy_size);
-        builder.add_computational_memlet(alloc_block, malloc_node, "_ret", out_access, {}, tensor_type);
+        builder.add_computational_memlet(
+            alloc_block, malloc_node, "_ret", out_access, {}, types::Pointer(types::Scalar(type))
+        );
 
         // Build a loop nest over each dimension
         structured_control_flow::Sequence* inner_scope = &parent;
