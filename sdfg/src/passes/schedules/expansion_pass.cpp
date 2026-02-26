@@ -1,5 +1,4 @@
 #include "sdfg/passes/schedules/expansion_pass.h"
-#include <iostream>
 
 #include "sdfg/data_flow/library_nodes/math/math.h"
 
