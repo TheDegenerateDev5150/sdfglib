@@ -65,6 +65,7 @@ class TorchProgram(DoccProgram):
 
         # get return shape from metadata
         return_shape_str = self._compiled.sdfg.metadata("return_shape")
+
         # parse shape string back to tuple
         return_shape = tuple(
             int(dim) for dim in return_shape_str.strip("[]").split(",") if dim
