@@ -60,6 +60,11 @@ LogicalResult translateFuncReturnOp(SDFGTranslator& translator, func::ReturnOp* 
         auto return_container = translator.get_or_create_container(return_op->getOperand(0));
         translator.handle_frees(return_container);
         translator.builder().add_return(translator.insertion_point(), return_container);
+
+        auto result_tensor_type = llvm::dyn_cast<TensorType>(return_op->getOperand(0).getType());
+        translator.builder().subject().add_metadata(
+            "return_shape", translator.get_or_create_tensor_info(return_container, result_tensor_type).shape_str()
+        );
     } else if (return_op->getOperands().size() > 1) {
         return return_op->emitOpError("Only one result type is supported for SDFGs");
     }

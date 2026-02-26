@@ -63,9 +63,17 @@ class TorchProgram(DoccProgram):
         # Execute
         result = self._compiled(*numpy_args)
 
+        # get return shape from metadata
+        return_shape_str = self._compiled.sdfg.metadata("return_shape")
+        # parse shape string back to tuple
+        return_shape = tuple(
+            int(dim) for dim in return_shape_str.strip("[]").split(",") if dim
+        )
+        self._output_info = [{"shape": return_shape}]
+
         # Convert outputs back to torch if inputs were torch
         if is_torch_input:
-            result = self._convert_outputs(result, args)
+            result = self._convert_outputs(result, args, return_shape)
 
         return result
 
@@ -229,7 +237,9 @@ class TorchProgram(DoccProgram):
 
         return tuple(converted)
 
-    def _convert_outputs(self, result: Any, original_args: tuple) -> Any:
+    def _convert_outputs(
+        self, result: Any, original_args: tuple, return_shape: tuple
+    ) -> Any:
         import torch
         import numpy as np
 
@@ -240,15 +250,37 @@ class TorchProgram(DoccProgram):
                 device = arg.device
                 break
 
-        def convert_single(val):
+        def convert_single(val, return_shape):
             if isinstance(val, np.ndarray):
+                val = val.reshape(return_shape)
                 return torch.from_numpy(val).to(device)
-            return val
+            elif isinstance(val, torch.Tensor):
+                return val.reshape(return_shape).to(device)
+            else:
+                # Handle ctypes pointers (e.g. LP_c_float from CompiledSDFG)
+                import ctypes
+
+                if hasattr(val, "contents") and hasattr(val, "_type_"):
+                    import math
+
+                    num_elements = math.prod(return_shape)
+                    ctype = val._type_
+                    dtype_map = {
+                        ctypes.c_float: np.float32,
+                        ctypes.c_double: np.float64,
+                        ctypes.c_int: np.int32,
+                        ctypes.c_long: np.int64,
+                    }
+                    np_dtype = dtype_map.get(ctype, np.float32)
+                    arr = np.ctypeslib.as_array(val, shape=(num_elements,)).copy()
+                    arr = arr.astype(np_dtype).reshape(return_shape)
+                    return torch.from_numpy(arr).to(device)
+                return val
 
         if isinstance(result, tuple):
-            return tuple(convert_single(r) for r in result)
+            return tuple(convert_single(r, return_shape) for r in result)
         else:
-            return convert_single(result)
+            return convert_single(result, return_shape)
 
     def _get_cache_key(self, example_input: Any) -> str:
         import torch

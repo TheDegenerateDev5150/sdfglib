@@ -55,6 +55,9 @@ public:
     /// Create reshaped view (only valid for contiguous tensors).
     TensorInfo reshape(ArrayRef<int64_t> new_shape) const;
 
+    /// return shape as string for metadata
+    std::string shape_str() const;
+
     /// Create SDFG tensor type
     std::unique_ptr<::sdfg::types::Tensor> get_sdfg_tensor(const ::sdfg::types::Scalar& element_type) const;
 };

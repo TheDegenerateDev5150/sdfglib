@@ -129,6 +129,18 @@ std::unique_ptr<::sdfg::types::Tensor> TensorInfo::get_sdfg_tensor(const ::sdfg:
     return std::make_unique<::sdfg::types::Tensor>(element_type, shape, strides, offset);
 }
 
+std::string TensorInfo::shape_str() const {
+    std::string result = "[";
+    for (size_t i = 0; i < shape_.size(); ++i) {
+        result += std::to_string(shape_[i]);
+        if (i != shape_.size() - 1) {
+            result += ",";
+        }
+    }
+    result += "]";
+    return result;
+}
+
 // ===----------------------------------------------------------------------===//
 // SDFGTranslator
 // ===----------------------------------------------------------------------===//
