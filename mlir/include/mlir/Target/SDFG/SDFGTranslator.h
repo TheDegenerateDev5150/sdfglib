@@ -104,6 +104,10 @@ public:
 
     void handle_malloc(std::string container, const ::sdfg::symbolic::Expression size);
     void handle_frees(std::string return_container = "");
+
+    std::string store_in_c_order(
+        const std::string& container, const TensorInfo& tensor_info, const ::sdfg::types::Scalar& element_type
+    );
 };
 
 LogicalResult translateOp(SDFGTranslator& translator, Operation* op);

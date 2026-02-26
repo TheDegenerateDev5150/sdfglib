@@ -58,6 +58,13 @@ LogicalResult translateFuncFuncOp(SDFGTranslator& translator, func::FuncOp* func
 LogicalResult translateFuncReturnOp(SDFGTranslator& translator, func::ReturnOp* return_op) {
     if (return_op->getOperands().size() == 1) {
         auto return_container = translator.get_or_create_container(return_op->getOperand(0));
+        return_container = translator.store_in_c_order(
+            return_container,
+            translator.get_or_create_tensor_info(
+                return_container, llvm::dyn_cast<TensorType>(return_op->getOperand(0).getType())
+            ),
+            translator.convertType(return_op->getOperand(0).getType())->primitive_type()
+        );
         translator.handle_frees(return_container);
         translator.builder().add_return(translator.insertion_point(), return_container);
 
