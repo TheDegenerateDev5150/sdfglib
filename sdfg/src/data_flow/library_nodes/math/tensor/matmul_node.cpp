@@ -270,13 +270,14 @@ void free_after_copy(
     const std::string& copy_name, builder::StructuredSDFGBuilder& builder, structured_control_flow::Sequence& parent
 ) {
     auto& block = builder.add_block(parent, {}, DebugInfo());
-    auto& access = builder.add_access(block, copy_name);
+    auto& access_in = builder.add_access(block, copy_name);
+    auto& access_out = builder.add_access(block, copy_name);
     auto& free_node = builder.add_library_node<stdlib::FreeNode>(block, DebugInfo());
     builder.add_computational_memlet(
-        block, access, free_node, "_ptr", {}, types::Pointer(types::Scalar(types::PrimitiveType::Void))
+        block, access_in, free_node, "_ptr", {}, types::Pointer(types::Scalar(types::PrimitiveType::Void))
     );
     builder.add_computational_memlet(
-        block, free_node, "_ptr", access, {}, types::Pointer(types::Scalar(types::PrimitiveType::Void))
+        block, free_node, "_ptr", access_out, {}, types::Pointer(types::Scalar(types::PrimitiveType::Void))
     );
 }
 

@@ -351,10 +351,6 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
 }
 
 LogicalResult translateLinalgTransposeOp(SDFGTranslator& translator, linalg::TransposeOp* op) {
-    auto& sequence = translator.insertion_point();
-
-    auto& block = translator.builder().add_block(sequence);
-
     Value input = op->getInput();
     Value result = op->getResult()[0];
 
