@@ -39,7 +39,8 @@ def test_backend():
     program = torch.compile(model, backend="docc")
     res = program(example_input)
 
-    res_ref = torch.matmul(example_input, example_input)
+    ref_program = torch.compile(model)
+    res_ref = ref_program(example_input)
     assert torch.allclose(res, res_ref)
 
 
