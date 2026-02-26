@@ -23,6 +23,7 @@ from docc.compiler.docc_program import DoccProgram
 from docc.compiler.compiled_sdfg import CompiledSDFG
 from docc.python.ast_parser import ASTParser
 from docc.python.types import element_type_from_sdfg_type
+from docc.python.target_registry import get_target, is_custom_target
 
 
 def _compile_wrapper(self, output_folder=None):
@@ -285,7 +286,12 @@ class PythonProgram(DoccProgram):
 
         # Schedule if target is specified
         if self.target != "none":
-            sdfg.schedule(self.target, self.category, self.remote_tuning)
+            # Check for custom registered target first
+            custom_schedule_fn = get_target(self.target)
+            if custom_schedule_fn is not None:
+                custom_schedule_fn(sdfg, self.category)
+            else:
+                sdfg.schedule(self.target, self.category, self.remote_tuning)
 
         self.last_sdfg = sdfg
 
