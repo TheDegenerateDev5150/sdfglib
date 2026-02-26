@@ -54,7 +54,7 @@ def test_inference():
             print("-" * 30)
             # Verify output
             output_ref = model_ref(batch)
-            assert torch.allclose(output, output_ref)
+            assert torch.allclose(output, output_ref, rtol=1e-5)
 
 
 @pytest.mark.skip()

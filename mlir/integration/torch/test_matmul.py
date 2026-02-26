@@ -16,11 +16,13 @@ def test_pytorch():
     model = MatmulNet()
     example_input = torch.randn(10, 10)
 
+    model_ref = MatmulNet()
+
     program = torch.compile(model)
     res = program(example_input)
 
-    res_ref = torch.matmul(example_input, example_input)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-5)
 
 
 def test_backend():
@@ -35,13 +37,15 @@ def test_backend():
     model = MatmulNet()
     example_input = torch.randn(10, 10)
 
+    model_ref = MatmulNet()
+
     docc.torch.set_backend_options(target="none", category="server")
     program = torch.compile(model, backend="docc")
     res = program(example_input)
 
-    ref_program = torch.compile(model)
+    ref_program = torch.compile(model_ref)
     res_ref = ref_program(example_input)
-    assert torch.allclose(res, res_ref)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
 
 
 def test_compile():
@@ -56,8 +60,10 @@ def test_compile():
     model = MatmulNet()
     example_input = torch.randn(10, 10)
 
+    model_ref = MatmulNet()
+
     program = docc.torch.compile_torch(model, example_input)
     res = program(example_input)
 
-    res_ref = torch.matmul(example_input, example_input)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)

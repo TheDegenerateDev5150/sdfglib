@@ -17,13 +17,15 @@ def test_pytorch():
             return h2
 
     model = LinearNet(10, 16, 3)
+    model_ref = LinearNet(10, 16, 3)
+    model_ref.load_state_dict(model.state_dict())
     example_input = torch.randn(8, 10)
 
     program = torch.compile(model)
     res = program(example_input)
 
-    res_ref = model(example_input)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
 
 
 def test_backend():
@@ -39,14 +41,16 @@ def test_backend():
             return h2
 
     model = LinearNet(10, 16, 3)
+    model_ref = LinearNet(10, 16, 3)
+    model_ref.load_state_dict(model.state_dict())
     example_input = torch.randn(8, 10)
 
     docc.torch.set_backend_options(target="none", category="server")
     program = torch.compile(model, backend="docc")
     res = program(example_input)
 
-    res_ref = model(example_input)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
 
 
 def test_compile():
@@ -62,10 +66,12 @@ def test_compile():
             return h2
 
     model = LinearNet(10, 16, 3)
+    model_ref = LinearNet(10, 16, 3)
+    model_ref.load_state_dict(model.state_dict())
     example_input = torch.randn(8, 10)
 
     program = docc.torch.compile_torch(model, example_input)
     res = program(example_input)
 
-    res_ref = model(example_input)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)

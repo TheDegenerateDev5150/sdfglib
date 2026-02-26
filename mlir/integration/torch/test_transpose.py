@@ -16,11 +16,13 @@ def test_pytorch():
     model = TransposeNet()
     example_input = torch.randn(8, 10)
 
+    model_ref = TransposeNet()
+
     program = torch.compile(model)
     res = program(example_input)
 
-    res_ref = torch.transpose(example_input, 0, 1)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-5)
 
 
 def test_backend():
@@ -35,12 +37,14 @@ def test_backend():
     model = TransposeNet()
     example_input = torch.randn(8, 10)
 
+    model_ref = TransposeNet()
+
     docc.torch.set_backend_options(target="none", category="server")
     program = torch.compile(model, backend="docc")
     res = program(example_input)
 
-    res_ref = torch.transpose(example_input, 0, 1)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-5)
 
 
 def test_compile():
@@ -55,8 +59,10 @@ def test_compile():
     model = TransposeNet()
     example_input = torch.randn(8, 10)
 
+    model_ref = TransposeNet()
+
     program = docc.torch.compile_torch(model, example_input)
     res = program(example_input)
 
-    res_ref = torch.transpose(example_input, 0, 1)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-5)

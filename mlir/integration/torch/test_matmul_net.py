@@ -19,13 +19,14 @@ def test_pytorch():
     weight1 = torch.randn(10, 16)
     weight2 = torch.randn(16, 3)
     model = MatmulNet(weight1, weight2)
+    model_ref = MatmulNet(weight1.clone(), weight2.clone())
     example_input = torch.randn(8, 10)
 
     program = torch.compile(model)
     res = program(example_input)
 
-    res_ref = torch.matmul(torch.matmul(example_input, weight1), weight2)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-5)
 
 
 def test_backend():
@@ -43,14 +44,15 @@ def test_backend():
     weight1 = torch.randn(10, 16)
     weight2 = torch.randn(16, 3)
     model = MatmulNet(weight1, weight2)
+    model_ref = MatmulNet(weight1.clone(), weight2.clone())
     example_input = torch.randn(8, 10)
 
     docc.torch.set_backend_options(target="none", category="server")
     program = torch.compile(model, backend="docc")
     res = program(example_input)
 
-    res_ref = torch.matmul(torch.matmul(example_input, weight1), weight2)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-5)
 
 
 def test_compile():
@@ -68,10 +70,11 @@ def test_compile():
     weight1 = torch.randn(10, 16)
     weight2 = torch.randn(16, 3)
     model = MatmulNet(weight1, weight2)
+    model_ref = MatmulNet(weight1.clone(), weight2.clone())
     example_input = torch.randn(8, 10)
 
     program = docc.torch.compile_torch(model, example_input)
     res = program(example_input)
 
-    res_ref = torch.matmul(torch.matmul(example_input, weight1), weight2)
-    assert torch.allclose(res, res_ref)
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-5)
