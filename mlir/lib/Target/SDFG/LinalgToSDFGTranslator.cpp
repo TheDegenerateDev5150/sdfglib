@@ -14,6 +14,7 @@
 #include "mlir/Target/SDFG/SDFGTranslator.h"
 #include "sdfg/data_flow/access_node.h"
 #include "sdfg/data_flow/library_nodes/math/cmath/cmath_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/conv_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/fill_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
@@ -206,6 +207,9 @@ LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
         .Case<linalg::TransposeOp>([&](linalg::TransposeOp transpose_op) {
             return translateLinalgTransposeOp(translator, &transpose_op);
         })
+        .Case<linalg::Conv2DNchwFchwOp>([&](linalg::Conv2DNchwFchwOp conv_op) {
+            return translateLinalgConv2DNchwFchwOp(translator, &conv_op);
+        })
         .Default([&](Operation* op) { return op->emitError("Unknown operation from linalg dialect encountered"); });
 }
 
@@ -373,6 +377,134 @@ LogicalResult translateLinalgTransposeOp(SDFGTranslator& translator, linalg::Tra
 
     auto out_tensor_info = in_tensor_info.transpose(permutation);
     translator.tensor_info_map().insert({out_container, out_tensor_info});
+
+    return success();
+}
+
+LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg::Conv2DNchwFchwOp* op) {
+    auto& sequence = translator.insertion_point();
+
+    // Get operands
+    auto input = op->getInputs()[0]; // X: [N, C_in, H, W]
+    auto weight = op->getInputs()[1]; // W: [C_out, C_in/group, kH, kW]
+    auto output = op->getOutputs()[0]; // accumulator (from fill)
+    auto result = op->getResult(0); // Y: [N, C_out, H_out, W_out]
+
+    auto output_container = translator.get_or_create_container(output);
+    auto result_container = translator.get_or_create_container(result);
+    translator.add_reference(output_container, result_container);
+
+    // Get tensor types
+    auto input_type = dyn_cast_or_null<RankedTensorType>(input.getType());
+    auto weight_type = dyn_cast_or_null<RankedTensorType>(weight.getType());
+    auto result_type = dyn_cast_or_null<RankedTensorType>(result.getType());
+    if (!input_type || !weight_type || !result_type) {
+        return op->emitError("Only ranked tensor types are supported for conv2d");
+    }
+    if (input_type.getRank() != 4 || weight_type.getRank() != 4 || result_type.getRank() != 4) {
+        return op->emitError("Only 4D (NCHW) conv2d is supported");
+    }
+
+    // Get containers
+    auto in_container = translator.get_or_create_container(input);
+    auto w_container = translator.get_or_create_container(weight);
+    auto out_container = translator.get_or_create_container(result);
+
+    // Get tensor info and element type
+    auto element_type = translator.convertType(input_type.getElementType());
+    auto scalar_type = static_cast<::sdfg::types::Scalar&>(*element_type);
+
+    // Ensure inputs are in C order (ConvNode requires contiguous data)
+    {
+        auto& tensor_info_in = translator.get_or_create_tensor_info(in_container, input_type);
+        in_container = translator.store_in_c_order(in_container, tensor_info_in, scalar_type);
+    }
+    {
+        auto& tensor_info_w = translator.get_or_create_tensor_info(w_container, weight_type);
+        w_container = translator.store_in_c_order(w_container, tensor_info_w, scalar_type);
+    }
+
+    // Get tensor info after possible reordering
+    auto& final_info_in = translator.get_or_create_tensor_info(in_container, input_type);
+    auto& final_info_w = translator.get_or_create_tensor_info(w_container, weight_type);
+    auto& tensor_info_out = translator.get_or_create_tensor_info(out_container, result_type);
+
+    // Check offsets are 0
+    if (final_info_in.offset() != 0 || final_info_w.offset() != 0 || tensor_info_out.offset() != 0) {
+        return op->emitError("Only tensors with 0 offset are supported for conv2d");
+    }
+
+    // Build ConvNode parameters
+
+    // Input shape [N, C_in, H, W]
+    std::vector<::sdfg::symbolic::Expression> shape;
+    for (auto entry : final_info_in.shape()) {
+        shape.push_back(::sdfg::symbolic::integer(entry));
+    }
+
+    // Kernel shape [kH, kW] from weight dims 2, 3
+    std::vector<::sdfg::symbolic::Expression> kernel_shape;
+    kernel_shape.push_back(::sdfg::symbolic::integer(final_info_w.shape()[2]));
+    kernel_shape.push_back(::sdfg::symbolic::integer(final_info_w.shape()[3]));
+
+    // Strides from op attribute
+    std::vector<::sdfg::symbolic::Expression> strides;
+    for (int64_t s : op->getStrides().getValues<int64_t>()) {
+        strides.push_back(::sdfg::symbolic::integer(s));
+    }
+
+    // No padding (padding not supported)
+    std::vector<::sdfg::symbolic::Expression> pads = {
+        ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero()
+    };
+
+    // Dilations from op attribute
+    std::vector<::sdfg::symbolic::Expression> dilations;
+    for (int64_t d : op->getDilations().getValues<int64_t>()) {
+        dilations.push_back(::sdfg::symbolic::integer(d));
+    }
+
+    // Output channels = weight shape[0] (C_out)
+    auto output_channels = ::sdfg::symbolic::integer(final_info_w.shape()[0]);
+
+    // Group = 1 (standard convolution, no groups in NCHW-FCHW)
+    auto group = ::sdfg::symbolic::one();
+
+    // Create block and library node
+    auto& block = translator.builder().add_block(sequence);
+    auto& libnode = translator.builder().add_library_node<::sdfg::math::tensor::ConvNode>(
+        block, ::sdfg::DebugInfo(), shape, kernel_shape, strides, pads, dilations, output_channels, group
+    );
+
+    // Build tensor types for memlets (all C-order after store_in_c_order)
+    auto primitive = scalar_type.primitive_type();
+
+    ::sdfg::symbolic::MultiExpression shape_in;
+    for (auto entry : final_info_in.shape()) {
+        shape_in.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor input_tensor_type(primitive, shape_in);
+
+    ::sdfg::symbolic::MultiExpression shape_w;
+    for (auto entry : final_info_w.shape()) {
+        shape_w.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor weight_tensor_type(primitive, shape_w);
+
+    ::sdfg::symbolic::MultiExpression shape_out;
+    for (auto entry : tensor_info_out.shape()) {
+        shape_out.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor output_tensor_type(primitive, shape_out);
+
+    // Access nodes and memlets
+    auto& x_access = translator.builder().add_access(block, in_container);
+    auto& w_access = translator.builder().add_access(block, w_container);
+    auto& y_access = translator.builder().add_access(block, out_container);
+
+    translator.builder().add_computational_memlet(block, x_access, libnode, "X", {}, input_tensor_type);
+    translator.builder().add_computational_memlet(block, w_access, libnode, "W", {}, weight_tensor_type);
+    translator.builder().add_computational_memlet(block, libnode, "Y", y_access, {}, output_tensor_type);
 
     return success();
 }
