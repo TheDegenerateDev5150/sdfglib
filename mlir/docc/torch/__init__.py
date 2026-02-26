@@ -206,9 +206,16 @@ class TorchProgram(DoccProgram):
             raise ValueError("No example input provided for SDFG conversion.")
 
         # Import torch model to MLIR using torch-mlir FX
-        torch_mlir = fx.export_and_import(
-            self.model, self.example_input, output_type="linalg_on_tensors"
-        )
+        # example_input may be a single tensor or a tuple of tensors;
+        # fx.export_and_import expects them as positional *args.
+        if isinstance(self.example_input, tuple):
+            torch_mlir = fx.export_and_import(
+                self.model, *self.example_input, output_type="linalg_on_tensors"
+            )
+        else:
+            torch_mlir = fx.export_and_import(
+                self.model, self.example_input, output_type="linalg_on_tensors"
+            )
         torch_mlir = str(torch_mlir)
 
         # Translate to Structured SDFG
@@ -363,7 +370,9 @@ def _docc_backend(gm: "torch.fx.GraphModule", example_inputs):
     """
     import torch
 
-    # Convert example_inputs list to tuple for TorchProgram
+    # example_inputs from dynamo includes ALL graph inputs:
+    # lifted parameters/buffers AND user inputs.
+    # Pass them all as the example input since the FX GraphModule expects all of them.
     if len(example_inputs) == 1:
         example_input = example_inputs[0]
     else:
