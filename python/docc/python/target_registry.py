@@ -14,7 +14,7 @@ def register_target(name: str, schedule_fn: TargetScheduleFn) -> None:
     - category: The target category (e.g., "desktop", "server")
 
     Args:
-        name: Target name (e.g., "qant")
+        name: Target name (e.g., "openmp")
         schedule_fn: Function that performs scheduling transformations
     """
     _target_registry[name] = schedule_fn
