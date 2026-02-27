@@ -66,14 +66,6 @@ jobs:
           llvm-cov-19 export ./build/sdfg/tests/sdfglib_test -object ./build/opt/tests/sdfgopt_test -instr-profile=build/default.profdata -format=lcov > build/coverage_full.lcov
           lcov --extract build/coverage_full.lcov '*/sdfg/src/*' '*/sdfg/include/*' '*/opt/src/*' '*/opt/include/*' --output-file build/coverage.lcov
 
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          flag-name: sdfg
-          parallel: true
-          format: lcov
-          file: build/coverage.lcov
-
       - name: Test Arg-Capture-IO
         run: |
           cd build
@@ -91,6 +83,14 @@ jobs:
 
           cd rtl/tests
           pytest -v -s rtl_tests.py
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          flag-name: sdfg
+          parallel: true
+          format: lcov
+          file: build/coverage.lcov
 
   python-tests-linux:
     runs-on:
