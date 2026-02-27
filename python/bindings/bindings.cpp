@@ -131,6 +131,11 @@ PYBIND11_MODULE(_sdfg, m) {
         .def_static("from_file", &PyStructuredSDFG::from_file, py::arg("file_path"), "Load a StructuredSDFG from file")
         .def_static("parse", &PyStructuredSDFG::parse, py::arg("sdfg_text"), "Parse a StructuredSDFG from text")
         .def_property_readonly("name", &PyStructuredSDFG::name)
+        .def_property_readonly(
+            "_ptr",
+            [](PyStructuredSDFG& self) { return reinterpret_cast<uintptr_t>(&self.sdfg()); },
+            "Get native pointer to StructuredSDFG for external plugin use"
+        )
         .def_property_readonly("return_type", &PyStructuredSDFG::return_type, py::return_value_policy::reference)
         .def("type", &PyStructuredSDFG::type, py::arg("name"), py::return_value_policy::reference)
         .def("exists", &PyStructuredSDFG::exists, py::arg("name"))
@@ -467,4 +472,12 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("member_types"),
             "Define a structure type with the given name and member types"
         );
+
+    // Plugin infrastructure - global context and registration callback
+    static sdfg::plugins::Context plugin_context = sdfg::plugins::Context::global_context();
+    m.def(
+        "_plugin_context",
+        []() { return reinterpret_cast<uintptr_t>(&plugin_context); },
+        "Get native pointer to the global plugin context"
+    );
 }

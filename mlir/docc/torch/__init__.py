@@ -107,8 +107,28 @@ class TorchProgram(DoccProgram):
 
         # Determine output folder
         if output_folder is None:
-            hash_input = (
-                f"{self.name}|{self.target}|{self.category}|{cache_key}".encode("utf-8")
+            # Include model-specific code in hash to distinguish different models
+            # that share the same class name and input shapes.
+            # - FX GraphModules (from torch.compile): use the FX graph code
+            # - Regular nn.Modules (from compile_torch): use forward() source
+            model_code = ""
+            try:
+                import torch.fx
+
+                if isinstance(self.model, torch.fx.GraphModule):
+                    model_code = self.model.graph.python_code("self").src
+            except Exception:
+                pass
+            if not model_code:
+                try:
+                    import inspect
+
+                    model_code = inspect.getsource(type(self.model).forward)
+                except Exception:
+                    pass
+
+            hash_input = f"{self.name}|{self.target}|{self.category}|{cache_key}|{model_code}".encode(
+                "utf-8"
             )
             stable_id = hashlib.sha256(hash_input).hexdigest()[:16]
 
