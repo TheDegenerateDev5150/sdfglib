@@ -66,14 +66,6 @@ jobs:
           llvm-cov-19 export ./build/sdfg/tests/sdfglib_test -object ./build/opt/tests/sdfgopt_test -instr-profile=build/default.profdata -format=lcov > build/coverage_full.lcov
           lcov --extract build/coverage_full.lcov '*/sdfg/src/*' '*/sdfg/include/*' '*/opt/src/*' '*/opt/include/*' --output-file build/coverage.lcov
 
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          flag-name: sdfg
-          parallel: true
-          format: lcov
-          file: build/coverage.lcov
-
       - name: Test Arg-Capture-IO
         run: |
           cd build
@@ -91,6 +83,14 @@ jobs:
 
           cd rtl/tests
           pytest -v -s rtl_tests.py
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          flag-name: sdfg
+          parallel: true
+          format: lcov
+          file: build/coverage.lcov
 
   python-tests-linux:
     runs-on:
@@ -161,14 +161,6 @@ jobs:
           coverage run --source=python/docc -m pytest -v python/tests
           coverage xml
 
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          flag-name: python-${{ matrix.python-version }}
-          parallel: true
-          format: cobertura
-          file: coverage.xml
-
       - name: Integration Tests
         run: |
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -179,6 +171,14 @@ jobs:
           export CPATH=/usr/local/onnxruntime/include:$CPATH
 
           pytest -v python/benchmarks/
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          flag-name: python-${{ matrix.python-version }}
+          parallel: true
+          format: cobertura
+          file: coverage.xml
 
   mlir-tests-linux:
     runs-on:
