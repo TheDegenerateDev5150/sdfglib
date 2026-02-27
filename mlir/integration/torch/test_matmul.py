@@ -1,11 +1,15 @@
 import torch
 import torch.nn as nn
+import pytest
 
 import docc.torch
 
 
-def test_pytorch():
-    class MatmulNet(nn.Module):
+# --- Self matmul (x @ x) ---
+
+
+def test_quadratic_self_backend():
+    class SelfMatmulNet(nn.Module):
         def __init__(self):
             super().__init__()
 
@@ -13,31 +17,10 @@ def test_pytorch():
             h1 = torch.matmul(x, x)
             return h1
 
-    model = MatmulNet()
+    model = SelfMatmulNet()
     example_input = torch.randn(10, 10)
 
-    model_ref = MatmulNet()
-
-    program = torch.compile(model)
-    res = program(example_input)
-
-    res_ref = model_ref(example_input)
-    assert torch.allclose(res, res_ref, rtol=1e-5)
-
-
-def test_backend():
-    class MatmulNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-
-        def forward(self, x: torch.Tensor):
-            h1 = torch.matmul(x, x)
-            return h1
-
-    model = MatmulNet()
-    example_input = torch.randn(10, 10)
-
-    model_ref = MatmulNet()
+    model_ref = SelfMatmulNet()
 
     docc.torch.set_backend_options(target="none", category="server")
     program = torch.compile(model, backend="docc")
@@ -48,8 +31,8 @@ def test_backend():
     assert torch.allclose(res, res_ref, rtol=1e-4)
 
 
-def test_compile():
-    class MatmulNet(nn.Module):
+def test_quadratic_self_compile():
+    class SelfMatmulNet(nn.Module):
         def __init__(self):
             super().__init__()
 
@@ -57,12 +40,340 @@ def test_compile():
             h1 = torch.matmul(x, x)
             return h1
 
-    model = MatmulNet()
+    model = SelfMatmulNet()
     example_input = torch.randn(10, 10)
 
-    model_ref = MatmulNet()
+    model_ref = SelfMatmulNet()
 
     program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- torch.matmul with nn.Parameter weight ---
+
+
+def test_parameter_weight_compile():
+    class ParamWeightNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W)
+
+    weight = torch.randn(10, 5)
+    model = ParamWeightNet(weight)
+    model_ref = ParamWeightNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+def test_parameter_weight_backend():
+    class ParamWeightNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W)
+
+    weight = torch.randn(10, 5)
+    model = ParamWeightNet(weight)
+    model_ref = ParamWeightNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- @ operator ---
+
+
+def test_at_operator_compile():
+    class AtOperatorNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return x @ self.W
+
+    weight = torch.randn(10, 5)
+    model = AtOperatorNet(weight)
+    model_ref = AtOperatorNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+def test_at_operator_backend():
+    class AtOperatorNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return x @ self.W
+
+    weight = torch.randn(10, 5)
+    model = AtOperatorNet(weight)
+    model_ref = AtOperatorNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- torch.mm (strict 2D matmul) ---
+
+
+def test_mm_compile():
+    class MmNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.mm(x, self.W)
+
+    weight = torch.randn(10, 5)
+    model = MmNet(weight)
+    model_ref = MmNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+def test_mm_backend():
+    class MmNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.mm(x, self.W)
+
+    weight = torch.randn(10, 5)
+    model = MmNet(weight)
+    model_ref = MmNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- Non-square matrices ---
+
+
+def test_non_square_compile():
+    class NonSquareNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W)
+
+    weight = torch.randn(32, 7)
+    model = NonSquareNet(weight)
+    model_ref = NonSquareNet(weight.clone())
+    example_input = torch.randn(4, 32)
+
+    program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+def test_non_square_backend():
+    class NonSquareNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W)
+
+    weight = torch.randn(32, 7)
+    model = NonSquareNet(weight)
+    model_ref = NonSquareNet(weight.clone())
+    example_input = torch.randn(4, 32)
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- Transposed weight (x @ W.T) ---
+
+
+def test_transposed_weight_compile():
+    class TransposedWeightNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W.T)
+
+    weight = torch.randn(5, 10)
+    model = TransposedWeightNet(weight)
+    model_ref = TransposedWeightNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+def test_transposed_weight_backend():
+    class TransposedWeightNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W.T)
+
+    weight = torch.randn(5, 10)
+    model = TransposedWeightNet(weight)
+    model_ref = TransposedWeightNet(weight.clone())
+    example_input = torch.randn(8, 10)
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- Batched matmul (3D) ---
+
+
+@pytest.mark.skip(reason="3D batched matmul uses unsupported linalg operation")
+def test_batched_matmul_compile():
+    class BatchedMatmulNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W)
+
+    weight = torch.randn(4, 10, 5)
+    model = BatchedMatmulNet(weight)
+    model_ref = BatchedMatmulNet(weight.clone())
+    example_input = torch.randn(4, 8, 10)
+
+    program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+@pytest.mark.skip(reason="3D batched matmul uses unsupported linalg operation")
+def test_batched_matmul_backend():
+    class BatchedMatmulNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(x, self.W)
+
+    weight = torch.randn(4, 10, 5)
+    model = BatchedMatmulNet(weight)
+    model_ref = BatchedMatmulNet(weight.clone())
+    example_input = torch.randn(4, 8, 10)
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- Chained matmul (x @ W1 @ W2) ---
+
+
+def test_chained_matmul_compile():
+    class ChainedMatmulNet(nn.Module):
+        def __init__(self, w1: torch.Tensor, w2: torch.Tensor):
+            super().__init__()
+            self.W1 = nn.Parameter(w1)
+            self.W2 = nn.Parameter(w2)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(torch.matmul(x, self.W1), self.W2)
+
+    w1 = torch.randn(10, 16)
+    w2 = torch.randn(16, 3)
+    model = ChainedMatmulNet(w1, w2)
+    model_ref = ChainedMatmulNet(w1.clone(), w2.clone())
+    example_input = torch.randn(8, 10)
+
+    program = docc.torch.compile_torch(model, example_input)
+    res = program(example_input)
+
+    res_ref = model_ref(example_input)
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+def test_chained_matmul_backend():
+    class ChainedMatmulNet(nn.Module):
+        def __init__(self, w1: torch.Tensor, w2: torch.Tensor):
+            super().__init__()
+            self.W1 = nn.Parameter(w1)
+            self.W2 = nn.Parameter(w2)
+
+        def forward(self, x: torch.Tensor):
+            return torch.matmul(torch.matmul(x, self.W1), self.W2)
+
+    w1 = torch.randn(10, 16)
+    w2 = torch.randn(16, 3)
+    model = ChainedMatmulNet(w1, w2)
+    model_ref = ChainedMatmulNet(w1.clone(), w2.clone())
+    example_input = torch.randn(8, 10)
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
     res = program(example_input)
 
     res_ref = model_ref(example_input)

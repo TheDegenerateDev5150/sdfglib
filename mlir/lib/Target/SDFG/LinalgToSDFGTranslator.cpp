@@ -8,20 +8,29 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
+#include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/Region.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Target/SDFG/SDFGTranslator.h"
+#include "mlir/Target/SDFG/helper.h"
 #include "sdfg/data_flow/access_node.h"
 #include "sdfg/data_flow/library_nodes/math/cmath/cmath_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/conv_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/fill_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
 #include "sdfg/data_flow/tasklet.h"
 #include "sdfg/element.h"
+#include "sdfg/structured_control_flow/map.h"
+#include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/types/pointer.h"
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/tensor.h"
 #include "sdfg/types/type.h"
@@ -113,6 +122,235 @@ LogicalResult translateLinalgElementwiseCMathOp(SDFGTranslator& translator, Elem
     return success();
 }
 
+LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::GenericOp* generic_op) {
+    ArrayAttr iteration_types = generic_op->getIteratorTypes();
+    ArrayAttr indexing_maps = generic_op->getIndexingMaps();
+    OperandRange inputs = generic_op->getInputs();
+    OperandRange outputs = generic_op->getOutputs();
+    ResultRange results = generic_op->getResultTensors();
+    if (inputs.size() + outputs.size() != indexing_maps.size()) {
+        return generic_op->emitOpError("number of inputs + number of outputs != number of indexing_maps: ")
+               << inputs.size() << " + " << outputs.size() << " != " << indexing_maps.size();
+    }
+    if (outputs.size() != results.size()) {
+        return generic_op->emitOpError("number of outputs != number of results: ")
+               << outputs.size() << " != " << results.size();
+    }
+
+    // Determine all dimensions
+    std::vector<int64_t> dimensions;
+    std::vector<AffineMap> affine_maps;
+    dimensions.reserve(iteration_types.size());
+    for (size_t i = 0; i < iteration_types.size(); i++) {
+        // Determine candidates
+        std::vector<int64_t> candidates;
+        for (size_t j = 0; j < indexing_maps.size(); j++) {
+            if (!llvm::dyn_cast_or_null<AffineMapAttr>(indexing_maps[j])) {
+                return generic_op->emitOpError("Currently all indexing_maps must be of type AffineMapAttr");
+            }
+            auto affine_map_attr = llvm::dyn_cast<AffineMapAttr>(indexing_maps[j]);
+            AffineMap affine_map = affine_map_attr.getAffineMap();
+            if (affine_map.getNumDims() != iteration_types.size()) {
+                return generic_op->emitOpError("Affine map ")
+                       << affine_map_attr << " has dimension " << affine_map.getNumDims() << " but expected "
+                       << iteration_types.size();
+            }
+            affine_maps.push_back(affine_map);
+
+            // Skip scalars
+            if (affine_map.getNumResults() == 0) {
+                continue;
+            }
+
+            // Determine tensor type
+            Type type;
+            if (j < inputs.size()) {
+                type = inputs[j].getType();
+            } else {
+                type = outputs[j - inputs.size()].getType();
+            }
+            if (!llvm::dyn_cast_or_null<TensorType>(type)) {
+                return generic_op->emitOpError("Only supports scalars or tensors for inputs/outputs for now: ") << type;
+            }
+            auto tensor_type = llvm::dyn_cast<TensorType>(type);
+            if (tensor_type.getShape().size() != affine_map.getNumResults()) {
+                return generic_op->emitOpError("Mismatch between tensor shape ")
+                       << tensor_type << " and number of affine results " << affine_map_attr;
+            }
+
+            // Iterate results of affine map
+            AffineExpr dim_i = getAffineDimExpr(i, affine_map.getContext());
+            for (size_t k = 0; k < affine_map.getNumResults(); k++) {
+                // Replace i-th dimension with k-th tensor dimension in k-th result and simplify
+                AffineExpr result = affine_map.getResult(k);
+                AffineExpr tensor_dim = getAffineConstantExpr(tensor_type.getShape()[k], affine_map.getContext());
+                AffineExpr candidate_expr = result.replace(dim_i, tensor_dim);
+                AffineExpr simplified_candidate_expr =
+                    simplifyAffineExpr(candidate_expr, affine_map.getNumDims(), affine_map.getNumSymbols());
+
+                // If simplified expression is a constant, add it to candidates
+                if (simplified_candidate_expr.getKind() != AffineExprKind::Constant) {
+                    continue;
+                }
+                auto constant_expr = llvm::dyn_cast<AffineConstantExpr>(simplified_candidate_expr);
+                candidates.push_back(constant_expr.getValue());
+            }
+        }
+
+        // Check that all candidates are equal
+        if (candidates.empty()) {
+            return generic_op->emitOpError("Could not found candidates for dimension: ") << i;
+        }
+        int64_t dim = candidates.at(0);
+        for (int64_t candidate : candidates) {
+            if (candidate != dim) {
+                return generic_op->emitOpError("Candidate mismatch for dimension ")
+                       << i << ": " << candidate << " != " << dim;
+            }
+        }
+
+        // Add dimension size
+        dimensions.push_back(dim);
+    }
+
+    // Create containers
+    auto& builder = translator.builder();
+    std::vector<std::string> input_containers, output_containers, result_containers;
+    input_containers.reserve(inputs.size());
+    for (auto input : inputs) {
+        input_containers.push_back(translator.get_or_create_container(input));
+    }
+    output_containers.reserve(outputs.size());
+    for (auto output : outputs) {
+        output_containers.push_back(translator.get_or_create_container(output));
+    }
+    result_containers.reserve(results.size());
+    for (auto result : results) {
+        result_containers.push_back(translator.get_or_create_container(result));
+    }
+
+    // Create references
+    for (size_t i = 0; i < outputs.size(); i++) {
+        translator.add_reference(output_containers.at(i), result_containers.at(i));
+    }
+
+    // Create loops
+    ::sdfg::structured_control_flow::Sequence* current_seq = &translator.insertion_point();
+    std::vector<::sdfg::symbolic::Symbol> indvars;
+    for (size_t i = 0; i < iteration_types.size(); i++) {
+        auto attr = iteration_types[i];
+        if (!llvm::dyn_cast_or_null<linalg::IteratorTypeAttr>(attr)) {
+            return generic_op->emitOpError("Expected a string for attribute in iteration_types: ") << attr;
+        }
+        auto iterator_type_attr = llvm::dyn_cast<linalg::IteratorTypeAttr>(attr);
+
+        auto indvar_container = builder.find_new_name("_i");
+        builder.add_container(indvar_container, ::sdfg::types::Scalar(::sdfg::types::PrimitiveType::Int64));
+        auto indvar = ::sdfg::symbolic::symbol(indvar_container);
+        indvars.push_back(indvar);
+        auto condition = ::sdfg::symbolic::Lt(indvar, ::sdfg::symbolic::integer(dimensions.at(i)));
+        auto init = ::sdfg::symbolic::zero();
+        auto update = ::sdfg::symbolic::add(indvar, ::sdfg::symbolic::one());
+
+        if (iterator_type_attr.getValue() == utils::IteratorType::reduction) {
+            auto& for_loop = builder.add_for(*current_seq, indvar, condition, init, update);
+            current_seq = &for_loop.root();
+        } else {
+            auto& map = builder.add_map(
+                *current_seq,
+                indvar,
+                condition,
+                init,
+                update,
+                ::sdfg::structured_control_flow::ScheduleType_Sequential::create()
+            );
+            current_seq = &map.root();
+        }
+    }
+
+    // Create tensor mapping to scalars
+    Region& region = generic_op->getRegion();
+    if (region.getBlocks().size() != 1) {
+        return generic_op->emitOpError(
+                   "Only exactly one block for the region of linalg.generic is currently supported but found "
+               )
+               << region.getBlocks().size();
+    }
+    auto& block = region.getBlocks().front();
+    if (block.getNumArguments() != inputs.size() + outputs.size()) {
+        return generic_op->emitOpError("number of block arguments != number of inputs + number of outputs: ")
+               << block.getNumArguments() << " != " << inputs.size() << " + " << outputs.size();
+    }
+    for (size_t i = 0; i < block.getNumArguments(); i++) {
+        BlockArgument argument = block.getArgument(i);
+        auto argument_container = translator.get_or_create_container(argument);
+        auto outer_container = (i < inputs.size()) ? input_containers.at(i) : output_containers.at(inputs.size() - i);
+        auto outer_type = (i < inputs.size()) ? inputs[i].getType() : outputs[inputs.size() - i].getType();
+
+        auto& sdfg_block = builder.add_block(*current_seq);
+        auto& outer_access = builder.add_access(sdfg_block, outer_container);
+        auto& argument_access = builder.add_access(sdfg_block, argument_container);
+        auto& tasklet = builder.add_tasklet(sdfg_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(sdfg_block, tasklet, "_out", argument_access, {});
+
+        if (is_sdfg_primitive(outer_type)) {
+            builder.add_computational_memlet(sdfg_block, outer_access, tasklet, "_in", {});
+        } else if (is_tensor_of_sdfg_primitive(outer_type)) {
+            auto tensor_type = llvm::dyn_cast<TensorType>(outer_type);
+            auto tensor_info = translator.get_or_create_tensor_info(outer_container, tensor_type);
+
+            auto element_type = translator.convertType(tensor_type.getElementType());
+            auto sdfg_tensor = tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
+
+            auto subset = affine_map_to_subset(affine_maps.at(i), indvars);
+            builder.add_computational_memlet(sdfg_block, outer_access, tasklet, "_in", subset, *sdfg_tensor);
+        } else {
+            return generic_op
+                ->emitOpError("Only primitive types or tensors are supported for linalg.generic block arguments");
+        }
+    }
+
+    // Translate operations in block until linalg.yield is reached
+    translator.enter_sequence(*current_seq);
+    for (auto& op : block.getOperations()) {
+        if (auto yield_op = llvm::dyn_cast_or_null<linalg::YieldOp>(op)) {
+            OperandRange values = yield_op.getValues();
+            if (values.size() != results.size()) {
+                return yield_op->emitOpError("emits ")
+                       << values.size() << " values but linalg.generic expects " << results.size();
+            }
+
+            for (size_t i = 0; i < values.size(); i++) {
+                auto value_container = translator.get_or_create_container(values[i]);
+
+                auto& sdfg_block = builder.add_block(translator.insertion_point());
+                auto& value_access = builder.add_access(sdfg_block, value_container);
+                auto& result_access = builder.add_access(sdfg_block, result_containers.at(i));
+                auto& tasklet =
+                    builder.add_tasklet(sdfg_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+                builder.add_computational_memlet(sdfg_block, value_access, tasklet, "_in", {});
+
+                auto tensor_type = llvm::dyn_cast<TensorType>(results[i].getType());
+                auto tensor_info = translator.get_or_create_tensor_info(result_containers.at(i), tensor_type);
+
+                auto element_type = translator.convertType(tensor_type.getElementType());
+                auto sdfg_tensor = tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
+
+                auto subset = affine_map_to_subset(affine_maps.at(inputs.size() + i), indvars);
+                builder.add_computational_memlet(sdfg_block, tasklet, "_out", result_access, subset, *sdfg_tensor);
+            }
+            break;
+        } else {
+            if (failed(translateOp(translator, &op))) {
+                return failure();
+            }
+        }
+    }
+    translator.exit_sequence(*current_seq);
+
+    return success();
+}
+
 LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
     return llvm::TypeSwitch<Operation*, LogicalResult>(op)
         .Case<linalg::AddOp>([&](linalg::AddOp add_op) {
@@ -199,6 +437,9 @@ LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
                 linalg::TanhOp,
                 ::sdfg::math::cmath::CMathFunction::tanh>(translator, &tanh_op);
         })
+        .Case<linalg::GenericOp>([&](linalg::GenericOp generic_op) {
+            return translateLinalgGenericOp(translator, &generic_op);
+        })
         .Case<linalg::FillOp>([&](linalg::FillOp fill_op) { return translateLinalgFillOp(translator, &fill_op); })
         .Case<linalg::MatmulOp>([&](linalg::MatmulOp matmul_op) {
             return translateLinalgMatmulOp(translator, &matmul_op);
@@ -208,6 +449,9 @@ LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
         })
         .Case<linalg::TransposeOp>([&](linalg::TransposeOp transpose_op) {
             return translateLinalgTransposeOp(translator, &transpose_op);
+        })
+        .Case<linalg::Conv2DNchwFchwOp>([&](linalg::Conv2DNchwFchwOp conv_op) {
+            return translateLinalgConv2DNchwFchwOp(translator, &conv_op);
         })
         .Default([&](Operation* op) { return op->emitError("Unknown operation from linalg dialect encountered"); });
 }
@@ -468,6 +712,134 @@ LogicalResult translateLinalgTransposeOp(SDFGTranslator& translator, linalg::Tra
 
     auto out_tensor_info = in_tensor_info.transpose(permutation);
     translator.tensor_info_map().insert({out_container, out_tensor_info});
+
+    return success();
+}
+
+LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg::Conv2DNchwFchwOp* op) {
+    auto& sequence = translator.insertion_point();
+
+    // Get operands
+    auto input = op->getInputs()[0]; // X: [N, C_in, H, W]
+    auto weight = op->getInputs()[1]; // W: [C_out, C_in/group, kH, kW]
+    auto output = op->getOutputs()[0]; // accumulator (from fill)
+    auto result = op->getResult(0); // Y: [N, C_out, H_out, W_out]
+
+    auto output_container = translator.get_or_create_container(output);
+    auto result_container = translator.get_or_create_container(result);
+    translator.add_reference(output_container, result_container);
+
+    // Get tensor types
+    auto input_type = dyn_cast_or_null<RankedTensorType>(input.getType());
+    auto weight_type = dyn_cast_or_null<RankedTensorType>(weight.getType());
+    auto result_type = dyn_cast_or_null<RankedTensorType>(result.getType());
+    if (!input_type || !weight_type || !result_type) {
+        return op->emitError("Only ranked tensor types are supported for conv2d");
+    }
+    if (input_type.getRank() != 4 || weight_type.getRank() != 4 || result_type.getRank() != 4) {
+        return op->emitError("Only 4D (NCHW) conv2d is supported");
+    }
+
+    // Get containers
+    auto in_container = translator.get_or_create_container(input);
+    auto w_container = translator.get_or_create_container(weight);
+    auto out_container = translator.get_or_create_container(result);
+
+    // Get tensor info and element type
+    auto element_type = translator.convertType(input_type.getElementType());
+    auto scalar_type = static_cast<::sdfg::types::Scalar&>(*element_type);
+
+    // Ensure inputs are in C order (ConvNode requires contiguous data)
+    {
+        auto& tensor_info_in = translator.get_or_create_tensor_info(in_container, input_type);
+        in_container = translator.store_in_c_order(in_container, tensor_info_in, scalar_type);
+    }
+    {
+        auto& tensor_info_w = translator.get_or_create_tensor_info(w_container, weight_type);
+        w_container = translator.store_in_c_order(w_container, tensor_info_w, scalar_type);
+    }
+
+    // Get tensor info after possible reordering
+    auto& final_info_in = translator.get_or_create_tensor_info(in_container, input_type);
+    auto& final_info_w = translator.get_or_create_tensor_info(w_container, weight_type);
+    auto& tensor_info_out = translator.get_or_create_tensor_info(out_container, result_type);
+
+    // Check offsets are 0
+    if (final_info_in.offset() != 0 || final_info_w.offset() != 0 || tensor_info_out.offset() != 0) {
+        return op->emitError("Only tensors with 0 offset are supported for conv2d");
+    }
+
+    // Build ConvNode parameters
+
+    // Input shape [N, C_in, H, W]
+    std::vector<::sdfg::symbolic::Expression> shape;
+    for (auto entry : final_info_in.shape()) {
+        shape.push_back(::sdfg::symbolic::integer(entry));
+    }
+
+    // Kernel shape [kH, kW] from weight dims 2, 3
+    std::vector<::sdfg::symbolic::Expression> kernel_shape;
+    kernel_shape.push_back(::sdfg::symbolic::integer(final_info_w.shape()[2]));
+    kernel_shape.push_back(::sdfg::symbolic::integer(final_info_w.shape()[3]));
+
+    // Strides from op attribute
+    std::vector<::sdfg::symbolic::Expression> strides;
+    for (int64_t s : op->getStrides().getValues<int64_t>()) {
+        strides.push_back(::sdfg::symbolic::integer(s));
+    }
+
+    // No padding (padding not supported)
+    std::vector<::sdfg::symbolic::Expression> pads = {
+        ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero()
+    };
+
+    // Dilations from op attribute
+    std::vector<::sdfg::symbolic::Expression> dilations;
+    for (int64_t d : op->getDilations().getValues<int64_t>()) {
+        dilations.push_back(::sdfg::symbolic::integer(d));
+    }
+
+    // Output channels = weight shape[0] (C_out)
+    auto output_channels = ::sdfg::symbolic::integer(final_info_w.shape()[0]);
+
+    // Group = 1 (standard convolution, no groups in NCHW-FCHW)
+    auto group = ::sdfg::symbolic::one();
+
+    // Create block and library node
+    auto& block = translator.builder().add_block(sequence);
+    auto& libnode = translator.builder().add_library_node<::sdfg::math::tensor::ConvNode>(
+        block, ::sdfg::DebugInfo(), shape, kernel_shape, strides, pads, dilations, output_channels, group
+    );
+
+    // Build tensor types for memlets (all C-order after store_in_c_order)
+    auto primitive = scalar_type.primitive_type();
+
+    ::sdfg::symbolic::MultiExpression shape_in;
+    for (auto entry : final_info_in.shape()) {
+        shape_in.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor input_tensor_type(primitive, shape_in);
+
+    ::sdfg::symbolic::MultiExpression shape_w;
+    for (auto entry : final_info_w.shape()) {
+        shape_w.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor weight_tensor_type(primitive, shape_w);
+
+    ::sdfg::symbolic::MultiExpression shape_out;
+    for (auto entry : tensor_info_out.shape()) {
+        shape_out.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor output_tensor_type(primitive, shape_out);
+
+    // Access nodes and memlets
+    auto& x_access = translator.builder().add_access(block, in_container);
+    auto& w_access = translator.builder().add_access(block, w_container);
+    auto& y_access = translator.builder().add_access(block, out_container);
+
+    translator.builder().add_computational_memlet(block, x_access, libnode, "X", {}, input_tensor_type);
+    translator.builder().add_computational_memlet(block, w_access, libnode, "W", {}, weight_tensor_type);
+    translator.builder().add_computational_memlet(block, libnode, "Y", y_access, {}, output_tensor_type);
 
     return success();
 }
