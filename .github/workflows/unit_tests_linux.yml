@@ -161,14 +161,6 @@ jobs:
           coverage run --source=python/docc -m pytest -v python/tests
           coverage xml
 
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          flag-name: python-${{ matrix.python-version }}
-          parallel: true
-          format: cobertura
-          file: coverage.xml
-
       - name: Integration Tests
         run: |
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -179,6 +171,14 @@ jobs:
           export CPATH=/usr/local/onnxruntime/include:$CPATH
 
           pytest -v python/benchmarks/
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          flag-name: python-${{ matrix.python-version }}
+          parallel: true
+          format: cobertura
+          file: coverage.xml
 
   mlir-tests-linux:
     runs-on:
