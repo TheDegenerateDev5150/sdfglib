@@ -128,7 +128,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
-          pip install numpy scipy
+          pip install numpy scipy ml_dtypes
 
           # Install ONNX Runtime (lib)
           wget https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-linux-x64-1.24.1.tgz
@@ -215,7 +215,7 @@ jobs:
 
           python -m pip install --upgrade pip
           pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
-          pip install numpy scipy
+          pip install numpy scipy ml_dtypes
 
       - name: Build
         run: |

@@ -5,6 +5,7 @@ import ast
 import os
 import getpass
 import hashlib
+import ml_dtypes
 import numpy as np
 from typing import Annotated, get_origin, get_args, Any, Optional
 
@@ -416,6 +417,10 @@ class PythonProgram(DoccProgram):
                 elem_type = Scalar(PrimitiveType.Double)
             elif arg.dtype == np.float32:
                 elem_type = Scalar(PrimitiveType.Float)
+            elif arg.dtype == np.float16:
+                elem_type = Scalar(PrimitiveType.Half)
+            elif arg.dtype == ml_dtypes.bfloat16:
+                elem_type = Scalar(PrimitiveType.BFloat)
             elif arg.dtype == np.bool_:
                 elem_type = Scalar(PrimitiveType.Bool)
             elif arg.dtype == np.int64:
