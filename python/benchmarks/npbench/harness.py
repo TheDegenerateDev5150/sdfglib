@@ -9,6 +9,9 @@ import pytest
 import docc.python
 
 
+_GLOBAL_CAPSYS = None
+
+
 def _get_func_param_names(func):
     """Get the parameter names of a function, excluding **kwargs."""
     sig = inspect.signature(func)
@@ -79,9 +82,10 @@ def _combine_params_with_init_returns(params, initialize_func, init_returns):
 
 
 class SDFGVerification:
-    def __init__(self, verification: dict, non_critical: bool = False):
+    def __init__(self, verification: dict, non_critical: bool = False, capsys=None):
         self._verification = verification
         self._non_critical = non_critical
+        self._capsys = capsys
 
     def verify(self, stats: dict, test_file: str, test_target: str) -> None:
         print(stats)
@@ -101,10 +105,14 @@ class SDFGVerification:
                     stat = None
 
                 if stat is None or stat != val:
-                    print(
-                        f"::error file={test_file},title={test_target}::Report key {key} is {stat}, expected {val}",
-                        file=sys.stderr,
-                    )
+                    capsys = self._capsys or _GLOBAL_CAPSYS
+                    with capsys.disabled():
+                        if all_good:
+                            print(file=sys.stderr)
+                        print(
+                            f"::error file={test_file},title={test_target}::Report key {key} is {stat}, expected {val}",
+                            file=sys.stderr,
+                        )
                     all_good = False
         if all_good:
             print("All verifications passed.")
