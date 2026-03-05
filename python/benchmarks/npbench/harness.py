@@ -108,10 +108,9 @@ class SDFGVerification:
                     capsys = self._capsys or _GLOBAL_CAPSYS
                     with capsys.disabled():
                         if all_good:
-                            print(file=sys.stderr)
+                            print()
                         print(
-                            f"::error file={test_file},title={test_target}::Report key {key} is {stat}, expected {val}",
-                            file=sys.stderr,
+                            f"::error file=python/{test_file},title={test_target}::Report key {key} is {stat}, expected {val}",
                         )
                     all_good = False
         if all_good:
