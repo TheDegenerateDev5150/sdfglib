@@ -15,13 +15,13 @@ static const std::string kernel_launch_template_blocking = R"a(
         auto* traceDevBuf = et.alloc_trace_buffer(et_dev);
 
         ::rt::KernelLaunchOptions launchOpts;
-        launchOpts.setShireMask(et_shire_mask);
+        //launchOpts.setShireMask(et_shire_mask);
         launchOpts.setBarrier(true);
         launchOpts.setUserTracing(
             reinterpret_cast<uint64_t>(traceDevBuf),
             static_cast<uint32_t>(et.DEFAULT_TRACE_BUFFER_SIZE),
             0,                              // threshold
-            0x1       ,                     // trace shireMask
+            0xFFFFFFFFUL,                     // trace shireMask
             0xFFFFFFFFFFFFFFFFULL,          // threadMask — all threads
             0xFFFFFFFFU,                    // eventMask — all events
             0xFFFFFFFFU                     // filterMask — all levels
@@ -38,9 +38,130 @@ static const std::string kernel_cleanup = R"a(
         et_rt.destroyStream(et_stream);
 )a";
 
-static const std::string gemm_s_kernel = R"a(
+static const std::string matul_fp32_kernel_simple = R"a(
+#include <etsoc/common/utils.h>
+#include <stdint.h>
+
+#include "et_tensor.hpp"
+
+constexpr et::scp_region<0,  16, et::fp32> scp_a;
+constexpr et::scp_region<16, 16, et::fp32> scp_b;
+constexpr unsigned TILE = 16;
+constexpr unsigned NUM_HARTS = 1024;
+
+typedef struct {
+    float* a_ptr;
+    float* b_ptr;
+    float* c_ptr;
+    float alpha;
+    float beta;
+    int32_t m;
+    int32_t n;
+    int32_t k;
+    int32_t lda;
+    int32_t ldb;
+    int32_t ldc;
+} Parameters;
+
+extern "C"
+int entry_point(const Parameters* params) {
+    uint64_t hart_id = get_hart_id();
+    if (hart_id & 1) return 0;
+    uint64_t gid = ((hart_id >> 6) << 5) + ((hart_id >> 1) & 0x1F);
+
+    const int64_t K = params->k;
+    const int64_t M = params->m;
+    const int64_t N = params->n;
+    const int64_t ne2_0 = 1, ne3_0 = 1;
+    const int64_t ne2_1 = 1, ne3_1 = 1;
+
+    // Byte strides for batch dimensions, converted to float offsets
+    const int64_t bs2_0 = M * params->lda;
+    const int64_t bs3_0 = bs2_0;
+    const int64_t bs2_1 = K * params->ldb;
+    const int64_t bs3_1 = bs2_1;
+    const int64_t bs2_d = M * params->ldc;
+    const int64_t bs3_d = bs2_d;
+
+    // Row strides in bytes — for tensor load/store hardware
+    const uint64_t stride_s0 = (uint64_t)params->lda * sizeof(float);
+    const uint64_t stride_s1 = (uint64_t)params->ldb * sizeof(float);
+    const uint64_t stride_d  = (uint64_t)params->ldc * sizeof(float);
+
+    // Row strides in floats — for pointer arithmetic
+    const int64_t rs0 = (int64_t)(stride_s0 / sizeof(float));
+    const int64_t rs1 = (int64_t)(stride_s1 / sizeof(float));
+    const int64_t rd  = (int64_t)(stride_d  / sizeof(float));
+
+    const float* src0_base = (const float*)params->a_ptr;
+    const float* src1_base = (const float*)params->b_ptr;
+    float*       dst_base  = (float*)params->c_ptr;
+
+    et::setup_l1scp();
+    et::clear_tensor_error();
+
+    const int64_t m_tiles = M / TILE;
+    const int64_t n_tiles = (N + TILE - 1) / TILE;
+    const int64_t tpb     = m_tiles * n_tiles;
+    const int64_t batches = ne2_1 * ne3_1;
+    const int64_t total   = batches * tpb;
+    const int64_t r2 = ne2_1 / ne2_0, r3 = ne3_1 / ne3_0;
+
+    et::matmul_result<et::fp32> c;
+
+    for (int64_t tile = gid; tile < total; tile += NUM_HARTS) {
+        const int64_t bi = tile / tpb, ti = tile % tpb;
+        const int64_t ni = ti / m_tiles, mi = ti % m_tiles;
+        const int64_t i3 = bi / ne2_1, i2 = bi % ne2_1;
+
+        const float* s0 = src0_base + (i3/r3)*bs3_0 + (i2/r2)*bs2_0;
+        const float* s1 = src1_base + i3*bs3_1 + i2*bs2_1;
+        float*       d  = dst_base  + i3*bs3_d + i2*bs2_d;
+
+        const int64_t mb = mi * TILE, nb = ni * TILE;
+        const unsigned n_cur = (nb + TILE <= N) ? TILE : (unsigned)(N - nb);
+
+        for (int64_t kb = 0; kb < K; kb += TILE) {
+            bool first = kb == 0;
+            const unsigned k_cur = (kb + TILE <= K) ? TILE : (unsigned)(K - kb);
+
+            // There are 2 load ports - we use 0 for matrix A and 1 for matrix B
+            // these data are typed so loading the wrong format is impossible
+            auto la = scp_a.load<0>(&s0[mb * rs0 + kb], k_cur, stride_s0);
+            auto lb = scp_b.load<1>(&s1[kb * rs1 + nb], n_cur, stride_s1);
+            // Loads are async so we wait for completion
+            la.wait();
+            lb.wait();
+
+            // Perform matrix multiplication
+            c = et::matmul(scp_a, scp_b, n_cur, k_cur, first);
+            // Wait for completion
+            c.wait();
+        }
+
+        // Write back to memory
+        c.store(&d[mb * rd + nb], n_cur, stride_d).wait();
+    }
+
+    if (gid < total) {
+        et_printf("working\n");
+    }
+
+    auto error = et::get_tensor_error();
+    if (error) {
+        et_printf("Tensor error: %016lx\n", error.raw);
+        return 1;
+    }
+
+    et::fence();
+    return 0;
+}
+)a";
+
+static const std::string gemm_s_kernel_single = R"a(
 #include <stdint.h>
 #include "etsoc/isa/hart.h"
+#include "etsoc/isa/atomic.h"
 #include "etsoc/common/utils.h"
 
 typedef struct {
@@ -71,17 +192,23 @@ int64_t entry_point(const Parameters* const param) {
     float alpha = param->alpha;
     float beta = param->beta;
 
-    if (h == 0) {
-        et_printf("%d..%d x %d..%d: %d %d\n", 0, param->m, 0, param->n, a_line_w, c_line_w);
-        for (int m = 0; m < param->m; ++m) {
+    if (h < 1) {
+        int m_start = 0;
+        int m_end = param->m;
+        et_printf("%d..%d x %d..%d: %d %d\n", m_start, m_end, 0, param->n, a_line_w, c_line_w);
+        for (int m = m_start; m < m_end; ++m) {
             for (int n = 0; n < param->n; ++n) {
                 float acc = 0.0f;
                 for (int k = 0; k < param->k; ++k) {
                     acc += a_ptr[m * a_line_w + k] * b_ptr[k * b_line_w + n];
                 }
-                c_ptr[m * c_line_w + n] = alpha * acc + beta * c_ptr[m * c_line_w + n];
+                float res = alpha * acc; // + beta * c_ptr
+                atomic_store_global_32(reinterpret_cast<uint32_t*>(&c_ptr[m * c_line_w + n]), res);
+                //c_ptr[m * c_line_w + n] = res;
             }
         }
+    } else {
+        et_printf("idling");
     }
 
     return 0;
@@ -147,7 +274,7 @@ void GEMMNodeDispatcher_ETSOC_WithTransfers::dispatch(
     std::string kernel_name = this->function_.name() + "_et_kernel_" + std::to_string(this->node_.element_id());
     auto& snippet = library_snippet_factory.require(kernel_name, ETSOC_KERNEL_FILE_EXT, true);
     auto& kstream = snippet.stream();
-    kstream << gemm_s_kernel << std::endl;
+    kstream << matul_fp32_kernel_simple << std::endl;
 
     stream << "auto et_k = et.load_kernel_binary_blocking(et_stream, \""
            << library_snippet_factory.output_path().string() << "\", \"" << kernel_name << "\");" << std::endl;
@@ -192,7 +319,7 @@ void GEMMNodeDispatcher_ETSOC_WithTransfers::dispatch(
            << ";" << std::endl;
     stream << "*reinterpret_cast<int32_t*>(k_args.data()+13) = " << language_extension_.expression(gemm_node.ldc())
            << ";" << std::endl;
-    stream << "uint64_t et_shire_mask = 0x1;" << std::endl;
+    stream << "uint64_t et_shire_mask = 0xFFFFFFFFUL;" << std::endl;
     stream << kernel_launch_template_blocking << std::endl;
 
     // pull out data here
