@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <memory>
+#include <unordered_set>
 #include <sdfg/transformations/rpc_node_transform.h>
 #include <sdfg/util/utils_curl.h>
 
@@ -201,6 +202,47 @@ TEST_F(RPCNodeTransformTest, Double_Matmul) {
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("k_tile0"), nullptr);
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("j_tile0"), nullptr);
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("i_tile0"), nullptr);
+}
+
+TEST_F(RPCNodeTransformTest, UniqueElementIDs) {
+    auto sdfg_initial = builder_->subject().clone();
+    sdfg::builder::StructuredSDFGBuilder main_builder(sdfg_initial);
+    sdfg::analysis::AnalysisManager main_analysis_manager(main_builder.subject());
+
+    auto& initial_loop_analysis = main_analysis_manager.get<analysis::LoopAnalysis>();
+    auto initial_outer_loops = initial_loop_analysis.outermost_loops();
+
+    // --- Apply first transform ---
+    size_t element_counter_before_first_apply = main_builder.subject().element_counter();
+
+    auto* first_outer_loop = static_cast<structured_control_flow::StructuredLoop*>(initial_outer_loops[0]);
+    sdfg::transformations::RPCNodeTransform first_rpc_transform(*first_outer_loop, "sequential", "server", *ctx_, false);
+    ASSERT_TRUE(first_rpc_transform.can_be_applied(main_builder, main_analysis_manager));
+    first_rpc_transform.apply(main_builder, main_analysis_manager);
+
+    size_t element_counter_after_first_apply = main_builder.subject().element_counter();
+    EXPECT_GT(element_counter_after_first_apply, element_counter_before_first_apply);
+
+    // --- Apply second transform ---
+    main_analysis_manager.invalidate_all();
+    auto& second_loop_analysis = main_analysis_manager.get<analysis::LoopAnalysis>();
+    auto remaining_outer_loops = second_loop_analysis.outermost_loops();
+    ASSERT_GE(remaining_outer_loops.size(), 1);
+
+    auto* second_outer_loop = static_cast<structured_control_flow::StructuredLoop*>(remaining_outer_loops.back());
+    sdfg::transformations::RPCNodeTransform second_rpc_transform(*second_outer_loop, "sequential", "server", *ctx_, false);
+    ASSERT_TRUE(second_rpc_transform.can_be_applied(main_builder, main_analysis_manager));
+    second_rpc_transform.apply(main_builder, main_analysis_manager);
+
+    main_analysis_manager.invalidate_all();
+    auto& final_loop_analysis = main_analysis_manager.get<analysis::LoopAnalysis>();
+
+    std::unordered_set<size_t> observed_element_ids;
+    for (auto* loop_node : final_loop_analysis.loops()) {
+        size_t element_id = loop_node->element_id();
+        EXPECT_TRUE(observed_element_ids.insert(element_id).second)
+            << "Duplicate element_id " << element_id << " found in final SDFG";
+    }
 }
 
 TEST_F(RPCNodeTransformTest, HandleUnauthenticatedError) {
