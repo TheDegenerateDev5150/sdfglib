@@ -1,6 +1,7 @@
 #include "sdfg/transformations/map_fusion.h"
 
 #include "sdfg/analysis/arguments_analysis.h"
+#include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/analysis/scope_analysis.h"
 #include "sdfg/analysis/users.h"
 #include "sdfg/control_flow/interstate_edge.h"
@@ -24,12 +25,9 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
     auto* first_parent = scope_analysis.parent_scope(&first_map_);
     auto* second_parent = scope_analysis.parent_scope(&second_loop_);
-
     if (first_parent == nullptr || second_parent == nullptr) {
         return false;
     }
-
-    // Both must have the same parent sequence
     if (first_parent != second_parent) {
         return false;
     }
@@ -39,14 +37,11 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
         return false;
     }
 
-    // Criterion: first_map must immediately precede second_loop in the sequence
     int first_index = parent_sequence->index(first_map_);
     int second_index = parent_sequence->index(second_loop_);
-
     if (first_index == -1 || second_index == -1) {
         return false;
     }
-
     if (second_index != first_index + 1) {
         return false;
     }
@@ -57,20 +52,32 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
         return false;
     }
 
-    // Criterion: First map must have simple body (single block)
-    // This ensures no WAR/WAW hazards when replicating the producer
-    if (first_map_.root().size() != 1) {
+    // Criterion: First loop is perfectly nested
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    auto loop_info = loop_analysis.loop_info(&first_map_);
+    if (!loop_info.is_perfectly_nested) {
         return false;
     }
-
-    auto* first_block = dynamic_cast<structured_control_flow::Block*>(&first_map_.root().at(0).first);
-    if (first_block == nullptr) {
+    if (!loop_info.is_perfectly_parallel) {
         return false;
     }
-
-    // Criterion: First block's transition should be empty
-    if (!first_map_.root().at(0).second.empty()) {
-        return false;
+    symbolic::SymbolVec producer_vars = {first_map_.indvar()};
+    structured_control_flow::ControlFlowNode* first_block = &first_map_.root().at(0).first;
+    while (true) {
+        if (auto* node = dynamic_cast<structured_control_flow::Map*>(first_block)) {
+            producer_vars.push_back(node->indvar());
+            if (node->root().size() != 1) {
+                return false;
+            }
+            if (node->root().at(0).second.empty()) {
+                return false;
+            }
+            first_block = &node->root().at(0).first;
+        } else if (auto* node = dynamic_cast<structured_control_flow::Block*>(first_block)) {
+            break;
+        } else {
+            return false;
+        }
     }
 
     // Get arguments analysis to identify inputs/outputs of each loop
@@ -88,12 +95,13 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
 
     std::unordered_set<std::string> fusion_containers;
     for (const auto& [name, arg] : second_args) {
-        if (arg.is_input && first_outputs.contains(name)) {
-            // Criterion: Skip scalars - only fuse array/pointer accesses
-            if (arg.is_scalar) {
-                continue;
+        if (first_outputs.contains(name)) {
+            if (arg.is_output) {
+                return false; // Cannot fuse if second loop also writes to this container
             }
-            fusion_containers.insert(name);
+            if (arg.is_input) {
+                fusion_containers.insert(name);
+            }
         }
     }
     if (fusion_containers.empty()) {
@@ -101,9 +109,8 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
     }
 
     // Analyze memory access patterns for each fusion candidate
-    auto& first_dataflow = first_block->dataflow();
+    auto& first_dataflow = dynamic_cast<structured_control_flow::Block*>(first_block)->dataflow();
 
-    auto first_indvar = first_map_.indvar();
     auto second_indvar = second_loop_.indvar();
 
     // For each fusion container, find the producer memlet and collect unique consumer subsets
@@ -138,27 +145,8 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
             return false;
         }
 
-        // Extract affine coefficients for producer (done once per container)
-        auto producer_expr = producer_subset.at(0);
-        symbolic::SymbolVec producer_symbols = {first_indvar};
-        auto producer_poly = symbolic::polynomial(producer_expr, producer_symbols);
-        if (producer_poly.is_null()) {
-            return false; // Not a polynomial
-        }
-        auto producer_coeffs = symbolic::affine_coefficients(producer_poly, producer_symbols);
-        if (producer_coeffs.empty()) {
-            return false; // Not affine
-        }
-        auto first_coeff = producer_coeffs[first_indvar];
-        if (symbolic::eq(first_coeff, symbolic::zero())) {
-            return false;
-        }
-        auto producer_constant = producer_coeffs[symbolic::symbol("__daisy_constant__")];
-
-        // Collect all unique (container, subset) pairs from consumer blocks
-        // A subset is considered unique if it's not symbolically equal to any existing one
+        // Collect all unique subsets from consumer blocks
         symbolic::ExpressionSet unique_subsets;
-
         for (size_t i = 0; i < second_loop_.root().size(); ++i) {
             auto* block = dynamic_cast<structured_control_flow::Block*>(&second_loop_.root().at(i).first);
             if (block == nullptr) {
@@ -190,6 +178,31 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
                 }
             }
         }
+
+        // Solve index mapping from producer to consumer subsets
+
+        // Extract affine coefficients for producer (done once per container)
+
+        // Temporary limitation
+        if (producer_vars.size() != 1) {
+            return false;
+        }
+        auto first_indvar = producer_vars.at(0);
+        auto producer_expr = producer_subset.at(0);
+        symbolic::SymbolVec producer_symbols = {first_indvar};
+        auto producer_poly = symbolic::polynomial(producer_expr, producer_symbols);
+        if (producer_poly.is_null()) {
+            return false; // Not a polynomial
+        }
+        auto producer_coeffs = symbolic::affine_coefficients(producer_poly, producer_symbols);
+        if (producer_coeffs.empty()) {
+            return false; // Not affine
+        }
+        auto first_coeff = producer_coeffs[first_indvar];
+        if (symbolic::eq(first_coeff, symbolic::zero())) {
+            return false;
+        }
+        auto producer_constant = producer_coeffs[symbolic::symbol("__daisy_constant__")];
 
         // For each unique subset, compute index_mapping and create a FusionCandidate
         for (const auto& consumer_expr : unique_subsets) {
