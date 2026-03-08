@@ -407,14 +407,12 @@ void MapFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     auto* first_block = dynamic_cast<structured_control_flow::Block*>(first_block_node);
     auto& first_dataflow = first_block->dataflow();
 
-    // Navigate to the innermost consumer sequence (handling nested consumer maps)
+    // Navigate to the innermost consumer sequence (handling nested loops)
     structured_control_flow::Sequence* second_root = &second_loop_.root();
-    if (auto* consumer_map = dynamic_cast<structured_control_flow::Map*>(&second_loop_)) {
-        structured_control_flow::ControlFlowNode* consumer_node = &consumer_map->root().at(0).first;
-        while (auto* nested = dynamic_cast<structured_control_flow::Map*>(consumer_node)) {
-            second_root = &nested->root();
-            consumer_node = &nested->root().at(0).first;
-        }
+    structured_control_flow::ControlFlowNode* consumer_node = &second_loop_.root().at(0).first;
+    while (auto* nested = dynamic_cast<structured_control_flow::StructuredLoop*>(consumer_node)) {
+        second_root = &nested->root();
+        consumer_node = &nested->root().at(0).first;
     }
 
     // For each fusion candidate (unique container+subset pair), create a temp and insert a producer block
