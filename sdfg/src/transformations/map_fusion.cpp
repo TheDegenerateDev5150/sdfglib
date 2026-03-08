@@ -178,10 +178,37 @@ std::vector<std::pair<symbolic::Symbol, symbolic::Expression>> MapFusion::solve_
 
     isl_set_free(comp_domain);
     isl_set_free(consumer_domain);
+
+    // Step 3: Verify producer write range covers consumer read range.
+    // The producer only writes a subset of the array if its loops have restricted bounds.
+    // Fusion is invalid if the consumer reads elements the producer never writes.
+    bool range_covered = false;
+    if (single_valued && domain_covered) {
+        std::string constrained_producer_map_str = symbolic::expression_to_map_str(producer_sub, producer_assumptions);
+        isl_map* constrained_producer = isl_map_read_from_str(ctx, constrained_producer_map_str.c_str());
+        isl_map* consumer_map_copy = isl_map_read_from_str(ctx, consumer_map_str.c_str());
+
+        if (constrained_producer && consumer_map_copy) {
+            constrained_producer = isl_map_align_params(constrained_producer, isl_space_copy(unified));
+            consumer_map_copy = isl_map_align_params(consumer_map_copy, isl_space_copy(unified));
+
+            isl_set* producer_range = isl_map_range(constrained_producer);
+            isl_set* consumer_range = isl_map_range(consumer_map_copy);
+
+            range_covered = isl_set_is_subset(consumer_range, producer_range) == isl_bool_true;
+
+            isl_set_free(producer_range);
+            isl_set_free(consumer_range);
+        } else {
+            if (constrained_producer) isl_map_free(constrained_producer);
+            if (consumer_map_copy) isl_map_free(consumer_map_copy);
+        }
+    }
+
     isl_space_free(unified);
     isl_ctx_free(ctx);
 
-    if (!single_valued || !domain_covered) {
+    if (!single_valued || !domain_covered || !range_covered) {
         return {};
     }
 
@@ -238,6 +265,10 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
         producer_body = &nested->root();
         producer_node = &nested->root().at(0).first;
     }
+    auto* producer_block_ptr = dynamic_cast<structured_control_flow::Block*>(producer_node);
+    if (producer_block_ptr == nullptr) {
+        return false;
+    }
 
     // Criterion: Second loop is perfectly nested (but can have non-parallel loops)
     auto second_loop_info = loop_analysis.loop_info(&second_loop_);
@@ -285,7 +316,7 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
     auto& consumer_assumptions = assumptions_analysis.get(consumer_body->at(0).first);
 
     // For each fusion container, find the producer memlet and collect unique consumer subsets
-    auto& first_dataflow = dynamic_cast<structured_control_flow::Block*>(producer_node)->dataflow();
+    auto& first_dataflow = producer_block_ptr->dataflow();
     for (const auto& container : fusion_containers) {
         // Find unique producer in first map (producer)
         data_flow::Memlet* producer_memlet = nullptr;

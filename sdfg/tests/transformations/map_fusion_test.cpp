@@ -709,7 +709,7 @@ TEST(MapFusionTest, Domain_Recomputation) {
     // Recomputation: Second map needs more elements than first map produces
     // Map 1: T[i] = A[i] for i in 0:N:1
     // Map 2: B[j] = T[j] for j in 0:2*N:1
-    // Second map accesses beyond what first map computed - index mapping still works
+    // Should NOT fuse: consumer reads elements 0..2N-1 but producer only wrote 0..N-1
 
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
 
@@ -765,9 +765,137 @@ TEST(MapFusionTest, Domain_Recomputation) {
     analysis::AnalysisManager analysis_manager(builder.subject());
     transformations::MapFusion transformation(map1, map2);
 
-    // The index mapping is valid (i = j), but this would cause recomputation
-    // In the current implementation, we allow this as long as index mapping is solvable
-    EXPECT_TRUE(transformation.can_be_applied(builder, analysis_manager));
+    // The index mapping i = j is valid, but the producer only writes elements 0..N-1
+    // while the consumer reads 0..2N-1. Fusion would read uninitialized values.
+    EXPECT_FALSE(transformation.can_be_applied(builder, analysis_manager))
+        << "Should reject: consumer reads beyond producer's write range";
+}
+
+TEST(MapFusionTest, Domain_PartialSubRange_ProducerWritesSlice) {
+    // Producer writes a sub-range (offset slice), consumer reads the full range.
+    // This models the pattern: A[i, 1:N-1] = B[i, 1:N-1] followed by C = A (full copy).
+    // Map 1: T[i] = A[i] for i in 1:N-1:1 (writes indices 1..N-2)
+    // Map 2: B[j] = T[j] for j in 0:N:1   (reads ALL indices 0..N-1)
+    // Should NOT fuse: consumer reads T[0] and T[N-1] which producer never wrote.
+
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar float_desc(types::PrimitiveType::Float);
+    types::Array array_desc(float_desc, {symbolic::symbol("N")});
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+    builder.add_container("A", array_desc, true);
+    builder.add_container("T", array_desc);
+    builder.add_container("B", array_desc, true);
+
+    // Map 1: T[i] = A[i] for i in 1:N-1:1 (writes only the interior)
+    auto indvar1 = symbolic::symbol("i");
+    auto& map1 = builder.add_map(
+        root,
+        indvar1,
+        symbolic::Lt(symbolic::symbol("i"), symbolic::sub(symbolic::symbol("N"), symbolic::integer(1))),
+        symbolic::integer(1),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& block1 = builder.add_block(map1.root());
+    auto& a_in = builder.add_access(block1, "A");
+    auto& t_out = builder.add_access(block1, "T");
+    auto& tasklet1 = builder.add_tasklet(block1, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block1, a_in, tasklet1, "_in", {symbolic::symbol("i")}, array_desc);
+    builder.add_computational_memlet(block1, tasklet1, "_out", t_out, {symbolic::symbol("i")}, array_desc);
+
+    // Map 2: B[j] = T[j] for j in 0:N:1 (reads all indices)
+    auto indvar2 = symbolic::symbol("j");
+    auto& map2 = builder.add_map(
+        root,
+        indvar2,
+        symbolic::Lt(symbolic::symbol("j"), symbolic::symbol("N")),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& block2 = builder.add_block(map2.root());
+    auto& t_in = builder.add_access(block2, "T");
+    auto& b_out = builder.add_access(block2, "B");
+    auto& tasklet2 = builder.add_tasklet(block2, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block2, t_in, tasklet2, "_in", {symbolic::symbol("j")}, array_desc);
+    builder.add_computational_memlet(block2, tasklet2, "_out", b_out, {symbolic::symbol("j")}, array_desc);
+
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    transformations::MapFusion transformation(map1, map2);
+
+    EXPECT_FALSE(transformation.can_be_applied(builder, analysis_manager))
+        << "Should reject: producer writes indices 1..N-2 but consumer reads 0..N-1";
+}
+
+TEST(MapFusionTest, Domain_PartialSubRange_ConsumerReadsSlice) {
+    // Producer writes a sub-range, consumer reads the SAME sub-range.
+    // Map 1: T[i] = A[i] for i in 1:N-1:1 (writes indices 1..N-2)
+    // Map 2: B[j] = T[j] for j in 1:N-1:1 (reads indices 1..N-2)
+    // Should fuse: consumer only reads what producer wrote.
+
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar float_desc(types::PrimitiveType::Float);
+    types::Array array_desc(float_desc, {symbolic::symbol("N")});
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+    builder.add_container("A", array_desc, true);
+    builder.add_container("T", array_desc);
+    builder.add_container("B", array_desc, true);
+
+    // Map 1: T[i] = A[i] for i in 1:N-1:1
+    auto indvar1 = symbolic::symbol("i");
+    auto& map1 = builder.add_map(
+        root,
+        indvar1,
+        symbolic::Lt(symbolic::symbol("i"), symbolic::sub(symbolic::symbol("N"), symbolic::integer(1))),
+        symbolic::integer(1),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& block1 = builder.add_block(map1.root());
+    auto& a_in = builder.add_access(block1, "A");
+    auto& t_out = builder.add_access(block1, "T");
+    auto& tasklet1 = builder.add_tasklet(block1, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block1, a_in, tasklet1, "_in", {symbolic::symbol("i")}, array_desc);
+    builder.add_computational_memlet(block1, tasklet1, "_out", t_out, {symbolic::symbol("i")}, array_desc);
+
+    // Map 2: B[j] = T[j] for j in 1:N-1:1 (same range as producer)
+    auto indvar2 = symbolic::symbol("j");
+    auto& map2 = builder.add_map(
+        root,
+        indvar2,
+        symbolic::Lt(symbolic::symbol("j"), symbolic::sub(symbolic::symbol("N"), symbolic::integer(1))),
+        symbolic::integer(1),
+        symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& block2 = builder.add_block(map2.root());
+    auto& t_in = builder.add_access(block2, "T");
+    auto& b_out = builder.add_access(block2, "B");
+    auto& tasklet2 = builder.add_tasklet(block2, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block2, t_in, tasklet2, "_in", {symbolic::symbol("j")}, array_desc);
+    builder.add_computational_memlet(block2, tasklet2, "_out", b_out, {symbolic::symbol("j")}, array_desc);
+
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    transformations::MapFusion transformation(map1, map2);
+
+    EXPECT_TRUE(transformation.can_be_applied(builder, analysis_manager))
+        << "Should accept: consumer reads exactly the sub-range producer wrote";
 }
 
 TEST(MapFusionTest, Domain_Stencil1D) {
@@ -1555,11 +1683,12 @@ TEST(MapFusionTest, Dataflow_StencilConsumer_MultipleIndexMappings) {
     builder.add_computational_memlet(block1, tasklet1, "_out", t_out, {symbolic::symbol("i")}, array_desc);
 
     // Map 2: B[j] = T[j-1] + T[j+1] (stencil - reads T at different indices)
+    // j ranges from 1 to N-2 so that j-1 >= 0 and j+1 <= N-1 (within producer range)
     auto indvar2 = symbolic::symbol("j");
     auto& map2 = builder.add_map(
         root,
         indvar2,
-        symbolic::Lt(symbolic::symbol("j"), symbolic::symbol("N")),
+        symbolic::Lt(symbolic::symbol("j"), symbolic::sub(symbolic::symbol("N"), symbolic::integer(1))),
         symbolic::integer(1),
         symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
         structured_control_flow::ScheduleType_Sequential::create()
