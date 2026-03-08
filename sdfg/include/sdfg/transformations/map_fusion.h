@@ -4,6 +4,7 @@
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
+#include "sdfg/symbolic/assumptions.h"
 #include "sdfg/transformations/transformation.h"
 
 namespace sdfg {
@@ -25,9 +26,18 @@ class MapFusion : public Transformation {
     struct FusionCandidate {
         std::string container;
         data_flow::Subset consumer_subset;
-        symbolic::Expression index_mapping;
+        std::vector<std::pair<symbolic::Symbol, symbolic::Expression>> index_mappings;
     };
     std::vector<FusionCandidate> fusion_candidates_;
+
+    static std::vector<std::pair<symbolic::Symbol, symbolic::Expression>> solve_subsets(
+        const data_flow::Subset& producer_subset,
+        const data_flow::Subset& consumer_subset,
+        const std::vector<structured_control_flow::StructuredLoop*>& producer_loops,
+        const std::vector<structured_control_flow::StructuredLoop*>& consumer_loops,
+        const symbolic::Assumptions& producer_assumptions,
+        const symbolic::Assumptions& consumer_assumptions
+    );
 
 public:
     /**
