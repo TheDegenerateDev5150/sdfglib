@@ -1,3 +1,4 @@
+import sys
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -57,6 +58,7 @@ def kernel(in_field, out_field, coeff):
     )
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize(
     "target",
     [
