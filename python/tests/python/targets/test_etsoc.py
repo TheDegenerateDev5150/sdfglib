@@ -9,7 +9,7 @@ def test_scheduling_etsoc_matmul_mini():
     def matmul_etsoc(A, B, C):
         C = A @ B
 
-    N = 8
+    N = 16
     A = np.random.rand(N, N).astype(np.float32)
     A.fill(0.5)
     B = np.random.rand(N, N).astype(np.float32)
@@ -22,16 +22,18 @@ def test_scheduling_etsoc_matmul_mini():
     assert np.allclose(C, A @ B)
 
 
-@pytest.mark.skip("too slow")
 def test_scheduling_etsoc_matmul_large():
     @native(target="etsoc", category="server")
     def matmul_etsoc(A, B, C):
         C = A @ B
 
-    N = 512
-    A = np.random.rand(N, N).astype(np.float32)
-    B = np.random.rand(N, N).astype(np.float32)
-    C = np.zeros((N, N), dtype=np.float32)
+    M = 1024
+    N = 1024
+    K = 1024
+    A = np.random.rand(M, K).astype(np.float32)
+    B = np.random.rand(K, N).astype(np.float32)
+    C = np.zeros((M, N), dtype=np.float32)
 
     matmul_etsoc(A, B, C)
+
     assert np.allclose(C, A @ B)
