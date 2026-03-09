@@ -331,7 +331,7 @@ void PyStructuredSDFG::schedule(const std::string& target, const std::string& ca
         schedulers.push_back("highway");
     }
     // GPU Opt Pipeline
-    else if (target == "cuda") {
+    else if (target == "cuda" || target == "hip") {
         schedulers.push_back(target);
     } else if (target == "onnx") {
         sdfg::passes::ONNXLibraryNodeRewriterPass onnx_library_node_rewriter_pass;
@@ -463,6 +463,8 @@ std::string PyStructuredSDFG::compile(
 #endif
         if (target == "cuda") { // should use .cu to detect
             cmd << " -x cuda --cuda-gpu-arch=sm_70 --cuda-path=/usr/local/cuda";
+        } else if (target == "hip" && extension == "hip.cpp") {
+            cmd << " -x hip --offload-arch=gfx1201 --rocm-path=/opt/rocm -I/opt/rocm/include";
         }
 
         cmd << " " << lib_file;
@@ -489,6 +491,8 @@ std::string PyStructuredSDFG::compile(
         }
         if (target == "cuda") {
             cmd << " -x cuda -lcuda";
+        } else if (target == "hip") {
+            cmd << " -x hip --offload-arch=gfx1201 --offload-host-only --rocm-path=/opt/rocm -I/opt/rocm/include";
         } else if (target == "etsoc") {
 #ifdef DOCC_HAS_TARGET_ET
             cmd << " " << docc::target::et::et_get_host_additional_compile_args(*sdfg_, *snippet_factory);
@@ -539,6 +543,10 @@ std::string PyStructuredSDFG::compile(
     if (target == "cuda") {
         cmd << " /usr/local/cuda/lib64/libcudart.so";
         cmd << " /usr/local/cuda/lib64/libcublas.so";
+    } else if (target == "hip") {
+        cmd << " /opt/rocm/lib/libamdhip64.so";
+        cmd << " /opt/rocm/lib/libhiprtc.so";
+        cmd << " /opt/rocm/lib/libhipblas.so";
     } else if (target == "onnx") {
         cmd << " -L/usr/local/onnxruntime/lib";
         cmd << " -lonnxruntime";
