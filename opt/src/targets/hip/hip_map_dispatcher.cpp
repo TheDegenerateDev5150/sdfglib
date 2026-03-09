@@ -145,6 +145,7 @@ void HIPMapDispatcher::dispatch_node(
         );
 
         globals_stream << "#include <cstdio>" << std::endl;
+        globals_stream << "#include <hip/hip_runtime.h>" << std::endl;
         // Kernel Declaration
         this->dispatch_header(globals_stream, kernel_name, arguments_declaration);
         globals_stream << ";" << std::endl;
@@ -152,6 +153,7 @@ void HIPMapDispatcher::dispatch_node(
         auto& library_stream = library_snippet_factory.require(kernel_name, "hip.cpp", true).stream();
 
         library_stream << "#include " << library_snippet_factory.header_path().filename() << std::endl << std::endl;
+        library_stream << "#include <hip/hip_runtime.h>" << std::endl;
 
         this->dispatch_kernel_preamble(
             library_stream, analysis_manager, kernel_name, x_vars, y_vars, z_vars, arguments_declaration
