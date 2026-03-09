@@ -56,12 +56,22 @@ def test_jacobi_2d(target):
                 "Malloc": 10,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 24,
                 "MAP": 24,
                 "CUDAOffloading": 50,
+                "FOR": 25,
+                "Malloc": 10,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "HIP": 24,
+                "MAP": 24,
+                "HIPOffloading": 50,
                 "FOR": 25,
                 "Malloc": 10,
             }

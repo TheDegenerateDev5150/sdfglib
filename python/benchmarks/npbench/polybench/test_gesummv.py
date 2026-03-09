@@ -61,7 +61,7 @@ def test_gesummv(target):
                 "Malloc": 5,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "Free": 5,
@@ -70,6 +70,18 @@ def test_gesummv(target):
                 "FOR": 6,
                 "MAP": 6,
                 "CUDAOffloading": 20,
+                "Malloc": 5,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "Free": 5,
+                "GEMM": 2,
+                "HIP": 6,
+                "FOR": 6,
+                "MAP": 6,
+                "HIPOffloading": 20,
                 "Malloc": 5,
             }
         )

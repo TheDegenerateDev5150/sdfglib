@@ -50,7 +50,11 @@ def test_seidel_2d(target):
         verifier = SDFGVerification(
             verification={"HIGHWAY": 1, "MAP": 1, "FOR": 4}, non_critical=True
         )
-    else:  # cuda
+    elif target == "cuda":
+        verifier = SDFGVerification(
+            verification={"MAP": 1, "SEQUENTIAL": 1, "FOR": 4}, non_critical=True
+        )
+    else:  # hip
         verifier = SDFGVerification(
             verification={"MAP": 1, "SEQUENTIAL": 1, "FOR": 4}, non_critical=True
         )

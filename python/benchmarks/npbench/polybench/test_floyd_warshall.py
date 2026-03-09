@@ -46,12 +46,22 @@ def test_floyd_warshall(target):
                 "Malloc": 2,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 6,
                 "MAP": 6,
                 "CUDAOffloading": 12,
+                "FOR": 7,
+                "Malloc": 2,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "HIP": 6,
+                "MAP": 6,
+                "HIPOffloading": 12,
                 "FOR": 7,
                 "Malloc": 2,
             }

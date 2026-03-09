@@ -48,6 +48,7 @@ def kernel(A):
         "sequential",
         "openmp",
         # "cuda"
+        # "hip"
     ],
 )
 def test_gramschmidt(target):
@@ -93,13 +94,28 @@ def test_gramschmidt(target):
                 "Malloc": 5,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "GEMM": 1,
                 "CUDA": 5,
                 "MAP": 6,
                 "CUDAOffloading": 14,
+                "CMath": 1,
+                "DOT": 0,
+                "SEQUENTIAL": 1,
+                "FOR": 9,
+                "Memset": 2,
+                "Malloc": 2,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "GEMM": 1,
+                "HIP": 5,
+                "MAP": 6,
+                "HIPOffloading": 14,
                 "CMath": 1,
                 "DOT": 0,
                 "SEQUENTIAL": 1,

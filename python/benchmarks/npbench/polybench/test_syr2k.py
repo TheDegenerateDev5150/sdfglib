@@ -58,7 +58,7 @@ def test_syr2k(target):
             },
             non_critical=True,
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "Malloc": 3,
@@ -67,6 +67,18 @@ def test_syr2k(target):
                 "FOR": 8,
                 "MAP": 6,
                 "CUDAOffloading": 2,
+            },
+            non_critical=True,
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "Malloc": 3,
+                "HIP": 1,
+                "SEQUENTIAL": 5,
+                "FOR": 8,
+                "MAP": 6,
+                "HIPOffloading": 2,
             },
             non_critical=True,
         )

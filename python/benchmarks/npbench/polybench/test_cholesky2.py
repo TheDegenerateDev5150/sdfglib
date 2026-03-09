@@ -69,13 +69,26 @@ def test_cholesky2(target):
                 "DOT": 0,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "FOR": 0,
                 "MAP": 0,
                 "SEQUENTIAL": 0,
                 "CUDA": 0,
+                "CPU_PARALLEL": 0,
+                "HIGHWAY": 0,
+                "GEMM": 0,
+                "DOT": 0,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "FOR": 0,
+                "MAP": 0,
+                "SEQUENTIAL": 0,
+                "HIP": 0,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 0,

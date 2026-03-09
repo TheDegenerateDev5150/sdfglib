@@ -55,12 +55,22 @@ def test_fdtd_2d(target):
                 "Malloc": 11,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 29,
                 "MAP": 29,
                 "CUDAOffloading": 57,
+                "FOR": 30,
+                "Malloc": 11,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "HIP": 29,
+                "MAP": 29,
+                "HIPOffloading": 57,
                 "FOR": 30,
                 "Malloc": 11,
             }

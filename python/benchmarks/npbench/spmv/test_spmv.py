@@ -50,6 +50,7 @@ def kernel(A_row, A_col, A_val, x):
         "sequential",
         "openmp",
         # "cuda"
+        # "hip"
     ],
 )
 def test_spmv(target):
@@ -80,13 +81,27 @@ def test_spmv(target):
                 "Malloc": 4,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
                 "CUDA": 12,
                 "MAP": 18,
                 "CUDAOffloading": 34,
+                "Memcpy": 4,
+                "SEQUENTIAL": 6,
+                "FOR": 22,
+                "Memset": 1,
+                "Malloc": 8,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "CMath": 14,
+                "HIP": 12,
+                "MAP": 18,
+                "HIPOffloading": 34,
                 "Memcpy": 4,
                 "SEQUENTIAL": 6,
                 "FOR": 22,

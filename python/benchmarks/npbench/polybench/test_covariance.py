@@ -36,6 +36,7 @@ def kernel(M, float_n, data):
         "sequential",
         "openmp",
         # "cuda"
+        # "hip"
     ],
 )
 def test_covariance(target):
@@ -75,7 +76,7 @@ def test_covariance(target):
                 "Malloc": 4,
             }
         )
-    else:  # cuda
+    else:  # cuda / hip
         verifier = SDFGVerification(verification={})
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

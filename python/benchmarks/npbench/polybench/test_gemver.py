@@ -56,13 +56,25 @@ def test_gemver(target):
             },
             non_critical=True,
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 2,
                 "FOR": 2,
                 "MAP": 2,
                 "CUDAOffloading": 10,
+                "Malloc": 2,
+                "GEMM": 4,
+            },
+            non_critical=True,
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "HIP": 2,
+                "FOR": 2,
+                "MAP": 2,
+                "HIPOffloading": 10,
                 "Malloc": 2,
                 "GEMM": 4,
             },

@@ -57,13 +57,25 @@ def test_go_fast(target):
                 "FOR": 5,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "Free": 1,
                 "CUDA": 4,
                 "MAP": 4,
                 "CUDAOffloading": 7,
+                "CMath": 1,
+                "FOR": 5,
+                "Malloc": 1,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "Free": 1,
+                "HIP": 4,
+                "MAP": 4,
+                "HIPOffloading": 7,
                 "CMath": 1,
                 "FOR": 5,
                 "Malloc": 1,

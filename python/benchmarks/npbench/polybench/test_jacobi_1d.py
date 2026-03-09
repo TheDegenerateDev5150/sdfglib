@@ -35,9 +35,13 @@ def test_jacobi_1d(target):
         verifier = SDFGVerification(
             verification={"CPU_PARALLEL": 2, "MAP": 2, "FOR": 3}
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={"CUDA": 2, "MAP": 2, "CUDAOffloading": 8, "FOR": 3}
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={"HIP": 2, "MAP": 2, "HIPOffloading": 8, "FOR": 3}
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

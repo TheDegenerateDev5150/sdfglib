@@ -66,7 +66,11 @@ def test_heat_3d(target):
                 "Malloc": 30,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
+        verifier = SDFGVerification(
+            verification={"MAP": 92, "Malloc": 30, "SEQUENTIAL": 92, "FOR": 97}
+        )
+    else:  # hip
         verifier = SDFGVerification(
             verification={"MAP": 92, "Malloc": 30, "SEQUENTIAL": 92, "FOR": 97}
         )

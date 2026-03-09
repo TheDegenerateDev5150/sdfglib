@@ -57,7 +57,7 @@ def test_compute(target):
                 "Malloc": 6,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "Free": 6,
@@ -65,6 +65,17 @@ def test_compute(target):
                 "FOR": 14,
                 "MAP": 14,
                 "CUDAOffloading": 24,
+                "Malloc": 6,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "Free": 6,
+                "HIP": 14,
+                "FOR": 14,
+                "MAP": 14,
+                "HIPOffloading": 24,
                 "Malloc": 6,
             }
         )

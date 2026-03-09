@@ -64,13 +64,24 @@ def test_bicg(target):
                 "DOT": 0,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 2,
                 "FOR": 2,
                 "MAP": 2,
                 "CUDAOffloading": 8,
+                "GEMM": 2,
+                "Malloc": 2,
+            }
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "HIP": 2,
+                "FOR": 2,
+                "MAP": 2,
+                "HIPOffloading": 8,
                 "GEMM": 2,
                 "Malloc": 2,
             }

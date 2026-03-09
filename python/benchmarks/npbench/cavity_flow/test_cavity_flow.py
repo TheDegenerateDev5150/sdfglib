@@ -163,13 +163,27 @@ def test_cavity_flow(target):
             },
             non_critical=True,
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
                 "CUDA": 160,
                 "MAP": 182,
                 "CUDAOffloading": 305,
+                "SEQUENTIAL": 22,
+                "FOR": 186,
+                "Memset": 1,
+                "Malloc": 84,
+            },
+            non_critical=True,
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "CMath": 14,
+                "HIP": 160,
+                "MAP": 182,
+                "HIPOffloading": 305,
                 "SEQUENTIAL": 22,
                 "FOR": 186,
                 "Memset": 1,

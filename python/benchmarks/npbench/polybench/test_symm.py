@@ -43,6 +43,7 @@ def kernel(alpha, beta, C, A, B):
         "sequential",
         "openmp",
         # "cuda"
+        # "hip"
     ],
 )
 def test_symm(target):
@@ -76,13 +77,27 @@ def test_symm(target):
             },
             non_critical=True,
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "FOR": 7,
                 "MAP": 5,
                 "SEQUENTIAL": 0,
                 "CUDA": 5,
+                "CPU_PARALLEL": 0,
+                "HIGHWAY": 0,
+                "GEMM": 1,
+                "DOT": 0,
+            },
+            non_critical=True,
+        )
+    else:  # hip
+        verifier = SDFGVerification(
+            verification={
+                "FOR": 7,
+                "MAP": 5,
+                "SEQUENTIAL": 0,
+                "HIP": 5,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 1,
