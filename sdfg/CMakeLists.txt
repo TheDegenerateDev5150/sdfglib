@@ -1,10 +1,5 @@
 include(GNUInstallDirs)
 
-if(NOT DEFINED PARENT_PROJECT_INSTALL_PREFIX)
-    set(PARENT_PROJECT_INSTALL_PREFIX "" CACHE STRING
-           "Path prefix (trailing /!) for installing sdfglib artifacts. For example 'lib/docc-0.1.6/'" )
-endif()
-
 # Enable packaging of symengine
 set(_CMAKE_INSTALL_DEFAULT_COMPONENT_NAME ${CMAKE_INSTALL_DEFAULT_COMPONENT_NAME})
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME sdfglib-development)
@@ -43,7 +38,6 @@ set(SOURCE_FILES
     src/builder/function_builder.cpp
     src/builder/sdfg_builder.cpp
     src/builder/structured_sdfg_builder.cpp
-    src/codegen/utils.cpp
     src/codegen/code_snippet_factory.cpp
     src/codegen/instrumentation/arg_capture_plan.cpp
     src/codegen/instrumentation/instrumentation_info.cpp
@@ -52,6 +46,7 @@ set(SOURCE_FILES
     src/codegen/language_extensions/cpp_language_extension.cpp
     src/codegen/language_extensions/cuda_language_extension.cpp
     src/codegen/language_extensions/hip_language_extension.cpp
+    src/codegen/utils.cpp
     src/codegen/code_generators/c_code_generator.cpp
     src/codegen/code_generators/c_style_base_code_generator.cpp
     src/codegen/code_generators/cpp_code_generator.cpp
@@ -79,6 +74,7 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/barrier_local_node.cpp
     src/data_flow/library_nodes/call_node.cpp
     src/data_flow/library_nodes/invoke_node.cpp
+    src/data_flow/library_nodes/load_const_node.cpp
     src/data_flow/library_nodes/metadata_node.cpp
     src/data_flow/library_nodes/math/math_node.cpp
     src/data_flow/library_nodes/math/blas/blas_node.cpp
@@ -90,10 +86,12 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/math/tensor/reduce_node.cpp
     src/data_flow/library_nodes/math/tensor/broadcast_node.cpp
     src/data_flow/library_nodes/math/tensor/conv_node.cpp
+    src/data_flow/library_nodes/math/tensor/matmul_node.cpp
     src/data_flow/library_nodes/math/tensor/transpose_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/abs_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/add_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/cast_node.cpp
+    src/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/minimum_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/maximum_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/div_node.cpp
@@ -110,6 +108,7 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/math/tensor/elementwise_ops/sqrt_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/sub_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/tanh_node.cpp
+    src/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.cpp
     src/data_flow/library_nodes/math/tensor/reduce_ops/sum_node.cpp
     src/data_flow/library_nodes/math/tensor/reduce_ops/mean_node.cpp
     src/data_flow/library_nodes/math/tensor/reduce_ops/std_node.cpp
@@ -141,7 +140,6 @@ set(SOURCE_FILES
     src/passes/dataflow/memlet_linearization.cpp
     src/passes/dataflow/tensor_to_pointer_conversion.cpp
     src/passes/memory/allocation_management.cpp
-    src/passes/memory/insert_frees.cpp
     src/passes/schedules/expansion_pass.cpp
     src/passes/symbolic/symbol_evolution.cpp
     src/passes/symbolic/symbol_propagation.cpp
@@ -157,6 +155,7 @@ set(SOURCE_FILES
     src/passes/structured_control_flow/sequence_fusion.cpp
     src/passes/structured_control_flow/unify_loop_exits.cpp
     src/passes/structured_control_flow/while_to_for_conversion.cpp
+    src/passes/transformations/map_fusion_pass.cpp
     src/passes/debug_info_propagation.cpp
     src/serializer/json_serializer.cpp
     src/structured_control_flow/block.cpp
@@ -181,6 +180,7 @@ set(SOURCE_FILES
     src/transformations/loop_interchange.cpp
     src/transformations/loop_skewing.cpp
     src/transformations/loop_tiling.cpp
+    src/transformations/map_fusion.cpp
     src/transformations/out_local_storage.cpp
     src/transformations/recorder.cpp
     src/transformations/replayer.cpp
@@ -208,6 +208,7 @@ add_library(sdfglib
 )
 add_library(sdfg::sdfg ALIAS sdfglib)
 add_library(sdfglib::sdfglib ALIAS sdfglib)
+add_library(docc::core ALIAS sdfglib)
 target_include_directories(sdfglib
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -241,8 +242,10 @@ endif()
 target_link_libraries(sdfglib PUBLIC
     nlohmann_json::nlohmann_json
     $<BUILD_INTERFACE:Boost::graph>
+    $<BUILD_INTERFACE:Boost::boost>
     PkgConfig::ISL
     symengine
+    sdfg::arg_capture_io
 )
 set_target_properties(sdfglib PROPERTIES
     VERSION ${PROJECT_VERSION}

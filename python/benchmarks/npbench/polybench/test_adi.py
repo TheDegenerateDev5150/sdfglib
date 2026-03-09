@@ -75,39 +75,52 @@ def kernel(TSTEPS, N, u):
 def test_adi(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 14, "SEQUENTIAL": 14, "FOR": 21, "Malloc": 3}
+            verification={
+                "Free": 5,
+                "MAP": 24,
+                "SEQUENTIAL": 24,
+                "FOR": 29,
+                "Malloc": 11,
+            },
+            non_critical=True,
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 3,
-                "MAP": 14,
-                "SEQUENTIAL": 11,
-                "FOR": 21,
-                "Malloc": 3,
-            }
+                "Free": 5,
+                "HIGHWAY": 8,
+                "MAP": 24,
+                "SEQUENTIAL": 16,
+                "FOR": 29,
+                "Malloc": 11,
+            },
+            non_critical=True,
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 1,
-                "CPU_PARALLEL": 9,
-                "MAP": 14,
-                "SEQUENTIAL": 4,
-                "FOR": 21,
-                "Malloc": 3,
-            }
+                "Free": 5,
+                "CPU_PARALLEL": 1,
+                "HIGHWAY": 8,
+                "MAP": 24,
+                "SEQUENTIAL": 15,
+                "FOR": 29,
+                "Malloc": 11,
+            },
+            non_critical=True,
         )
     else:  # cuda
         verifier = SDFGVerification(
             verification={
-                "CUDA": 10,
-                "MAP": 14,
-                "CUDAOffloading": 22,
-                "SEQUENTIAL": 4,
-                "FOR": 21,
-                "Malloc": 3,
-            }
+                "Free": 5,
+                "CUDA": 2,
+                "CUDAOffloading": 4,
+                "MAP": 24,
+                "SEQUENTIAL": 22,
+                "FOR": 29,
+                "Malloc": 11,
+            },
+            non_critical=True,
         )
 
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

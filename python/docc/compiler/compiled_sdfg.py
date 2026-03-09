@@ -2,6 +2,16 @@ import ctypes
 from docc.sdfg import Scalar, Array, Pointer, Structure, PrimitiveType
 
 import numpy as np
+import ml_dtypes
+
+
+def idiv(a, b):
+    """Integer division (floor division for positive numbers)."""
+    return int(a) // int(b)
+
+
+# Evaluation context for shape expressions
+_EVAL_GLOBALS = {"idiv": idiv}
 
 _CTYPES_MAP = {
     PrimitiveType.Bool: ctypes.c_bool,
@@ -15,6 +25,9 @@ _CTYPES_MAP = {
     PrimitiveType.UInt64: ctypes.c_uint64,
     PrimitiveType.Float: ctypes.c_float,
     PrimitiveType.Double: ctypes.c_double,
+    # Half and BFloat are 2 bytes, use c_uint16 for raw storage
+    PrimitiveType.Half: ctypes.c_uint16,
+    PrimitiveType.BFloat: ctypes.c_uint16,
 }
 
 
@@ -27,6 +40,7 @@ class CompiledSDFG:
         structure_member_info=None,
         output_args=None,
         output_shapes=None,
+        output_strides=None,
     ):
         self.lib_path = lib_path
         self.sdfg = sdfg
@@ -43,6 +57,7 @@ class CompiledSDFG:
                 self.output_args = out_args_str.split(",")
 
         self.output_shapes = output_shapes or {}
+        self.output_strides = output_strides or {}
 
         # Cache for ctypes structure definitions
         self._ctypes_structures = {}
@@ -77,9 +92,19 @@ class CompiledSDFG:
             index = match.group(2)
 
             # Skip known function names
-            known_functions = {"int", "float", "abs", "min", "max", "sum", "len"}
+            known_functions = {
+                "int",
+                "float",
+                "abs",
+                "min",
+                "max",
+                "sum",
+                "len",
+                "idiv",
+            }
             if name.lower() in known_functions:
-                placeholder = f"__FUNC__{name}__{index}__"
+                # Use unique delimiters that won't appear in expressions
+                placeholder = f"@@@FUNC@@@{name}@@@{index}@@@END@@@"
                 result = result[: match.start()] + placeholder + result[match.end() :]
             else:
                 result = (
@@ -87,7 +112,7 @@ class CompiledSDFG:
                 )
 
         result = re.sub(
-            r"__FUNC__([a-zA-Z_][a-zA-Z0-9_]*)__([^_]+)__", r"\1(\2)", result
+            r"@@@FUNC@@@([a-zA-Z_][a-zA-Z0-9_]*)@@@(.+?)@@@END@@@", r"\1(\2)", result
         )
 
         return result
@@ -151,11 +176,13 @@ class CompiledSDFG:
                     # Get return shape from metadata if available
                     return_shape_str = self.sdfg.metadata("return_shape")
                     if return_shape_str:
+                        # Strip brackets (metadata may be "[10,10]" format)
+                        return_shape_str = return_shape_str.strip("[]")
                         shape = []
                         for dim_str in return_shape_str.split(","):
                             try:
                                 eval_str = self._convert_to_python_syntax(str(dim_str))
-                                val = eval(eval_str, {}, shape_symbol_values)
+                                val = eval(eval_str, _EVAL_GLOBALS, shape_symbol_values)
                                 shape.append(int(val))
                             except Exception:
                                 # Can't evaluate shape, return raw pointer
@@ -174,6 +201,8 @@ class CompiledSDFG:
                             PrimitiveType.UInt32: np.uint32,
                             PrimitiveType.UInt64: np.uint64,
                             PrimitiveType.Bool: np.bool_,
+                            PrimitiveType.Half: np.float16,
+                            PrimitiveType.BFloat: ml_dtypes.bfloat16,
                         }
                         dtype = dtype_map.get(pointee.primitive_type, np.float64)
 
@@ -187,10 +216,26 @@ class CompiledSDFG:
                             pointee.primitive_type, ctypes.c_double
                         )
                         arr_type = ct_type * total_size
-                        arr = np.ctypeslib.as_array(
-                            ctypes.cast(func_result, ctypes.POINTER(arr_type)).contents
-                        )
-                        return arr.reshape(shape).astype(dtype)
+                        # For Half/BFloat, use np.frombuffer since np.ctypeslib.as_array
+                        # doesn't support these types (PEP 3118 buffer format limitation)
+                        if pointee.primitive_type in (
+                            PrimitiveType.Half,
+                            PrimitiveType.BFloat,
+                        ):
+                            byte_size = total_size * 2  # Half and BFloat are 2 bytes
+                            arr = np.frombuffer(
+                                (ctypes.c_char * byte_size).from_address(
+                                    ctypes.cast(func_result, ctypes.c_void_p).value
+                                ),
+                                dtype=dtype,
+                            ).copy()
+                        else:
+                            arr = np.ctypeslib.as_array(
+                                ctypes.cast(
+                                    func_result, ctypes.POINTER(arr_type)
+                                ).contents
+                            )
+                        return arr.reshape(shape)
                     else:
                         # No shape info - try to infer from input shapes
                         # For identity-like operations, the output shape matches input
@@ -214,6 +259,8 @@ class CompiledSDFG:
                                     PrimitiveType.UInt32: np.uint32,
                                     PrimitiveType.UInt64: np.uint64,
                                     PrimitiveType.Bool: np.bool_,
+                                    PrimitiveType.Half: np.float16,
+                                    PrimitiveType.BFloat: ml_dtypes.bfloat16,
                                 }
                                 dtype = dtype_map.get(
                                     pointee.primitive_type, np.float64
@@ -227,12 +274,30 @@ class CompiledSDFG:
                                     pointee.primitive_type, ctypes.c_double
                                 )
                                 arr_type = ct_type * total_size
-                                arr = np.ctypeslib.as_array(
-                                    ctypes.cast(
-                                        func_result, ctypes.POINTER(arr_type)
-                                    ).contents
-                                )
-                                return arr.reshape(shape).astype(dtype)
+                                # For Half/BFloat, use np.frombuffer since np.ctypeslib.as_array
+                                # doesn't support these types (PEP 3118 buffer format limitation)
+                                if pointee.primitive_type in (
+                                    PrimitiveType.Half,
+                                    PrimitiveType.BFloat,
+                                ):
+                                    byte_size = (
+                                        total_size * 2
+                                    )  # Half and BFloat are 2 bytes
+                                    arr = np.frombuffer(
+                                        (ctypes.c_char * byte_size).from_address(
+                                            ctypes.cast(
+                                                func_result, ctypes.c_void_p
+                                            ).value
+                                        ),
+                                        dtype=dtype,
+                                    ).copy()
+                                else:
+                                    arr = np.ctypeslib.as_array(
+                                        ctypes.cast(
+                                            func_result, ctypes.POINTER(arr_type)
+                                        ).contents
+                                    )
+                                return arr.reshape(shape)
 
                         # Can't determine shape, return raw pointer
                         return func_result
@@ -308,7 +373,7 @@ class CompiledSDFG:
                             # Convert SDFG parentheses notation to Python bracket notation
                             # e.g., "A_row(0)" -> "A_row[0]"
                             eval_str = self._convert_to_python_syntax(str(dim_str))
-                            val = eval(eval_str, {}, shape_symbol_values)
+                            val = eval(eval_str, _EVAL_GLOBALS, shape_symbol_values)
                             size *= int(val)
                         except Exception as e:
                             raise RuntimeError(
@@ -317,7 +382,9 @@ class CompiledSDFG:
 
                     buf_type = base_type * size
                     buf = buf_type()
-                    return_buffers[arg_name] = (buf, size, dims)
+                    # Store sdfg_type for proper dtype conversion (needed for Half/BFloat)
+                    sdfg_type = self.arg_sdfg_types[i]
+                    return_buffers[arg_name] = (buf, size, dims, sdfg_type)
                     converted_args.append(
                         ctypes.cast(ctypes.addressof(buf), target_type)
                     )
@@ -325,7 +392,8 @@ class CompiledSDFG:
 
                 # Scalar Return (Pointer(Scalar))
                 buf = base_type()
-                return_buffers[arg_name] = (buf, 1, None)
+                sdfg_type = self.arg_sdfg_types[i]
+                return_buffers[arg_name] = (buf, 1, None, sdfg_type)
                 converted_args.append(ctypes.byref(buf))
                 continue
 
@@ -385,7 +453,7 @@ class CompiledSDFG:
         )
 
         for name in sorted_ret_names:
-            buf, size, dims = return_buffers[name]
+            buf, size, dims, sdfg_type = return_buffers[name]
             if size == 1 and dims is None:
                 # Scalar
                 # buf is c_double / c_int instance
@@ -395,17 +463,76 @@ class CompiledSDFG:
                 # buf is (c_double * size) instance.
                 # Convert to numpy
                 if np is not None:
-                    # Create numpy array from buffer
-                    arr = np.ctypeslib.as_array(buf)  # 1D
+                    # Determine the target dtype from SDFG type
+                    target_dtype = None
+                    primitive_type = None
+                    if isinstance(sdfg_type, Pointer) and sdfg_type.has_pointee_type():
+                        pointee = sdfg_type.pointee_type
+                        if isinstance(pointee, Scalar):
+                            primitive_type = pointee.primitive_type
+                            dtype_map = {
+                                PrimitiveType.Float: np.float32,
+                                PrimitiveType.Double: np.float64,
+                                PrimitiveType.Int8: np.int8,
+                                PrimitiveType.Int16: np.int16,
+                                PrimitiveType.Int32: np.int32,
+                                PrimitiveType.Int64: np.int64,
+                                PrimitiveType.UInt8: np.uint8,
+                                PrimitiveType.UInt16: np.uint16,
+                                PrimitiveType.UInt32: np.uint32,
+                                PrimitiveType.UInt64: np.uint64,
+                                PrimitiveType.Bool: np.bool_,
+                                PrimitiveType.Half: np.float16,
+                                PrimitiveType.BFloat: ml_dtypes.bfloat16,
+                            }
+                            target_dtype = dtype_map.get(primitive_type)
+
+                    # For Half/BFloat, use np.frombuffer since np.ctypeslib.as_array
+                    # doesn't support these types (PEP 3118 buffer format limitation)
+                    if primitive_type in (PrimitiveType.Half, PrimitiveType.BFloat):
+                        byte_size = size * 2  # Half and BFloat are 2 bytes
+                        arr = np.frombuffer(
+                            (ctypes.c_char * byte_size).from_address(
+                                ctypes.addressof(buf)
+                            ),
+                            dtype=target_dtype,
+                        ).copy()
+                    else:
+                        # Create numpy array from buffer
+                        arr = np.ctypeslib.as_array(buf)  # 1D
                     if dims:
                         # Reshape
                         try:
                             shape = []
                             for dim_str in dims:
                                 eval_str = self._convert_to_python_syntax(str(dim_str))
-                                val = eval(eval_str, {}, shape_symbol_values)
+                                val = eval(eval_str, _EVAL_GLOBALS, shape_symbol_values)
                                 shape.append(int(val))
-                            arr = arr.reshape(shape)
+
+                            # Use strides directly if available
+                            if name in self.output_strides:
+                                stride_strs = self.output_strides[name]
+                                try:
+                                    # Evaluate stride expressions and convert to byte strides
+                                    itemsize = arr.itemsize
+                                    byte_strides = tuple(
+                                        int(
+                                            eval(
+                                                self._convert_to_python_syntax(str(s)),
+                                                {},
+                                                shape_symbol_values,
+                                            )
+                                        )
+                                        * itemsize
+                                        for s in stride_strs
+                                    )
+                                    arr = np.lib.stride_tricks.as_strided(
+                                        arr, shape=shape, strides=byte_strides
+                                    )
+                                except:
+                                    arr = arr.reshape(shape)
+                            else:
+                                arr = arr.reshape(shape)
                         except:
                             pass
                     results.append(arr)
@@ -451,7 +578,7 @@ class CompiledSDFG:
             # Simple evaluation using eval with shape_values
             # Warning: eval is unsafe, but here expressions come from our compiler
             try:
-                val = eval(expr, {}, shape_values)
+                val = eval(expr, _EVAL_GLOBALS, shape_values)
                 evaluated_shape.append(int(val))
             except Exception:
                 return None

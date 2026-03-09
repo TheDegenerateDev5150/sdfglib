@@ -1,12 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 
-file(READ "${CMAKE_SOURCE_DIR}/VERSION" PROJECT_VERSION)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROJECT_VERSION)
 string(STRIP "${PROJECT_VERSION}" PROJECT_VERSION)
 set(SDFGLIB_VERSION "${PROJECT_VERSION}")
 
 project(sdfglib VERSION ${SDFGLIB_VERSION} DESCRIPTION "Core SDFG library for generating and manipulating Stateful DataFlow Graphs" LANGUAGES CXX)
 
 include(cmake/CPM.cmake)
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 CPMAddPackage(
   NAME Boost
@@ -17,9 +21,12 @@ CPMAddPackage(
           "BUILD_SHARED_LIBS OFF" "BOOST_INCLUDE_LIBRARIES graph\\\;program_options" # Note the escapes!
 )
 
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Boost::boost is the legacy name for the header-only target (now Boost::headers).
+# Transitive dependencies may still link against it, so re-export it as an imported target.
+if(NOT TARGET Boost::boost)
+  add_library(Boost::boost INTERFACE IMPORTED)
+  set_target_properties(Boost::boost PROPERTIES INTERFACE_LINK_LIBRARIES Boost::headers)
+endif()
 
 # Tests Options
 option(SDFG_BUILD_TESTS "Build tests" ON)
@@ -43,6 +50,11 @@ endif()
 # Coverage option
 option(SDFG_ENABLE_COVERAGE "Enable coverage flags" OFF)
 
+if(NOT DEFINED PARENT_PROJECT_INSTALL_PREFIX)
+    set(PARENT_PROJECT_INSTALL_PREFIX "" CACHE STRING
+            "Path prefix (trailing /!) for installing sdfglib artifacts. For example 'lib/docc-0.1.6/'" )
+endif()
+
 add_subdirectory(sdfg)
 add_subdirectory(examples/applications)
 add_subdirectory(opt)
@@ -50,6 +62,7 @@ add_subdirectory(rpc)
 add_subdirectory(rtl)
 add_subdirectory(arg-capture-io)
 add_subdirectory(tutorial/printf_target)
+add_subdirectory(targets)
 
 option(PYTHON_BUILD_FRONTEND "Build Python frontend" OFF)
 if(PYTHON_BUILD_FRONTEND)

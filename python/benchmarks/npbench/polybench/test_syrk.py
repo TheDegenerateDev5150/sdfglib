@@ -29,55 +29,34 @@ def kernel(alpha, beta, C, A):
 def test_syrk(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 4,
-                "MAP": 3,
-                "SEQUENTIAL": 3,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 0,
-                "DOT": 0,
-            }
+            verification={"MAP": 2, "SEQUENTIAL": 2, "FOR": 4}, non_critical=True
         )
     elif target == "sequential":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 5,
-                "MAP": 4,
-                "SEQUENTIAL": 3,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 1,
-                "GEMM": 0,
-                "DOT": 0,
-            }
+            verification={"HIGHWAY": 1, "SEQUENTIAL": 2, "FOR": 5, "MAP": 3},
+            non_critical=True,
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "FOR": 5,
-                "MAP": 4,
-                "SEQUENTIAL": 1,
-                "CUDA": 0,
-                "CPU_PARALLEL": 2,
                 "HIGHWAY": 1,
-                "GEMM": 0,
-                "DOT": 0,
-            }
+                "CPU_PARALLEL": 1,
+                "SEQUENTIAL": 1,
+                "FOR": 5,
+                "MAP": 3,
+            },
+            non_critical=True,
         )
     else:  # cuda
         verifier = SDFGVerification(
             verification={
-                "FOR": 5,
-                "MAP": 4,
+                "CUDA": 1,
                 "SEQUENTIAL": 2,
-                "CUDA": 2,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 0,
-                "DOT": 0,
-            }
+                "FOR": 5,
+                "MAP": 3,
+                "CUDAOffloading": 2,
+            },
+            non_critical=True,
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

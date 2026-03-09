@@ -3,6 +3,7 @@
 
 # cmake
 build/
+build_python/
 .cache/
 _deps/
 *-build-*/

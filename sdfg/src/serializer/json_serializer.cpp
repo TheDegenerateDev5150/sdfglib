@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <memory>
+#include <sdfg/data_flow/library_nodes/load_const_node.h>
 #include <utility>
 #include <vector>
 
@@ -9,6 +10,8 @@
 #include "sdfg/data_flow/library_nodes/call_node.h"
 #include "sdfg/data_flow/library_nodes/invoke_node.h"
 #include "sdfg/data_flow/library_nodes/math/math.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/library_nodes/metadata_node.h"
 #include "sdfg/data_flow/library_nodes/stdlib/stdlib.h"
 
@@ -1321,6 +1324,12 @@ void register_default_serializers() {
             return std::make_unique<data_flow::InvokeNodeSerializer>();
         });
 
+    // LoadConst
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(data_flow::LibraryNodeType_LoadConst.value(), []() {
+            return std::make_unique<data_flow::LoadConstNodeSerializer>();
+        });
+
     // CMath
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::cmath::LibraryNodeType_CMath.value(), []() {
@@ -1355,6 +1364,10 @@ void register_default_serializers() {
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_Transpose.value(), []() {
             return std::make_unique<math::tensor::TransposeNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_MatMul.value(), []() {
+            return std::make_unique<math::tensor::MatMulNodeSerializer>();
         });
 
     // Elementwise
@@ -1425,6 +1438,18 @@ void register_default_serializers() {
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_Maximum.value(), []() {
             return std::make_unique<math::tensor::MaximumNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Fill.value(), []() {
+            return std::make_unique<math::tensor::FillNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_TensorTasklet.value(), []() {
+            return std::make_unique<math::tensor::TaskletTensorNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_TensorCMath.value(), []() {
+            return std::make_unique<math::tensor::CMathTensorNodeSerializer>();
         });
 
     // Reduce

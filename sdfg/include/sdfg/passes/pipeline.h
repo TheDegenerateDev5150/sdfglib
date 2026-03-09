@@ -17,6 +17,7 @@
 #include "sdfg/passes/structured_control_flow/sequence_fusion.h"
 #include "sdfg/passes/symbolic/symbol_evolution.h"
 #include "sdfg/passes/symbolic/symbol_propagation.h"
+#include "sdfg/passes/transformations/map_fusion_pass.h"
 
 namespace sdfg {
 namespace passes {
@@ -37,9 +38,9 @@ public:
 
     virtual bool run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
 
-    template<class T>
-    void register_pass() {
-        this->passes_.push_back(std::make_unique<T>());
+    template<class T, typename... Args>
+    void register_pass(Args&&... args) {
+        this->passes_.push_back(std::make_unique<T>(std::forward<Args>(args)...));
     };
 
     static Pipeline dataflow_simplification();
@@ -59,6 +60,8 @@ public:
     static Pipeline memory();
 
     static Pipeline expansion();
+
+    static Pipeline map_fusion();
 };
 
 } // namespace passes

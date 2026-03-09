@@ -18,18 +18,22 @@ public:
         const std::vector<symbolic::Expression>& shape
     );
 
+    bool expand(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
+
     bool expand_operation(
         builder::StructuredSDFGBuilder& builder,
         analysis::AnalysisManager& analysis_manager,
         structured_control_flow::Sequence& body,
         const std::string& input_name,
         const std::string& output_name,
-        const types::IType& input_type,
-        const types::IType& output_type,
+        const types::Tensor& input_type,
+        const types::Tensor& output_type,
         const data_flow::Subset& subset
     ) override;
 
     bool supports_integer_types() const override { return true; }
+
+    void validate(const Function& function) const override;
 
     std::unique_ptr<data_flow::DataFlowNode>
     clone(size_t element_id, const graph::Vertex vertex, data_flow::DataFlowGraph& parent) const override;

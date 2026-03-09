@@ -35,7 +35,7 @@ jobs:
           clang-format-19 -style=file --dry-run --Werror sdfg/include/**/*.h sdfg/src/**/*.cpp sdfg/tests/**/*.cpp
           clang-format-19 -style=file --dry-run --Werror opt/include/**/*.h opt/src/**/*.cpp opt/tests/**/*.cpp
 
-      - name: CMAKE Setup
+      - name: Build
         run: |
           mkdir build
           cd build
@@ -53,6 +53,9 @@ jobs:
           ninja -j$(nproc)
           ninja install
 
+      - name: Unit Tests
+        run: |
+          cd build/
           LLVM_PROFILE_FILE="sdfglib_test.profraw" ./sdfg/tests/sdfglib_test
           LLVM_PROFILE_FILE="sdfgopt_test.profraw" ./opt/tests/sdfgopt_test
           ./tutorial/printf_target/tests/printf_target_test
@@ -62,14 +65,6 @@ jobs:
           cd ../
           llvm-cov-19 export ./build/sdfg/tests/sdfglib_test -object ./build/opt/tests/sdfgopt_test -instr-profile=build/default.profdata -format=lcov > build/coverage_full.lcov
           lcov --extract build/coverage_full.lcov '*/sdfg/src/*' '*/sdfg/include/*' '*/opt/src/*' '*/opt/include/*' --output-file build/coverage.lcov
-
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          flag-name: sdfg
-          parallel: true
-          format: lcov
-          file: build/coverage.lcov
 
       - name: Test Arg-Capture-IO
         run: |
@@ -88,6 +83,14 @@ jobs:
 
           cd rtl/tests
           pytest -v -s rtl_tests.py
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          flag-name: sdfg
+          parallel: true
+          format: lcov
+          file: build/coverage.lcov
 
   python-tests-linux:
     runs-on:
@@ -117,6 +120,7 @@ jobs:
         run: |
           python -m venv .venv
           echo "$PWD/.venv/bin" >> $GITHUB_PATH
+          echo "::warning file=.venv::Testing warnings"
 
       - name: Mark GitHub Actions workdir as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -125,7 +129,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
-          pip install numpy scipy
+          pip install numpy scipy ml_dtypes
 
           # Install ONNX Runtime (lib)
           wget https://github.com/microsoft/onnxruntime/releases/download/v1.24.1/onnxruntime-linux-x64-1.24.1.tgz
@@ -146,6 +150,8 @@ jobs:
           pip install --no-build-isolation -v -e python/
 
       - name: Unit Tests
+        env:
+          DOCC_ACCESS_TOKEN: ${{ secrets.DOCC_CI_TOKEN }}
         run: |
           nvidia-smi
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -158,14 +164,6 @@ jobs:
           coverage run --source=python/docc -m pytest -v python/tests
           coverage xml
 
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
-        with:
-          flag-name: python-${{ matrix.python-version }}
-          parallel: true
-          format: cobertura
-          file: coverage.xml
-
       - name: Integration Tests
         run: |
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -176,6 +174,14 @@ jobs:
           export CPATH=/usr/local/onnxruntime/include:$CPATH
 
           pytest -v python/benchmarks/
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          flag-name: python-${{ matrix.python-version }}
+          parallel: true
+          format: cobertura
+          file: coverage.xml
 
   mlir-tests-linux:
     runs-on:
@@ -212,7 +218,7 @@ jobs:
 
           python -m pip install --upgrade pip
           pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
-          pip install numpy scipy
+          pip install numpy scipy ml_dtypes
 
       - name: Build
         run: |
@@ -235,7 +241,7 @@ jobs:
             ..
           ninja -j$(nproc)
 
-      - name: Unit tests
+      - name: Unit Tests
         run: |
           cd build/
           ninja check-docc-mlir
@@ -255,7 +261,7 @@ jobs:
           pip install torch-mlir torchvision --extra-index-url https://download.pytorch.org/whl/cpu -f https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels
 
           cd mlir/
-          pytest -v benchmarks/
+          pytest -v integration/
 
   finish:
     needs: [cpp-tests-linux, python-tests-linux, mlir-tests-linux]

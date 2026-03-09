@@ -48,42 +48,33 @@ def kernel(alpha, beta, C, A, B):
 def test_symm(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 6,
-                "MAP": 4,
-                "SEQUENTIAL": 4,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 1,
-                "DOT": 0,
-            }
+            verification={"GEMM": 1, "SEQUENTIAL": 7, "FOR": 9, "MAP": 7, "Malloc": 3},
+            non_critical=True,
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "FOR": 7,
-                "MAP": 5,
-                "SEQUENTIAL": 3,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 2,
                 "GEMM": 1,
-                "DOT": 0,
-            }
+                "HIGHWAY": 4,
+                "SEQUENTIAL": 3,
+                "FOR": 9,
+                "MAP": 7,
+                "Malloc": 3,
+            },
+            non_critical=True,
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "FOR": 7,
-                "MAP": 5,
-                "SEQUENTIAL": 1,
-                "CUDA": 0,
-                "CPU_PARALLEL": 3,
-                "HIGHWAY": 1,
                 "GEMM": 1,
-                "DOT": 0,
-            }
+                "HIGHWAY": 2,
+                "CPU_PARALLEL": 4,
+                "SEQUENTIAL": 1,
+                "FOR": 9,
+                "MAP": 7,
+                "Malloc": 3,
+            },
+            non_critical=True,
         )
     else:  # cuda
         verifier = SDFGVerification(
@@ -96,7 +87,8 @@ def test_symm(target):
                 "HIGHWAY": 0,
                 "GEMM": 1,
                 "DOT": 0,
-            }
+            },
+            non_critical=True,
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

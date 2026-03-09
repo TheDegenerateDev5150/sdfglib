@@ -11,6 +11,7 @@
 #include "data_flow/py_tasklet.h"
 #include "py_structured_sdfg.h"
 #include "sdfg/data_flow/tasklet.h"
+#include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_context.h"
 #include "sdfg/passes/scheduler/scheduler_registry.h"
 #include "sdfg/targets/cuda/plugin.h"
@@ -34,9 +35,12 @@
 #include <sdfg/targets/omp/plugin.h>
 #include <sdfg/targets/onnx/plugin.h>
 
-#include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_scheduler.h"
 #include "sdfg/passes/scheduler/cuda_scheduler.h"
+
+#ifdef DOCC_HAS_TARGET_ET
+#include <docc/target/et/target.h>
+#endif
 
 namespace py = pybind11;
 using namespace sdfg::types;
@@ -44,12 +48,16 @@ using namespace sdfg::types;
 PYBIND11_MODULE(_sdfg, m) {
     m.doc() = "A JIT compiler for Numpy-based Python programs targeting various hardware backends.";
 
+    static sdfg::plugins::Context docc_context = sdfg::plugins::Context::global_context();
     sdfg::codegen::register_default_dispatchers();
     sdfg::serializer::register_default_serializers();
     sdfg::omp::register_omp_plugin();
     sdfg::onnx::register_onnx_plugin();
     sdfg::highway::register_highway_plugin();
     sdfg::cuda::register_cuda_plugin();
+#ifdef DOCC_HAS_TARGET_ET
+    docc::target::et::register_plugin(docc_context);
+#endif
 
     register_types(m);
     register_tasklet(m);
@@ -90,13 +98,11 @@ PYBIND11_MODULE(_sdfg, m) {
         );
 
 
-    py::class_<
-        sdfg::passes::rpc::DaisytunerTransfertuningRpcContext,
-        sdfg::passes::rpc::SimpleRpcContext>(m, "DaisytunerTransfertuningRpcContext")
-        .def(py::init<std::string>(), py::arg("license_token"))
+    py::class_<sdfg::passes::rpc::DaisytunerRpcContext, sdfg::passes::rpc::SimpleRpcContext>(m, "DaisytunerRpcContext")
+        .def(py::init<std::string, bool>(), py::arg("license_token"), py::arg("is_job_token") = false)
         .def_static(
             "from_docc_config",
-            sdfg::passes::rpc::DaisytunerTransfertuningRpcContext::from_docc_config,
+            sdfg::passes::rpc::DaisytunerRpcContext::from_docc_config,
             "Read license config from an already setup DOCC"
         );
 
@@ -131,6 +137,11 @@ PYBIND11_MODULE(_sdfg, m) {
         .def_static("from_file", &PyStructuredSDFG::from_file, py::arg("file_path"), "Load a StructuredSDFG from file")
         .def_static("parse", &PyStructuredSDFG::parse, py::arg("sdfg_text"), "Parse a StructuredSDFG from text")
         .def_property_readonly("name", &PyStructuredSDFG::name)
+        .def_property_readonly(
+            "_ptr",
+            [](PyStructuredSDFG& self) { return reinterpret_cast<uintptr_t>(&self.sdfg()); },
+            "Get native pointer to StructuredSDFG for external plugin use"
+        )
         .def_property_readonly("return_type", &PyStructuredSDFG::return_type, py::return_value_policy::reference)
         .def("type", &PyStructuredSDFG::type, py::arg("name"), py::return_value_policy::reference)
         .def("exists", &PyStructuredSDFG::exists, py::arg("name"))
@@ -141,7 +152,7 @@ PYBIND11_MODULE(_sdfg, m) {
         .def("validate", &PyStructuredSDFG::validate, "Validates the SDFG")
         .def("expand", &PyStructuredSDFG::expand, "Expands all library nodes")
         .def("simplify", &PyStructuredSDFG::simplify, "Simplify the SDFG")
-        .def("dump", &PyStructuredSDFG::dump, py::arg("path"))
+        .def("dump", &PyStructuredSDFG::dump, py::arg("path"), py::arg("type") = "")
         .def("normalize", &PyStructuredSDFG::normalize, "Normalize the SDFG")
         .def(
             "schedule",
@@ -188,6 +199,12 @@ PYBIND11_MODULE(_sdfg, m) {
             "Set the return type of the SDFG"
         )
         .def(
+            "find_new_name",
+            &PyStructuredSDFGBuilder::find_new_name,
+            py::arg("prefix") = "tmp_",
+            "Find a new unique name in the SDFG with the given prefix"
+        )
+        .def(
             "add_return",
             &PyStructuredSDFGBuilder::add_return,
             py::arg("data"),
@@ -218,12 +235,9 @@ PYBIND11_MODULE(_sdfg, m) {
         )
         .def("begin_else", &PyStructuredSDFGBuilder::begin_else, py::arg("debug_info") = sdfg::DebugInfo())
         .def("end_if", &PyStructuredSDFGBuilder::end_if)
-        .def(
-            "begin_while",
-            &PyStructuredSDFGBuilder::begin_while,
-            py::arg("condition"),
-            py::arg("debug_info") = sdfg::DebugInfo()
-        )
+        .def("begin_while", &PyStructuredSDFGBuilder::begin_while, py::arg("debug_info") = sdfg::DebugInfo())
+        .def("add_break", &PyStructuredSDFGBuilder::add_break, py::arg("debug_info") = sdfg::DebugInfo())
+        .def("add_continue", &PyStructuredSDFGBuilder::add_continue, py::arg("debug_info") = sdfg::DebugInfo())
         .def("end_while", &PyStructuredSDFGBuilder::end_while)
         .def(
             "begin_for",
@@ -277,22 +291,15 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("debug_info") = sdfg::DebugInfo()
         )
         .def(
-            "add_broadcast",
-            &PyStructuredSDFGBuilder::add_broadcast,
-            py::arg("input"),
-            py::arg("output"),
-            py::arg("input_shape"),
-            py::arg("output_shape"),
-            py::arg("debug_info") = sdfg::DebugInfo()
-        )
-        .def(
             "add_elementwise_op",
             &PyStructuredSDFGBuilder::add_elementwise_op,
             py::arg("op_type"),
             py::arg("A"),
+            py::arg("A_type"),
             py::arg("B"),
+            py::arg("B_type"),
             py::arg("C"),
-            py::arg("shape"),
+            py::arg("C_type"),
             py::arg("debug_info") = sdfg::DebugInfo()
         )
         .def(
@@ -300,17 +307,9 @@ PYBIND11_MODULE(_sdfg, m) {
             &PyStructuredSDFGBuilder::add_elementwise_unary_op,
             py::arg("op_type"),
             py::arg("A"),
+            py::arg("A_type"),
             py::arg("C"),
-            py::arg("shape"),
-            py::arg("debug_info") = sdfg::DebugInfo()
-        )
-        .def(
-            "add_transpose",
-            &PyStructuredSDFGBuilder::add_transpose,
-            py::arg("A"),
-            py::arg("C"),
-            py::arg("shape"),
-            py::arg("perm"),
+            py::arg("C_type"),
             py::arg("debug_info") = sdfg::DebugInfo()
         )
         .def(
@@ -332,9 +331,9 @@ PYBIND11_MODULE(_sdfg, m) {
             "add_cast_op",
             &PyStructuredSDFGBuilder::add_cast_op,
             py::arg("A"),
+            py::arg("A_type"),
             py::arg("C"),
-            py::arg("shape"),
-            py::arg("target_type"),
+            py::arg("C_type"),
             py::arg("debug_info") = sdfg::DebugInfo()
         )
         .def(
@@ -342,8 +341,9 @@ PYBIND11_MODULE(_sdfg, m) {
             &PyStructuredSDFGBuilder::add_reduce_op,
             py::arg("op_type"),
             py::arg("input"),
+            py::arg("input_type"),
             py::arg("output"),
-            py::arg("input_shape"),
+            py::arg("output_type"),
             py::arg("axes"),
             py::arg("keepdims"),
             py::arg("debug_info") = sdfg::DebugInfo()
@@ -401,6 +401,24 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("block_ptr"),
             py::arg("count"),
             py::arg("debug_info") = sdfg::DebugInfo()
+        )
+        .def(
+            "add_free",
+            &PyStructuredSDFGBuilder::add_free,
+            py::arg("block_ptr"),
+            py::arg("debug_info") = sdfg::DebugInfo()
+        )
+        .def(
+            "is_hoistable_size",
+            &PyStructuredSDFGBuilder::is_hoistable_size,
+            py::arg("size_expr"),
+            "Check if a size expression only depends on function arguments (can be hoisted to function entry)"
+        )
+        .def(
+            "insert_block_at_root_start",
+            &PyStructuredSDFGBuilder::insert_block_at_root_start,
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            "Insert a block at the very beginning of the root sequence"
         )
         .def("get_sizeof", &PyStructuredSDFGBuilder::get_sizeof, py::arg("type"))
         .def(
@@ -460,4 +478,11 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("member_types"),
             "Define a structure type with the given name and member types"
         );
+
+    // Plugin infrastructure - global context and registration callback
+    m.def(
+        "_plugin_context",
+        []() { return reinterpret_cast<uintptr_t>(&docc_context); },
+        "Get native pointer to the global plugin context"
+    );
 }

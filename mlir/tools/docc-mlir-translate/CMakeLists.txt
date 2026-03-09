@@ -6,10 +6,14 @@ get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
 set(LIBS
     ${dialect_libs}
     ${translation_libs}
-    MLIROptLib
-    MLIRSDFGDialect
+    MLIRIR
+    MLIRParser
+    MLIRPass
+    MLIRTranslateLib
+    MLIRSupport
 )
 
+set_source_files_properties(docc-mlir-translate.cpp PROPERTIES COMPILE_FLAGS -fexceptions)
 add_llvm_executable(docc-mlir-translate
     docc-mlir-translate.cpp
     DEPENDS ${LIBS}

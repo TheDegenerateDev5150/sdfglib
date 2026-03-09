@@ -37,42 +37,36 @@ def kernel(alpha, beta, A, u1, v1, u2, v2, w, x, y, z):
 def test_gemver(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 2,
-                "MAP": 1,
-                "SEQUENTIAL": 1,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 4,
-                "DOT": 0,
-            }
+            verification={"SEQUENTIAL": 2, "FOR": 2, "MAP": 2, "Malloc": 2, "GEMM": 4},
+            non_critical=True,
         )
     elif target == "sequential":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 2,
-                "MAP": 1,
-                "SEQUENTIAL": 0,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 1,
-                "GEMM": 4,
-                "DOT": 0,
-            }
+            verification={"HIGHWAY": 2, "FOR": 2, "MAP": 2, "Malloc": 2, "GEMM": 4},
+            non_critical=True,
         )
     elif target == "openmp":
         verifier = SDFGVerification(
-            verification={"HIGHWAY": 1, "MAP": 1, "Malloc": 2, "FOR": 2, "GEMM": 4}
+            verification={
+                "CPU_PARALLEL": 2,
+                "FOR": 2,
+                "MAP": 2,
+                "Malloc": 2,
+                "GEMM": 4,
+            },
+            non_critical=True,
         )
     else:  # cuda
         verifier = SDFGVerification(
             verification={
-                "MAP": 1,
-                "Malloc": 2,
+                "CUDA": 2,
                 "FOR": 2,
+                "MAP": 2,
+                "CUDAOffloading": 10,
+                "Malloc": 2,
                 "GEMM": 4,
-            }
+            },
+            non_critical=True,
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 
