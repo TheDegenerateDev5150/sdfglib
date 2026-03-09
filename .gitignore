@@ -8,8 +8,8 @@ build_python/
 _deps/
 *-build-*/
 build-*/
-pybuild-*/
 pybuild/
+pybuild-*/
 
 # Prerequisites
 *.d
