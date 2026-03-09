@@ -730,8 +730,19 @@ LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg
     // Get operands
     auto input = op->getInputs()[0]; // X: [N, C_in, H, W]
     auto weight = op->getInputs()[1]; // W: [C_out, C_in/group, kH, kW]
-    auto output = op->getOutputs()[0]; // accumulator (from fill)
+    auto output = op->getOutputs()[0]; // accumulator (from fill or broadcast)
     auto result = op->getResult(0); // Y: [N, C_out, H_out, W_out]
+
+    // Check if the outs operand comes from a broadcast (bias pattern).
+    // In linalg, conv accumulates into outs. If outs = broadcast(bias), we connect
+    // the original bias tensor to the ConvNode's "B" connector, since the ConvNode
+    // initializes its internal accumulator to 0 and adds bias separately.
+    Value bias_value;
+    bool has_bias = false;
+    if (auto broadcast_op = dyn_cast_or_null<linalg::BroadcastOp>(output.getDefiningOp())) {
+        bias_value = broadcast_op.getInput();
+        has_bias = true;
+    }
 
     auto output_container = translator.get_or_create_container(output);
     auto result_container = translator.get_or_create_container(result);
@@ -847,6 +858,24 @@ LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg
 
     translator.builder().add_computational_memlet(block, x_access, libnode, "X", {}, input_tensor_type);
     translator.builder().add_computational_memlet(block, w_access, libnode, "W", {}, weight_tensor_type);
+
+    // Connect bias to ConvNode "B" connector if outs came from a broadcast
+    if (has_bias) {
+        auto bias_container = translator.get_or_create_container(bias_value);
+        auto& b_access = translator.builder().add_access(block, bias_container);
+
+        auto bias_ranked_type = dyn_cast_or_null<RankedTensorType>(bias_value.getType());
+        auto& bias_tensor_info = translator.get_or_create_tensor_info(bias_container, bias_ranked_type);
+
+        ::sdfg::symbolic::MultiExpression bias_shape;
+        for (auto entry : bias_tensor_info.shape()) {
+            bias_shape.push_back(::sdfg::symbolic::integer(entry));
+        }
+        ::sdfg::types::Tensor bias_tensor_type(primitive, bias_shape);
+
+        translator.builder().add_computational_memlet(block, b_access, libnode, "B", {}, bias_tensor_type);
+    }
+
     translator.builder().add_computational_memlet(block, libnode, "Y", y_access, {}, output_tensor_type);
 
     return success();
