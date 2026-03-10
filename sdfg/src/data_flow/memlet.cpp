@@ -284,6 +284,110 @@ MemletType Memlet::type() const {
     }
 }
 
+bool Memlet::is_src_read() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") { // anything else is not an access node on the input
+        auto t = type();
+        if (t == Computational) {
+            return true;
+        }
+        if (t == Dereference_Src) {
+            return true;
+        }
+        if (t == Reference && !subset_.empty() && base_type_ && base_type_->type_id() == types::TypeID::Pointer) {
+            return true; // we hide the read of src for pointer types
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_pointed_to_read() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") {
+        auto t = type();
+        if (t == Dereference_Src) {
+            return true;
+        }
+        if (t == Computational && base_type_->type_id() == types::TypeID::Pointer && !subset_.empty()) {
+            return true; // implicitly reads src, because we are crazy
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_address_leak() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") {
+        auto t = type();
+        if (t == Reference) {
+            if (subset_.empty()) {
+                return true;
+            }
+            if (!subset_.empty() && base_type_ && base_type_->type_id() != types::TypeID::Pointer) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_pointed_to_address_leak() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") {
+        auto t = type();
+        if (t == Reference && !subset_.empty() && base_type_ && base_type_->type_id() == types::TypeID::Pointer) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_dst_write() const {
+    if (dst_conn_ == "void" || dst_conn_ == "deref" || dst_conn_ == "ref") { // everyting else is not an access node at
+                                                                             // dst
+        auto t = type();
+        if (t == Reference) {
+            return true;
+        }
+        if (t == Computational) { // we already checked that dst is access node. So subset & type must be for that
+            if (base_type_ && (base_type_->type_id() != types::TypeID::Pointer || subset_.empty())) {
+                return true; // we either write to dst contents or if its a pointer, not to sth. indirect
+            }
+        }
+        if (t == Dereference_Src) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_dst_read() const {
+    if (dst_conn_ == "void" || dst_conn_ == "deref" || dst_conn_ == "ref") {
+        // everyting else is not an access node at dst
+        auto t = type();
+        if (t == Dereference_Dst) {
+            return true;
+        }
+        if (t == Computational) { // we already checked that dst is access node. So subset & type must be for that
+            if (base_type_ && base_type_->type_id() == types::TypeID::Pointer && !subset_.empty()) {
+                return true; // we use dst only as base address for the actual write
+            }
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_dst_pointed_to_write() const {
+    if (dst_conn_ == "void" || dst_conn_ == "deref" || dst_conn_ == "ref") {
+        auto t = type();
+        if (t == Dereference_Dst) {
+            return true;
+        }
+        if (t == Computational) { // we already checked that dst is access node. So subset & type must be for that
+            if (!subset_.empty() && base_type_ && base_type_->type_id() == types::TypeID::Pointer) {
+                return true; // we use dst only as base address for the actual write
+            }
+        }
+    }
+    return false;
+}
+
 const DataFlowNode& Memlet::src() const { return this->src_; };
 
 DataFlowNode& Memlet::src() { return this->src_; };

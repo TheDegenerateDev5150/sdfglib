@@ -38,8 +38,6 @@ private:
 public:
     MemoryOwnershipAnalysis(StructuredSDFG& sdfg);
 
-    std::unordered_map<std::string, std::unordered_set<std::string>> owned_memory;
-
     void run(analysis::AnalysisManager& manager);
 
     bool visit(sdfg::structured_control_flow::Block& node) override;
@@ -89,7 +87,7 @@ bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Block& node) 
                           std::views::filter([&](const auto& e) { return e.src_conn() == output_conn; });
             for (auto& oedge : oedges) {
                 auto* access_node = dynamic_cast<data_flow::AccessNode*>(&oedge.dst());
-                if (access_node) {
+                if (access_node && oedge.is_dst_write()) {
                     auto container = access_node->data();
                     auto it = originally_owned_data_.find(container);
                     if (it != originally_owned_data_.end()) {
@@ -111,26 +109,28 @@ bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Block& node) 
     }
 
     for (auto& edge : dflow.edges()) {
-        auto edge_type = edge.type();
-
-        auto* access_rd_node = dynamic_cast<data_flow::AccessNode*>(&edge.src());
-        if (access_rd_node) {
-            if (edge_type == data_flow::MemletType::Reference) { // pulls a reference to the owned memory area
-                auto& container = access_rd_node->data();
-                auto& type = sdfg_.type(container);
-                if (type.type_id() == types::TypeID::Pointer) {
-                    blockers_[container].emplace(&edge, BlockerType::Escape);
-                }
+        auto* access_src_node = dynamic_cast<data_flow::AccessNode*>(&edge.src());
+        if ((edge.is_src_pointed_to_address_leak() || edge.is_src_address_leak()) && access_src_node) { // pulls a
+                                                                                                        // reference to
+                                                                                                        // the owned
+                                                                                                        // memory area
+                                                                                                        // or can alias
+                                                                                                        // the entire
+                                                                                                        // pointer
+            auto& container = access_src_node->data();
+            auto& type = sdfg_.type(container);
+            if (type.type_id() == types::TypeID::Pointer) {
+                blockers_[container].emplace(&edge, BlockerType::Escape); // it may not be, but this is the safest
+                                                                          // assumption
+                // other passes can forward the original container and fold it into accesses
             }
         }
-        auto* access_wr_node = dynamic_cast<data_flow::AccessNode*>(&edge.dst());
-        if (access_wr_node) {
-            if (edge_type == data_flow::MemletType::Computational && edge.subset().empty()) { // writes to the ptr
-                auto& container = access_wr_node->data();
-                auto& type = sdfg_.type(container);
-                if (type.type_id() == types::TypeID::Pointer) {
-                    blockers_[container].emplace(&edge, BlockerType::Overwrite);
-                }
+        auto* access_dst_node = dynamic_cast<data_flow::AccessNode*>(&edge.dst());
+        if (edge.is_dst_write() && access_dst_node) { // writes to the ptr
+            auto& container = access_dst_node->data();
+            auto& type = sdfg_.type(container);
+            if (type.type_id() == types::TypeID::Pointer) {
+                blockers_[container].emplace(&edge, BlockerType::Overwrite);
             }
         }
     }
@@ -138,7 +138,7 @@ bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Block& node) 
 }
 
 bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Return& node) {
-    if (node.is_data()) {
+    if (node.is_data() && sdfg_.type(node.data()).type_id() == types::TypeID::Pointer) {
         blockers_[node.data()].emplace(&node, BlockerType::Escape);
     }
     return true;
@@ -146,9 +146,53 @@ bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Return& node)
 
 bool MemoryOwnershipAnalysis::handleStructuredLoop(StructuredLoop& loop) {
     auto& container = loop.indvar()->get_name();
-    blockers_[container].emplace(&loop, BlockerType::Overwrite);
+    if (sdfg_.type(container).type_id() == types::TypeID::Pointer) {
+        blockers_[container].emplace(&loop, BlockerType::Overwrite);
+    }
 
     return ActualStructuredSDFGVisitor::handleStructuredLoop(loop);
+}
+
+class IndirectMemoryAccessFinder : public visitor::ActualStructuredSDFGVisitor {
+private:
+    std::unordered_map<std::string, std::unordered_set<data_flow::Memlet*>> indirect_reads_;
+    std::unordered_map<std::string, std::unordered_map<data_flow::Memlet*, Block*>> indirect_writes_;
+    const std::unordered_set<std::string>& target_containers_;
+
+public:
+    IndirectMemoryAccessFinder(const std::unordered_set<std::string>& target_containers);
+
+    const std::unordered_map<std::string, std::unordered_set<data_flow::Memlet*>>& indirect_reads() {
+        return indirect_reads_;
+    }
+    const std::unordered_map<std::string, std::unordered_map<data_flow::Memlet*, Block*>>& indirect_writes() {
+        return indirect_writes_;
+    }
+
+    bool visit(sdfg::structured_control_flow::Block& node) override;
+};
+
+IndirectMemoryAccessFinder::IndirectMemoryAccessFinder(const std::unordered_set<std::string>& target_containers)
+    : target_containers_(target_containers) {}
+
+bool IndirectMemoryAccessFinder::visit(sdfg::structured_control_flow::Block& node) {
+    auto& dflow = node.dataflow();
+    for (auto& access_node : dflow.data_nodes()) {
+        auto& container = access_node->data();
+        if (target_containers_.contains(container)) {
+            for (auto& in_edge : dflow.in_edges(*access_node)) {
+                if (in_edge.is_dst_pointed_to_write() || in_edge.is_dst_write()) {
+                    indirect_writes_[container][&in_edge] = &node;
+                }
+            }
+            for (auto& out_edge : dflow.out_edges(*access_node)) {
+                if (out_edge.is_src_pointed_to_read()) {
+                    indirect_reads_[container].insert(&out_edge);
+                }
+            }
+        }
+    }
+    return true;
 }
 
 
@@ -164,13 +208,28 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
     MemoryOwnershipAnalysis ownership_analysis(sdfg);
     ownership_analysis.run(analysis_manager);
 
+    std::unordered_set<std::string> dead_containers;
+
     auto& fully_owned_areas = ownership_analysis.fully_owned_areas();
+    IndirectMemoryAccessFinder remaining_indirects(fully_owned_areas);
+    remaining_indirects.dispatch(sdfg.root());
+    for (auto& owned_area : fully_owned_areas) {
+        auto& all_reads = remaining_indirects.indirect_reads();
+        auto cont_reads_it = all_reads.find(owned_area);
+        if (cont_reads_it == all_reads.end() || cont_reads_it->second.empty()) {
+            DEBUG_PRINTLN("Removing writes of fully owned memory " << owned_area << ", never used!");
+            // [owned_area] is never read, no reference to it escapes our control.
+            auto& indirect_writes = remaining_indirects.indirect_writes().at(owned_area);
+            for (auto& [indirect_write, w_block] : indirect_writes) {
+                auto& write_node = dynamic_cast<data_flow::AccessNode&>(indirect_write->dst());
+                builder.clear_node(*w_block, write_node);
+            }
+        }
+    }
 
     auto& users = analysis_manager.get<analysis::Users>();
     auto& data_dependency_analysis = analysis_manager.get<analysis::DataDependencyAnalysis>();
 
-    // Eliminate dead code, i.e., never read
-    std::unordered_set<std::string> dead;
     for (auto& name : sdfg.containers()) {
         if (!sdfg.is_transient(name)) {
             continue;
@@ -180,7 +239,7 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
         }
         auto num_reads = users.num_reads(name);
         if (!num_reads && users.num_writes(name) == 0) {
-            dead.insert(name);
+            dead_containers.insert(name);
             applied = true;
             continue;
         }
@@ -190,7 +249,6 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
             // use analysis does not return actual reads and writes for pointers. So if [name] is a pointer,
             // num reads/writes, does not actually mean no reads exist and any removal is problematic
         }
-
 
         bool completely_unused = !num_reads; // if there are reads left, we can never remove the container, but maybe
                                              // some writes
@@ -236,11 +294,11 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
         }
 
         if (completely_unused) { // no reads, and all remaining writes could be removed
-            dead.insert(name);
+            dead_containers.insert(name);
         }
     }
 
-    for (auto& name : dead) {
+    for (auto& name : dead_containers) {
         builder.remove_container(name);
     }
 

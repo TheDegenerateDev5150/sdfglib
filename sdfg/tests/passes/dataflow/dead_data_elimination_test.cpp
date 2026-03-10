@@ -5,12 +5,15 @@
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/library_nodes/call_node.h"
+#include "sdfg/data_flow/library_nodes/stdlib/malloc.h"
 #include "sdfg/data_flow/tasklet.h"
 #include "sdfg/element.h"
 #include "sdfg/function.h"
+#include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
 #include "sdfg/types/function.h"
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/type.h"
+#include "sdfg/visualizer/dot_visualizer.h"
 
 using namespace sdfg;
 
@@ -556,4 +559,74 @@ TEST(DeadDataEliminationTest, DanglingRead) {
 
     // Check that container is still there for dangling read
     EXPECT_TRUE(sdfg.exists("b"));
+}
+
+TEST(DeadDataEliminationTest, NeverReadOwnedHeapMemory) {
+    builder::StructuredSDFGBuilder builder("sdfg", FunctionType_CPU);
+
+    types::Scalar t_int_desc(types::PrimitiveType::UInt32);
+    types::Scalar t_fp_desc(types::PrimitiveType::Float);
+    types::Pointer t_fp_ptr(t_fp_desc);
+
+    builder.add_container("out", t_fp_ptr, true);
+    builder.add_container("N", t_int_desc, true);
+    builder.add_container("tmp", t_fp_ptr);
+
+    auto& root = builder.subject().root();
+    auto& malloc_block = builder.add_block(root);
+    auto sym_n = symbolic::symbol("N");
+    auto& malloc_node = builder.add_library_node<stdlib::MallocNode>(malloc_block, DebugInfo(), sym_n);
+    auto& malloc_access = builder.add_access(malloc_block, "tmp");
+    builder.add_computational_memlet(malloc_block, malloc_node, "_ret", malloc_access, {}, t_fp_ptr);
+
+
+    builder.add_container("i", t_int_desc);
+    auto sym_i = symbolic::symbol("i");
+
+    auto& loop = builder.add_map(
+        root,
+        sym_i,
+        symbolic::Lt(sym_i, sym_n),
+        symbolic::integer(0),
+        symbolic::add(sym_i, symbolic::integer(1)),
+        ScheduleType_Sequential::create()
+    );
+    auto& body = loop.root();
+
+    auto& body_block = builder.add_block(body);
+    auto& some_fp_const = builder.add_constant(body_block, "1.0", t_fp_ptr);
+    auto& tmp_write = builder.add_access(body_block, "tmp");
+    auto& out_write = builder.add_access(body_block, "out");
+    auto& i_input = builder.add_access(body_block, "i");
+    auto& tasklet = builder.add_tasklet(body_block, data_flow::TaskletCode::fp_add, "out", {"a", "b"});
+    builder.add_computational_memlet(body_block, some_fp_const, tasklet, "a", {}, t_fp_ptr);
+    builder.add_computational_memlet(body_block, i_input, tasklet, "b", {}, t_fp_ptr);
+    builder.add_computational_memlet(body_block, tasklet, "out", tmp_write, {sym_i}, t_fp_ptr);
+    auto& tasklet2 = builder.add_tasklet(body_block, data_flow::TaskletCode::fp_add, "out", {"a", "b"});
+    builder.add_computational_memlet(body_block, some_fp_const, tasklet2, "a", {}, t_fp_ptr);
+    builder.add_computational_memlet(body_block, i_input, tasklet2, "b", {}, t_fp_ptr);
+    builder.add_computational_memlet(body_block, tasklet2, "out", out_write, {sym_i}, t_fp_ptr);
+
+    auto sdfg = builder.move();
+
+    visualizer::DotVisualizer::writeToFile(*sdfg, "dead_heap_test.before.sdfg.dot");
+
+    // Apply pass
+    builder::StructuredSDFGBuilder builder_opt(sdfg);
+    analysis::AnalysisManager analysis_manager(builder_opt.subject());
+    passes::DeadDataElimination pass;
+    bool applied = pass.run(builder_opt, analysis_manager);
+    passes::DeadCFGElimination().run(builder_opt, analysis_manager); // to remove the empty block left over
+
+    sdfg = builder_opt.move();
+
+    visualizer::DotVisualizer::writeToFile(*sdfg, "dead_heap_test.after.sdfg.dot");
+
+    EXPECT_TRUE(applied);
+
+    // Check result
+    EXPECT_FALSE(sdfg->exists("tmp"));
+    EXPECT_TRUE(sdfg->exists("out"));
+    EXPECT_TRUE(sdfg->exists("i"));
+    EXPECT_EQ(sdfg->root().size(), 1);
 }
