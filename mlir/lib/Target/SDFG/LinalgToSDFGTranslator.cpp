@@ -21,6 +21,7 @@
 #include "mlir/Target/SDFG/helper.h"
 #include "sdfg/data_flow/access_node.h"
 #include "sdfg/data_flow/library_nodes/math/cmath/cmath_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/broadcast_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/conv_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/fill_node.h"
@@ -640,22 +641,6 @@ LogicalResult translateLinalgBroadcastOp(SDFGTranslator& translator, linalg::Bro
         return op->emitError("Input and result types must be ranked tensors");
     }
 
-    auto dimensions = op->getDimensions();
-    int64_t output_rank = result_type.getRank();
-    auto result_shape = result_type.getShape();
-
-    // Construct affine maps from dimensions attribute
-    // Input map: (d0, ..., d_{M-1}) -> (non-broadcast dims only)
-    // Output map: identity (d0, ..., d_{M-1}) -> (d0, ..., d_{M-1})
-    SmallVector<AffineExpr> input_exprs;
-    for (int64_t d = 0; d < output_rank; d++) {
-        if (!llvm::is_contained(dimensions, d)) {
-            input_exprs.push_back(getAffineDimExpr(d, op->getContext()));
-        }
-    }
-    auto input_affine_map = AffineMap::get(output_rank, 0, input_exprs, op->getContext());
-    auto output_affine_map = AffineMap::getMultiDimIdentityMap(output_rank, op->getContext());
-
     auto& builder = translator.builder();
     auto input_container = translator.get_or_create_container(input);
     auto init_container = translator.get_or_create_container(init);
@@ -663,63 +648,36 @@ LogicalResult translateLinalgBroadcastOp(SDFGTranslator& translator, linalg::Bro
 
     translator.add_reference(init_container, result_container);
 
-    // Create parallel map nest over all output dimensions (all parallel for broadcast)
-    ::sdfg::structured_control_flow::Sequence* current_seq = &translator.insertion_point();
-    std::vector<::sdfg::symbolic::Symbol> indvars;
-    for (int64_t i = 0; i < output_rank; i++) {
-        auto indvar_container = builder.find_new_name("_i");
-        builder.add_container(indvar_container, ::sdfg::types::Scalar(::sdfg::types::PrimitiveType::Int64));
-        auto indvar = ::sdfg::symbolic::symbol(indvar_container);
-        indvars.push_back(indvar);
-        auto condition = ::sdfg::symbolic::Lt(indvar, ::sdfg::symbolic::integer(result_shape[i]));
-        auto init_expr = ::sdfg::symbolic::zero();
-        auto update = ::sdfg::symbolic::add(indvar, ::sdfg::symbolic::one());
-
-        auto& map = builder.add_map(
-            *current_seq,
-            indvar,
-            condition,
-            init_expr,
-            update,
-            ::sdfg::structured_control_flow::ScheduleType_Sequential::create()
-        );
-        current_seq = &map.root();
-    }
-
-    // Generate subsets from affine maps (same pattern as linalg.generic)
-    auto input_subset = affine_map_to_subset(input_affine_map, indvars);
-    auto output_subset = affine_map_to_subset(output_affine_map, indvars);
-
-    // Create a scalar container for the intermediate value
+    // Get element type
     auto element_type = translator.convertType(input_type.getElementType());
-    auto scalar_container = builder.find_new_name("_scalar");
-    builder.add_container(scalar_container, static_cast<::sdfg::types::Scalar&>(*element_type));
+    ::sdfg::types::Scalar base_type(element_type->primitive_type());
 
-    // Get tensor types for memlets
-    auto input_tensor_info = translator.get_or_create_tensor_info(input_container, input_type);
-    auto input_sdfg_tensor = input_tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
-    auto result_tensor_info = translator.get_or_create_tensor_info(result_container, result_type);
-    auto result_sdfg_tensor = result_tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
+    // Get tensor info for input and result
+    auto& input_tensor_info = translator.get_or_create_tensor_info(input_container, input_type);
+    auto input_sdfg_tensor = input_tensor_info.get_sdfg_tensor(base_type);
+    auto& result_tensor_info = translator.get_or_create_tensor_info(result_container, result_type);
+    auto result_sdfg_tensor = result_tensor_info.get_sdfg_tensor(base_type);
 
-    // Block 1: Read from input tensor into scalar (same as linalg.generic read pattern)
-    {
-        auto& sdfg_block = builder.add_block(*current_seq);
-        auto& input_access = builder.add_access(sdfg_block, input_container);
-        auto& scalar_access = builder.add_access(sdfg_block, scalar_container);
-        auto& tasklet = builder.add_tasklet(sdfg_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
-        builder.add_computational_memlet(sdfg_block, input_access, tasklet, "_in", input_subset, *input_sdfg_tensor);
-        builder.add_computational_memlet(sdfg_block, tasklet, "_out", scalar_access, {});
+    // Build input and output shapes
+    ::sdfg::symbolic::MultiExpression input_shape;
+    for (auto entry : input_tensor_info.shape()) {
+        input_shape.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::symbolic::MultiExpression output_shape;
+    for (auto entry : result_tensor_info.shape()) {
+        output_shape.push_back(::sdfg::symbolic::integer(entry));
     }
 
-    // Block 2: Write scalar into result tensor (same as linalg.generic yield pattern)
-    {
-        auto& sdfg_block = builder.add_block(*current_seq);
-        auto& scalar_access = builder.add_access(sdfg_block, scalar_container);
-        auto& result_access = builder.add_access(sdfg_block, result_container);
-        auto& tasklet = builder.add_tasklet(sdfg_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
-        builder.add_computational_memlet(sdfg_block, scalar_access, tasklet, "_in", {});
-        builder.add_computational_memlet(sdfg_block, tasklet, "_out", result_access, output_subset, *result_sdfg_tensor);
-    }
+    // Create block and BroadcastNode library node
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& lib_node = builder.add_library_node<
+        ::sdfg::math::tensor::BroadcastNode>(block, ::sdfg::DebugInfo(), input_shape, output_shape);
+
+    // Connect input to "X" and output to "Y"
+    auto& in_access = builder.add_access(block, input_container);
+    auto& out_access = builder.add_access(block, result_container);
+    builder.add_computational_memlet(block, in_access, lib_node, "X", {}, *input_sdfg_tensor);
+    builder.add_computational_memlet(block, lib_node, "Y", out_access, {}, *result_sdfg_tensor);
 
     return success();
 }
