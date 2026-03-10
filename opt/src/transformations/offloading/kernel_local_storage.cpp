@@ -357,9 +357,21 @@ void KernelLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis
     auto& inner_body = this->loop_.root();
     analysis::UsersView inner_body_users(users, inner_body);
 
-    std::string x_name = "__daisy_cuda_thread_idx_x";
-    std::string y_name = "__daisy_cuda_thread_idx_y";
-    std::string z_name = "__daisy_cuda_thread_idx_z";
+    // Detect GPU backend from ancestor map schedule types
+    bool is_hip = false;
+    for (auto node : ancestors) {
+        if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+            if (ancestor_map->schedule_type().value() == "HIP") {
+                is_hip = true;
+                break;
+            }
+        }
+    }
+
+    std::string thread_prefix = is_hip ? "__daisy_hip_thread_idx_" : "__daisy_cuda_thread_idx_";
+    std::string x_name = thread_prefix + "x";
+    std::string y_name = thread_prefix + "y";
+    std::string z_name = thread_prefix + "z";
     symbolic::Symbol x_symbol = symbolic::symbol(x_name);
     symbolic::Symbol y_symbol = symbolic::symbol(y_name);
     symbolic::Symbol z_symbol = symbolic::symbol(z_name);
@@ -439,22 +451,24 @@ void KernelLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis
     //     );
     // }
 
+    auto generic_storage = is_hip ? types::StorageType("AMD_Generic") : types::StorageType::NV_Generic();
+
     types::Array tile_array_type(types::StorageType::NV_Shared(), 8, {}, peeled_type, iteration_count);
-    types::Array z_array_type(types::StorageType::NV_Generic(), 8, {}, tile_array_type, z_dim_size);
+    types::Array z_array_type(generic_storage, 8, {}, tile_array_type, z_dim_size);
     types::Array* pred_y;
     if (symbolic::eq(target_dim, z_symbol)) {
         pred_y = &tile_array_type;
     } else {
         pred_y = &z_array_type;
     }
-    types::Array y_array_type(types::StorageType::NV_Generic(), 8, {}, *pred_y, y_dim_size);
+    types::Array y_array_type(generic_storage, 8, {}, *pred_y, y_dim_size);
     types::Array* pred_x;
     if (symbolic::eq(target_dim, y_symbol)) {
         pred_x = &z_array_type;
     } else {
         pred_x = &y_array_type;
     }
-    types::Array x_array_type(types::StorageType::NV_Generic(), 8, {}, *pred_x, x_dim_size);
+    types::Array x_array_type(generic_storage, 8, {}, *pred_x, x_dim_size);
     types::Array* final_type;
     if (symbolic::eq(target_dim, x_symbol)) {
         final_type = &y_array_type;
