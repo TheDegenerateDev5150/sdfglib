@@ -50,7 +50,7 @@ def kernel(A_row, A_col, A_val, x):
         "sequential",
         "openmp",
         # "cuda"
-        # "hip"
+        # "rocm"
     ],
 )
 def test_spmv(target):
@@ -95,13 +95,13 @@ def test_spmv(target):
                 "Malloc": 8,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
-                "HIP": 12,
+                "ROCM": 12,
                 "MAP": 18,
-                "HIPOffloading": 34,
+                "ROCMOffloading": 34,
                 "Memcpy": 4,
                 "SEQUENTIAL": 6,
                 "FOR": 22,

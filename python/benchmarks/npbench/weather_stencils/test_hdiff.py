@@ -92,14 +92,14 @@ def test_hdiff(target):
                 "Malloc": 20,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 36,
+                "ROCM": 36,
                 "SEQUENTIAL": 21,
                 "FOR": 63,
                 "MAP": 57,
-                "HIPOffloading": 80,
+                "ROCMOffloading": 80,
                 "Malloc": 20,
             }
         )

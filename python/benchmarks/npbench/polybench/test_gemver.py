@@ -68,13 +68,13 @@ def test_gemver(target):
             },
             non_critical=True,
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 2,
+                "ROCM": 2,
                 "FOR": 2,
                 "MAP": 2,
-                "HIPOffloading": 10,
+                "ROCMOffloading": 10,
                 "Malloc": 2,
                 "GEMM": 4,
             },

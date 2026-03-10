@@ -81,13 +81,13 @@ def test_k2mm(target):
                 "DOT": 0,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "FOR": 2,
                 "MAP": 2,
                 "SEQUENTIAL": 0,
-                "HIP": 2,
+                "ROCM": 2,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 2,

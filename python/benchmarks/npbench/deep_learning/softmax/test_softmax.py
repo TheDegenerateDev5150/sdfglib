@@ -35,7 +35,7 @@ def kernel(x):
         "sequential",
         "openmp",
         # "cuda"
-        # "hip"
+        # "rocm"
     ],
 )
 def test_softmax(target):
@@ -82,7 +82,7 @@ def test_softmax(target):
                 "Malloc": 7,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "CMath": 2,

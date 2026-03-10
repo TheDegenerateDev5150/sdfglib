@@ -1,18 +1,18 @@
-#include "sdfg/transformations/offloading/hip_transform.h"
+#include "sdfg/transformations/offloading/rocm_transform.h"
 
 #include <unordered_set>
 
 #include "sdfg/structured_control_flow/block.h"
-#include "sdfg/targets/hip/hip_data_offloading_node.h"
+#include "sdfg/targets/rocm/rocm_data_offloading_node.h"
 #include "sdfg/transformations/transformation.h"
 #include "symengine/symengine_rcp.h"
 
 namespace sdfg {
-namespace hip {
+namespace rocm {
 
-std::string HIPTransform::name() const { return "HIPTransform"; }
+std::string ROCMTransform::name() const { return "ROCMTransform"; }
 
-void HIPTransform::add_device_buffer(
+void ROCMTransform::add_device_buffer(
     builder::StructuredSDFGBuilder& builder,
     std::string host_arg_name,
     std::string device_arg_name,
@@ -26,7 +26,7 @@ void HIPTransform::add_device_buffer(
     builder.add_container(device_arg_name, *new_type);
 }
 
-void HIPTransform::allocate_device_arg(
+void ROCMTransform::allocate_device_arg(
     builder::StructuredSDFGBuilder& builder,
     Block& alloc_block,
     std::string host_arg_name,
@@ -51,7 +51,7 @@ void HIPTransform::allocate_device_arg(
 
     auto& access_node_out_device = builder.add_access(alloc_block, device_arg_name);
 
-    auto& malloc_node = builder.add_library_node<HIPDataOffloadingNode>(
+    auto& malloc_node = builder.add_library_node<ROCMDataOffloadingNode>(
         alloc_block,
         this->map_.debug_info(),
         arg_size,
@@ -64,7 +64,7 @@ void HIPTransform::allocate_device_arg(
     builder.add_computational_memlet(alloc_block, malloc_node, "_ret", access_node_out_device, {}, out_type);
 }
 
-void HIPTransform::deallocate_device_arg(
+void ROCMTransform::deallocate_device_arg(
     builder::StructuredSDFGBuilder& builder,
     Block& dealloc_block,
     std::string device_arg_name,
@@ -74,7 +74,7 @@ void HIPTransform::deallocate_device_arg(
     auto& access_node_in_device = builder.add_access(dealloc_block, device_arg_name);
     auto& access_node_out_device = builder.add_access(dealloc_block, device_arg_name);
 
-    auto& free_node = builder.add_library_node<HIPDataOffloadingNode>(
+    auto& free_node = builder.add_library_node<ROCMDataOffloadingNode>(
         dealloc_block,
         this->map_.debug_info(),
         arg_size,
@@ -88,7 +88,7 @@ void HIPTransform::deallocate_device_arg(
     builder.add_computational_memlet(dealloc_block, free_node, "_ptr", access_node_out_device, {}, free_type);
 }
 
-void HIPTransform::copy_to_device(
+void ROCMTransform::copy_to_device(
     builder::StructuredSDFGBuilder& builder,
     const std::string host_arg_name,
     std::string device_arg_name,
@@ -99,7 +99,7 @@ void HIPTransform::copy_to_device(
     auto& access_node_host = builder.add_access(copy_block, host_arg_name);
     auto& access_node_device = builder.add_access(copy_block, device_arg_name);
 
-    auto& memcpy_node = builder.add_library_node<HIPDataOffloadingNode>(
+    auto& memcpy_node = builder.add_library_node<ROCMDataOffloadingNode>(
         copy_block,
         this->map_.debug_info(),
         size,
@@ -115,7 +115,7 @@ void HIPTransform::copy_to_device(
     builder.add_computational_memlet(copy_block, memcpy_node, "_dst", access_node_device, {}, out_type);
 }
 
-void HIPTransform::copy_to_device_with_allocation(
+void ROCMTransform::copy_to_device_with_allocation(
     builder::StructuredSDFGBuilder& builder,
     const std::string host_arg_name,
     std::string device_arg_name,
@@ -126,7 +126,7 @@ void HIPTransform::copy_to_device_with_allocation(
     auto& access_node_host = builder.add_access(copy_block, host_arg_name);
     auto& access_node_device = builder.add_access(copy_block, device_arg_name);
 
-    auto& memcpy_node = builder.add_library_node<HIPDataOffloadingNode>(
+    auto& memcpy_node = builder.add_library_node<ROCMDataOffloadingNode>(
         copy_block,
         this->map_.debug_info(),
         size,
@@ -142,7 +142,7 @@ void HIPTransform::copy_to_device_with_allocation(
     builder.add_computational_memlet(copy_block, memcpy_node, "_dst", access_node_device, {}, out_type);
 }
 
-void HIPTransform::copy_from_device(
+void ROCMTransform::copy_from_device(
     builder::StructuredSDFGBuilder& builder,
     Block& copy_out_block,
     const std::string host_arg_name,
@@ -153,7 +153,7 @@ void HIPTransform::copy_from_device(
     auto& access_node_device = builder.add_access(copy_out_block, device_arg_name);
     auto& access_node_host = builder.add_access(copy_out_block, host_arg_name);
 
-    auto& memcpy_node = builder.add_library_node<HIPDataOffloadingNode>(
+    auto& memcpy_node = builder.add_library_node<ROCMDataOffloadingNode>(
         copy_out_block,
         this->map_.debug_info(),
         size,
@@ -169,7 +169,7 @@ void HIPTransform::copy_from_device(
     builder.add_computational_memlet(copy_out_block, memcpy_node, "_dst", access_node_host, {}, out_type);
 }
 
-void HIPTransform::copy_from_device_with_free(
+void ROCMTransform::copy_from_device_with_free(
     builder::StructuredSDFGBuilder& builder,
     Block& copy_out_block,
     const std::string host_arg_name,
@@ -180,7 +180,7 @@ void HIPTransform::copy_from_device_with_free(
     auto& access_node_device = builder.add_access(copy_out_block, device_arg_name);
     auto& access_node_host = builder.add_access(copy_out_block, host_arg_name);
 
-    auto& memcpy_node = builder.add_library_node<HIPDataOffloadingNode>(
+    auto& memcpy_node = builder.add_library_node<ROCMDataOffloadingNode>(
         copy_out_block,
         this->map_.debug_info(),
         size,
@@ -196,7 +196,7 @@ void HIPTransform::copy_from_device_with_free(
     builder.add_computational_memlet(copy_out_block, memcpy_node, "_dst", access_node_host, {}, out_type);
 }
 
-void HIPTransform::to_json(nlohmann::json& j) const {
+void ROCMTransform::to_json(nlohmann::json& j) const {
     std::string loop_type;
     if (dynamic_cast<structured_control_flow::Map*>(&map_)) {
         loop_type = "map";
@@ -209,7 +209,7 @@ void HIPTransform::to_json(nlohmann::json& j) const {
     j["parameters"] = {{"block_size", block_size_}};
 };
 
-HIPTransform HIPTransform::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
+ROCMTransform ROCMTransform::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
     auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
     size_t block_size = desc["parameters"]["block_size"].get<size_t>();
     auto element = builder.find_element_by_id(loop_id);
@@ -219,9 +219,9 @@ HIPTransform HIPTransform::from_json(builder::StructuredSDFGBuilder& builder, co
     }
     auto map = dynamic_cast<structured_control_flow::Map*>(element);
 
-    return HIPTransform(*map, block_size);
+    return ROCMTransform(*map, block_size);
 };
 
 
-} // namespace hip
+} // namespace rocm
 } // namespace sdfg

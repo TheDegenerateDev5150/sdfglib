@@ -43,7 +43,7 @@ def kernel(alpha, beta, C, A, B):
         "sequential",
         "openmp",
         # "cuda"
-        # "hip"
+        # "rocm"
     ],
 )
 def test_symm(target):
@@ -91,13 +91,13 @@ def test_symm(target):
             },
             non_critical=True,
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "FOR": 7,
                 "MAP": 5,
                 "SEQUENTIAL": 0,
-                "HIP": 5,
+                "ROCM": 5,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 1,

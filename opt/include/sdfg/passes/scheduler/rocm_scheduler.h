@@ -8,7 +8,7 @@ namespace sdfg {
 namespace passes {
 namespace scheduler {
 
-class HIPScheduler : public LoopScheduler {
+class ROCMScheduler : public LoopScheduler {
 public:
     SchedulerAction schedule(
         builder::StructuredSDFGBuilder& builder,
@@ -24,7 +24,7 @@ public:
         bool offload_unknown_sizes = false
     ) override;
 
-    static std::string target() { return "hip"; };
+    static std::string target() { return "rocm"; };
 
     std::unordered_set<ScheduleTypeCategory> compatible_types() override;
 };

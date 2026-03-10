@@ -1,23 +1,23 @@
-#include "sdfg/transformations/offloading/hip_parallelize_nested_map.h"
+#include "sdfg/transformations/offloading/rocm_parallelize_nested_map.h"
 
 #include <sdfg/analysis/loop_analysis.h>
 #include "sdfg/exceptions.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/hip/hip.h"
+#include "sdfg/targets/rocm/rocm.h"
 
 namespace sdfg {
 namespace transformations {
 
-HIPParallelizeNestedMap::HIPParallelizeNestedMap(structured_control_flow::Map& loop, size_t block_size)
+ROCMParallelizeNestedMap::ROCMParallelizeNestedMap(structured_control_flow::Map& loop, size_t block_size)
     : loop_(loop), block_size_(block_size) {}
 
-std::string HIPParallelizeNestedMap::name() const { return "HIPParallelizeNestedMap"; }
+std::string ROCMParallelizeNestedMap::name() const { return "ROCMParallelizeNestedMap"; }
 
-bool HIPParallelizeNestedMap::
+bool ROCMParallelizeNestedMap::
     can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
 
-    // Condition: Check if map is not yet parallelized with HIP
+    // Condition: Check if map is not yet parallelized with ROCM
     if (loop_.schedule_type().value() != ScheduleType_Sequential::value()) {
         return false;
     }
@@ -28,12 +28,12 @@ bool HIPParallelizeNestedMap::
         return false;
     }
 
-    // Condition: Check if parent loop is a HIP map, and not Z dimension (final dimension)
+    // Condition: Check if parent loop is a ROCM map, and not Z dimension (final dimension)
     if (auto map = dynamic_cast<structured_control_flow::Map*>(parent)) {
-        if (map->schedule_type().value() != hip::ScheduleType_HIP::value()) {
+        if (map->schedule_type().value() != rocm::ScheduleType_ROCM::value()) {
             return false;
         }
-        if (hip::ScheduleType_HIP::dimension(map->schedule_type()) == hip::HIPDimension::Z) {
+        if (rocm::ScheduleType_ROCM::dimension(map->schedule_type()) == rocm::ROCMDimension::Z) {
             return false;
         }
         auto parent_indvar = map->indvar();
@@ -67,32 +67,32 @@ bool HIPParallelizeNestedMap::
     return true;
 }
 
-void HIPParallelizeNestedMap::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+void ROCMParallelizeNestedMap::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
     auto parent = loop_analysis.parent_loop(&loop_);
 
     auto parent_dim =
-        hip::ScheduleType_HIP::dimension(static_cast<structured_control_flow::Map*>(parent)->schedule_type());
+        rocm::ScheduleType_ROCM::dimension(static_cast<structured_control_flow::Map*>(parent)->schedule_type());
 
-    hip::HIPDimension child_dim;
-    if (parent_dim == hip::HIPDimension::X) {
-        child_dim = hip::HIPDimension::Y;
-    } else if (parent_dim == hip::HIPDimension::Y) {
-        child_dim = hip::HIPDimension::Z;
+    rocm::ROCMDimension child_dim;
+    if (parent_dim == rocm::ROCMDimension::X) {
+        child_dim = rocm::ROCMDimension::Y;
+    } else if (parent_dim == rocm::ROCMDimension::Y) {
+        child_dim = rocm::ROCMDimension::Z;
     } else {
         throw InvalidSDFGException("Parent loop is Z dimension, cannot parallelize nested map.");
     }
 
-    auto new_schedule = hip::ScheduleType_HIP::create();
-    hip::ScheduleType_HIP::dimension(new_schedule, child_dim);
-    hip::ScheduleType_HIP::block_size(new_schedule, symbolic::integer(block_size_));
+    auto new_schedule = rocm::ScheduleType_ROCM::create();
+    rocm::ScheduleType_ROCM::dimension(new_schedule, child_dim);
+    rocm::ScheduleType_ROCM::block_size(new_schedule, symbolic::integer(block_size_));
 
     builder.update_schedule_type(loop_, new_schedule);
 }
 
-void HIPParallelizeNestedMap::to_json(nlohmann::json& j) const {
+void ROCMParallelizeNestedMap::to_json(nlohmann::json& j) const {
     if (dynamic_cast<structured_control_flow::For*>(&loop_)) {
-        throw std::runtime_error("HIPParallelizeNestedMap transformation does not support for-loops.");
+        throw std::runtime_error("ROCMParallelizeNestedMap transformation does not support for-loops.");
     }
     j["transformation_type"] = this->name();
 
@@ -106,7 +106,7 @@ void HIPParallelizeNestedMap::to_json(nlohmann::json& j) const {
     j["block_size"] = block_size_;
 }
 
-HIPParallelizeNestedMap HIPParallelizeNestedMap::
+ROCMParallelizeNestedMap ROCMParallelizeNestedMap::
     from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& j) {
     // Prefer the embedding-compatible representation (subgraph/parameters),
     // but fall back to legacy fields (loop/block_size) if needed.
@@ -133,7 +133,7 @@ HIPParallelizeNestedMap HIPParallelizeNestedMap::
     if (!loop) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " is not a loop.");
     }
-    return HIPParallelizeNestedMap(*loop, block_size);
+    return ROCMParallelizeNestedMap(*loop, block_size);
 }
 
 } // namespace transformations

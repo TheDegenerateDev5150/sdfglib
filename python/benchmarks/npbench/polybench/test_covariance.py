@@ -36,7 +36,7 @@ def kernel(M, float_n, data):
         "sequential",
         "openmp",
         # "cuda"
-        # "hip"
+        # "rocm"
     ],
 )
 def test_covariance(target):

@@ -122,12 +122,12 @@ def test_adi(target):
             },
             non_critical=True,
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "Free": 5,
-                "HIP": 2,
-                "HIPOffloading": 4,
+                "ROCM": 2,
+                "ROCMOffloading": 4,
                 "MAP": 24,
                 "SEQUENTIAL": 22,
                 "FOR": 29,

@@ -177,13 +177,13 @@ def test_cavity_flow(target):
             },
             non_critical=True,
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "CMath": 14,
-                "HIP": 160,
+                "ROCM": 160,
                 "MAP": 182,
-                "HIPOffloading": 305,
+                "ROCMOffloading": 305,
                 "SEQUENTIAL": 22,
                 "FOR": 186,
                 "Memset": 1,

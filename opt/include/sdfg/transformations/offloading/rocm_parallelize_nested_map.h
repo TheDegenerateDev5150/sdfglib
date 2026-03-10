@@ -7,12 +7,12 @@
 namespace sdfg {
 namespace transformations {
 
-class HIPParallelizeNestedMap : public Transformation {
+class ROCMParallelizeNestedMap : public Transformation {
     structured_control_flow::Map& loop_;
     size_t block_size_;
 
 public:
-    HIPParallelizeNestedMap(structured_control_flow::Map& loop, size_t block_size);
+    ROCMParallelizeNestedMap(structured_control_flow::Map& loop, size_t block_size);
 
     virtual std::string name() const override;
 
@@ -23,7 +23,7 @@ public:
 
     virtual void to_json(nlohmann::json& j) const override;
 
-    static HIPParallelizeNestedMap from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& j);
+    static ROCMParallelizeNestedMap from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& j);
 };
 
 

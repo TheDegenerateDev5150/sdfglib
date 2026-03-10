@@ -1,26 +1,26 @@
-#include "sdfg/passes/scheduler/hip_scheduler.h"
+#include "sdfg/passes/scheduler/rocm_scheduler.h"
 
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/transformations/offloading/gpu_loop_reordering.h"
 #include "sdfg/transformations/offloading/gpu_tiling.h"
-#include "sdfg/transformations/offloading/hip_parallelize_nested_map.h"
-#include "sdfg/transformations/offloading/hip_transform.h"
+#include "sdfg/transformations/offloading/rocm_parallelize_nested_map.h"
+#include "sdfg/transformations/offloading/rocm_transform.h"
 
 namespace sdfg {
 namespace passes {
 namespace scheduler {
 
-SchedulerAction HIPScheduler::schedule(
+SchedulerAction ROCMScheduler::schedule(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
     if (auto map_node = dynamic_cast<structured_control_flow::Map*>(&loop)) {
-        // Apply HIP parallelization to the loop
-        hip::HIPTransform hip_transform(*map_node, 64, offload_unknown_sizes); // 64 is HIP default wavefront size
-        if (hip_transform.can_be_applied(builder, analysis_manager)) {
-            hip_transform.apply(builder, analysis_manager);
+        // Apply ROCM parallelization to the loop
+        rocm::ROCMTransform rocm_transform(*map_node, 64, offload_unknown_sizes); // 64 is ROCM default wavefront size
+        if (rocm_transform.can_be_applied(builder, analysis_manager)) {
+            rocm_transform.apply(builder, analysis_manager);
 
 
             transformations::GPULoopReordering gpu_loop_reordering_pass(*map_node);
@@ -32,9 +32,9 @@ SchedulerAction HIPScheduler::schedule(
             auto descendants = loop_analysis.descendants(map_node);
             for (auto& descendant : descendants) {
                 if (auto nested_map = dynamic_cast<structured_control_flow::Map*>(descendant)) {
-                    transformations::HIPParallelizeNestedMap nested_hip_transform(*nested_map, 8);
-                    if (nested_hip_transform.can_be_applied(builder, analysis_manager)) {
-                        nested_hip_transform.apply(builder, analysis_manager);
+                    transformations::ROCMParallelizeNestedMap nested_rocm_transform(*nested_map, 8);
+                    if (nested_rocm_transform.can_be_applied(builder, analysis_manager)) {
+                        nested_rocm_transform.apply(builder, analysis_manager);
                     }
                 }
             }
@@ -69,7 +69,7 @@ SchedulerAction HIPScheduler::schedule(
     }
 }
 
-SchedulerAction HIPScheduler::schedule(
+SchedulerAction ROCMScheduler::schedule(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     structured_control_flow::While& loop,
@@ -86,7 +86,7 @@ SchedulerAction HIPScheduler::schedule(
     }
 }
 
-std::unordered_set<ScheduleTypeCategory> HIPScheduler::compatible_types() { return {ScheduleTypeCategory::None}; }
+std::unordered_set<ScheduleTypeCategory> ROCMScheduler::compatible_types() { return {ScheduleTypeCategory::None}; }
 
 } // namespace scheduler
 } // namespace passes

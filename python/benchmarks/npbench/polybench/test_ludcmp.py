@@ -78,12 +78,12 @@ def test_ludcmp(target):
                 "Malloc": 2,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 2,
+                "ROCM": 2,
                 "MAP": 2,
-                "HIPOffloading": 8,
+                "ROCMOffloading": 8,
                 "FOR": 11,
                 "Memset": 2,
                 "Malloc": 2,

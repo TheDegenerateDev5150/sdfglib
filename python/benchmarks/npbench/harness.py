@@ -200,7 +200,7 @@ def run_pytest(
     remote_tuning=False,
 ):
     if sys.platform == "darwin":
-        if target == "cuda" or target == "hip":
+        if target == "cuda" or target == "rocm":
             return
 
     # Use the smallest size for testing

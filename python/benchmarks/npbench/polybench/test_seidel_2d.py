@@ -54,7 +54,7 @@ def test_seidel_2d(target):
         verifier = SDFGVerification(
             verification={"MAP": 1, "SEQUENTIAL": 1, "FOR": 4}, non_critical=True
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={"MAP": 1, "SEQUENTIAL": 1, "FOR": 4}, non_critical=True
         )

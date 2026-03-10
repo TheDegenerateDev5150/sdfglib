@@ -14,16 +14,16 @@
 #include "sdfg/targets/offloading/data_offloading_node.h"
 
 namespace sdfg {
-namespace hip {
+namespace rocm {
 
-inline data_flow::LibraryNodeCode LibraryNodeType_HIP_Offloading("HIPOffloading");
+inline data_flow::LibraryNodeCode LibraryNodeType_ROCM_Offloading("ROCMOffloading");
 
-class HIPDataOffloadingNode : public offloading::DataOffloadingNode {
+class ROCMDataOffloadingNode : public offloading::DataOffloadingNode {
 private:
     symbolic::Expression device_id_;
 
 public:
-    HIPDataOffloadingNode(
+    ROCMDataOffloadingNode(
         size_t element_id,
         const DebugInfo& debug_info,
         const graph::Vertex vertex,
@@ -52,9 +52,9 @@ public:
     virtual bool equal_with(const offloading::DataOffloadingNode& other) const override;
 };
 
-class HIPDataOffloadingNodeDispatcher : public codegen::LibraryNodeDispatcher {
+class ROCMDataOffloadingNodeDispatcher : public codegen::LibraryNodeDispatcher {
 public:
-    HIPDataOffloadingNodeDispatcher(
+    ROCMDataOffloadingNodeDispatcher(
         codegen::LanguageExtension& language_extension,
         const Function& function,
         const data_flow::DataFlowGraph& data_flow_graph,
@@ -70,7 +70,7 @@ public:
     virtual codegen::InstrumentationInfo instrumentation_info() const override;
 };
 
-class HIPDataOffloadingNodeSerializer : public serializer::LibraryNodeSerializer {
+class ROCMDataOffloadingNodeSerializer : public serializer::LibraryNodeSerializer {
 public:
     nlohmann::json serialize(const sdfg::data_flow::LibraryNode& library_node) override;
 
@@ -81,5 +81,5 @@ public:
     ) override;
 };
 
-} // namespace hip
+} // namespace rocm
 } // namespace sdfg

@@ -35,7 +35,7 @@ def kernel(alpha, A, B):
         "sequential",
         "openmp",
         # "cuda"
-        # "hip"
+        # "rocm"
     ],
 )
 def test_trmm(target):
@@ -78,13 +78,13 @@ def test_trmm(target):
                 "DOT": 0,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "FOR": 4,
                 "MAP": 2,
                 "SEQUENTIAL": 0,
-                "HIP": 2,
+                "ROCM": 2,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 1,

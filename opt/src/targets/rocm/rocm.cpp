@@ -1,32 +1,32 @@
-#include "sdfg/targets/hip/hip.h"
+#include "sdfg/targets/rocm/rocm.h"
 
 #include <cstdlib>
 #include <sdfg/codegen/dispatchers/sequence_dispatcher.h>
 #include <string>
 
 namespace sdfg {
-namespace hip {
+namespace rocm {
 
-void hip_error_checking(
+void rocm_error_checking(
     codegen::PrettyPrinter& stream,
     const codegen::LanguageExtension& language_extension,
     const std::string& status_variable
 ) {
-    if (!do_hip_error_checking()) {
+    if (!do_rocm_error_checking()) {
         return;
     }
     stream << "if (" << status_variable << " != hipSuccess) {" << std::endl;
     stream.setIndent(stream.indent() + 4);
     stream << language_extension.external_prefix()
-           << "fprintf(stderr, \"HIP error: %s File: %s, Line: %d\\n\", hipGetErrorString(" << status_variable
+           << "fprintf(stderr, \"ROCM error: %s File: %s, Line: %d\\n\", hipGetErrorString(" << status_variable
            << "), __FILE__, __LINE__);" << std::endl;
     stream << language_extension.external_prefix() << "exit(EXIT_FAILURE);" << std::endl;
     stream.setIndent(stream.indent() - 4);
     stream << "}" << std::endl;
 }
 
-bool do_hip_error_checking() {
-    auto env = getenv("DOCC_HIP_DEBUG");
+bool do_rocm_error_checking() {
+    auto env = getenv("DOCC_ROCM_DEBUG");
     if (env == nullptr) {
         return false;
     }
@@ -38,15 +38,15 @@ bool do_hip_error_checking() {
     return false;
 }
 
-void check_hip_kernel_launch_errors(codegen::PrettyPrinter& stream, const codegen::LanguageExtension& language_extension) {
-    if (!do_hip_error_checking()) {
+void check_rocm_kernel_launch_errors(codegen::PrettyPrinter& stream, const codegen::LanguageExtension& language_extension) {
+    if (!do_rocm_error_checking()) {
         return;
     }
     stream << "hipError_t launch_err = hipDeviceSynchronize();" << std::endl;
-    hip_error_checking(stream, language_extension, "launch_err");
+    rocm_error_checking(stream, language_extension, "launch_err");
     stream << "launch_err = hipGetLastError();" << std::endl;
-    hip_error_checking(stream, language_extension, "launch_err");
+    rocm_error_checking(stream, language_extension, "launch_err");
 }
 
-} // namespace hip
+} // namespace rocm
 } // namespace sdfg

@@ -3,12 +3,12 @@
 #include "sdfg/codegen/dispatchers/block_dispatcher.h"
 #include "sdfg/data_flow/library_nodes/math/blas/dot_node.h"
 
-namespace sdfg::hip::blas {
+namespace sdfg::rocm::blas {
 
 
-class DotNodeDispatcher_HIPBLASWithTransfers : public codegen::LibraryNodeDispatcher {
+class DotNodeDispatcher_ROCMBLASWithTransfers : public codegen::LibraryNodeDispatcher {
 public:
-    DotNodeDispatcher_HIPBLASWithTransfers(
+    DotNodeDispatcher_ROCMBLASWithTransfers(
         codegen::LanguageExtension& language_extension,
         const Function& function,
         const data_flow::DataFlowGraph& data_flow_graph,
@@ -22,9 +22,9 @@ public:
     ) override;
 };
 
-class DotNodeDispatcher_HIPBLASWithoutTransfers : public codegen::LibraryNodeDispatcher {
+class DotNodeDispatcher_ROCMBLASWithoutTransfers : public codegen::LibraryNodeDispatcher {
 public:
-    DotNodeDispatcher_HIPBLASWithoutTransfers(
+    DotNodeDispatcher_ROCMBLASWithoutTransfers(
         codegen::LanguageExtension& language_extension,
         const Function& function,
         const data_flow::DataFlowGraph& data_flow_graph,
@@ -38,4 +38,4 @@ public:
     ) override;
 };
 
-} // namespace sdfg::hip::blas
+} // namespace sdfg::rocm::blas

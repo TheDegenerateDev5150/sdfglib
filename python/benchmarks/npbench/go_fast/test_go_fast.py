@@ -69,13 +69,13 @@ def test_go_fast(target):
                 "Malloc": 1,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "Free": 1,
-                "HIP": 4,
+                "ROCM": 4,
                 "MAP": 4,
-                "HIPOffloading": 7,
+                "ROCMOffloading": 7,
                 "CMath": 1,
                 "FOR": 5,
                 "Malloc": 1,

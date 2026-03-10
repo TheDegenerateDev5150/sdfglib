@@ -65,12 +65,12 @@ def test_fdtd_2d(target):
                 "Malloc": 11,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 29,
+                "ROCM": 29,
                 "MAP": 29,
-                "HIPOffloading": 57,
+                "ROCMOffloading": 57,
                 "FOR": 30,
                 "Malloc": 11,
             }

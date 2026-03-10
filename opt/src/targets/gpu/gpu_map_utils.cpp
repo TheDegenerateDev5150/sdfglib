@@ -3,7 +3,7 @@
 #include "sdfg/analysis/assumptions_analysis.h"
 #include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/targets/cuda/cuda.h"
-#include "sdfg/targets/hip/hip.h"
+#include "sdfg/targets/rocm/rocm.h"
 
 namespace sdfg {
 namespace gpu {
@@ -185,19 +185,19 @@ template symbolic::SymbolSet get_gpu_indvars<cuda::ScheduleType_CUDA>(
     structured_control_flow::Map& node, analysis::AnalysisManager& analysis_manager, GPUDimension dimension
 );
 
-// Explicit template instantiations for HIP
-template symbolic::Expression find_nested_gpu_blocksize<hip::ScheduleType_HIP>(
+// Explicit template instantiations for ROCM
+template symbolic::Expression find_nested_gpu_blocksize<rocm::ScheduleType_ROCM>(
     structured_control_flow::Map& node, analysis::AnalysisManager& analysis_manager, GPUDimension dimension
 );
 
-template symbolic::Expression find_nested_gpu_iterations<hip::ScheduleType_HIP>(
+template symbolic::Expression find_nested_gpu_iterations<rocm::ScheduleType_ROCM>(
     structured_control_flow::Map& node, analysis::AnalysisManager& analysis_manager, GPUDimension dimension
 );
 
 template bool is_outermost_gpu_map<
-    hip::ScheduleType_HIP>(structured_control_flow::Map& node, analysis::AnalysisManager& analysis_manager);
+    rocm::ScheduleType_ROCM>(structured_control_flow::Map& node, analysis::AnalysisManager& analysis_manager);
 
-template symbolic::SymbolSet get_gpu_indvars<hip::ScheduleType_HIP>(
+template symbolic::SymbolSet get_gpu_indvars<rocm::ScheduleType_ROCM>(
     structured_control_flow::Map& node, analysis::AnalysisManager& analysis_manager, GPUDimension dimension
 );
 

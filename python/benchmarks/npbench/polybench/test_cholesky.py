@@ -40,7 +40,7 @@ def kernel(A):
         "sequential",
         "openmp",
         "cuda",
-        # "hip",
+        # "rocm",
     ],
 )
 def test_cholesky(target):
@@ -84,7 +84,7 @@ def test_cholesky(target):
                 "CMath": 2,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "FOR": 4,

@@ -75,13 +75,13 @@ def test_atax(target):
                 "Malloc": 2,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 1,
+                "ROCM": 1,
                 "FOR": 1,
                 "MAP": 1,
-                "HIPOffloading": 4,
+                "ROCMOffloading": 4,
                 "GEMM": 2,
                 "Malloc": 2,
             }

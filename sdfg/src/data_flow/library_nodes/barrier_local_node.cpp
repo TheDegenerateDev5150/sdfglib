@@ -3,7 +3,7 @@
 #include "sdfg/codegen/language_extensions/c_language_extension.h"
 #include "sdfg/codegen/language_extensions/cpp_language_extension.h"
 #include "sdfg/codegen/language_extensions/cuda_language_extension.h"
-#include "sdfg/codegen/language_extensions/hip_language_extension.h"
+#include "sdfg/codegen/language_extensions/rocm_language_extension.h"
 
 namespace sdfg {
 namespace data_flow {
@@ -66,17 +66,17 @@ void BarrierLocalNodeDispatcher::dispatch(
 ) {
     if (dynamic_cast<codegen::CLanguageExtension*>(&this->language_extension_) != nullptr) {
         throw std::runtime_error(
-            "ThreadBarrierDispatcher is not supported for C language extension. Use CUDA or HIP "
+            "ThreadBarrierDispatcher is not supported for C language extension. Use CUDA or ROCM "
             "language extension instead."
         );
     } else if (dynamic_cast<codegen::CPPLanguageExtension*>(&this->language_extension_) != nullptr) {
         throw std::runtime_error(
-            "ThreadBarrierDispatcher is not supported for C++ language extension. Use CUDA or HIP "
+            "ThreadBarrierDispatcher is not supported for C++ language extension. Use CUDA or ROCM "
             "language extension instead."
         );
     } else if (dynamic_cast<codegen::CUDALanguageExtension*>(&this->language_extension_) != nullptr) {
         stream << "__syncthreads();" << std::endl;
-    } else if (dynamic_cast<codegen::HIPLanguageExtension*>(&this->language_extension_) != nullptr) {
+    } else if (dynamic_cast<codegen::ROCMLanguageExtension*>(&this->language_extension_) != nullptr) {
         stream << "__syncthreads();" << std::endl;
     } else {
         throw std::runtime_error("Unsupported language extension for ThreadBarrierDispatcher");

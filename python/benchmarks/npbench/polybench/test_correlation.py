@@ -87,17 +87,17 @@ def test_correlation(target):
                 "Malloc": 7,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "GEMM": 1,
                 "CMath": 2,
-                "HIP": 21,
+                "ROCM": 21,
                 "SEQUENTIAL": 2,
                 "Memset": 1,
                 "FOR": 27,
                 "MAP": 23,
-                "HIPOffloading": 52,
+                "ROCMOffloading": 52,
                 "Malloc": 7,
             }
         )

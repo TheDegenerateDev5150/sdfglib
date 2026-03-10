@@ -1,4 +1,4 @@
-#include "sdfg/targets/hip/hip_data_offloading_node.h"
+#include "sdfg/targets/rocm/rocm_data_offloading_node.h"
 
 #include <cstddef>
 #include <memory>
@@ -16,14 +16,14 @@
 #include "sdfg/function.h"
 #include "sdfg/graph/graph.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/hip/hip.h"
 #include "sdfg/targets/offloading/data_offloading_node.h"
+#include "sdfg/targets/rocm/rocm.h"
 #include "symengine/symengine_rcp.h"
 
 namespace sdfg {
-namespace hip {
+namespace rocm {
 
-HIPDataOffloadingNode::HIPDataOffloadingNode(
+ROCMDataOffloadingNode::ROCMDataOffloadingNode(
     size_t element_id,
     const DebugInfo& debug_info,
     const graph::Vertex vertex,
@@ -38,7 +38,7 @@ HIPDataOffloadingNode::HIPDataOffloadingNode(
           debug_info,
           vertex,
           parent,
-          LibraryNodeType_HIP_Offloading,
+          LibraryNodeType_ROCM_Offloading,
           {},
           {},
           transfer_direction,
@@ -57,23 +57,23 @@ HIPDataOffloadingNode::HIPDataOffloadingNode(
     }
 }
 
-void HIPDataOffloadingNode::validate(const Function& function) const {
+void ROCMDataOffloadingNode::validate(const Function& function) const {
     // Prevent copy-in and free
     if (this->is_h2d() && this->is_free()) {
-        throw InvalidSDFGException("HIPDataOffloadingNode: Combination copy-in and free is not allowed");
+        throw InvalidSDFGException("ROCMDataOffloadingNode: Combination copy-in and free is not allowed");
     }
 
     // Prevent copy-out and alloc
     if (this->is_d2h() && this->is_alloc()) {
-        throw InvalidSDFGException("HIPDataOffloadingNode: Combination copy-out and alloc is not allowed");
+        throw InvalidSDFGException("ROCMDataOffloadingNode: Combination copy-out and alloc is not allowed");
     }
 }
 
-const symbolic::Expression HIPDataOffloadingNode::device_id() const { return this->device_id_; }
+const symbolic::Expression ROCMDataOffloadingNode::device_id() const { return this->device_id_; }
 
-std::unique_ptr<data_flow::DataFlowNode> HIPDataOffloadingNode::
+std::unique_ptr<data_flow::DataFlowNode> ROCMDataOffloadingNode::
     clone(size_t element_id, const graph::Vertex vertex, data_flow::DataFlowGraph& parent) const {
-    return std::make_unique<HIPDataOffloadingNode>(
+    return std::make_unique<ROCMDataOffloadingNode>(
         element_id,
         this->debug_info(),
         vertex,
@@ -85,7 +85,7 @@ std::unique_ptr<data_flow::DataFlowNode> HIPDataOffloadingNode::
     );
 }
 
-symbolic::SymbolSet HIPDataOffloadingNode::symbols() const {
+symbolic::SymbolSet ROCMDataOffloadingNode::symbols() const {
     if (this->device_id().is_null()) {
         return offloading::DataOffloadingNode::symbols();
     }
@@ -95,19 +95,19 @@ symbolic::SymbolSet HIPDataOffloadingNode::symbols() const {
     return symbols;
 }
 
-void HIPDataOffloadingNode::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {
+void ROCMDataOffloadingNode::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {
     offloading::DataOffloadingNode::replace(old_expression, new_expression);
     this->device_id_ = symbolic::subs(this->device_id_, old_expression, new_expression);
 }
 
-bool HIPDataOffloadingNode::blocking() const { return true; }
+bool ROCMDataOffloadingNode::blocking() const { return true; }
 
-bool HIPDataOffloadingNode::redundant_with(const offloading::DataOffloadingNode& other) const {
+bool ROCMDataOffloadingNode::redundant_with(const offloading::DataOffloadingNode& other) const {
     if (!offloading::DataOffloadingNode::redundant_with(other)) {
         return false;
     }
 
-    auto& other_node = static_cast<const HIPDataOffloadingNode&>(other);
+    auto& other_node = static_cast<const ROCMDataOffloadingNode&>(other);
     if (!symbolic::null_safe_eq(this->device_id(), other_node.device_id())) {
         return false;
     }
@@ -115,12 +115,12 @@ bool HIPDataOffloadingNode::redundant_with(const offloading::DataOffloadingNode&
     return true;
 }
 
-bool HIPDataOffloadingNode::equal_with(const offloading::DataOffloadingNode& other) const {
+bool ROCMDataOffloadingNode::equal_with(const offloading::DataOffloadingNode& other) const {
     if (!offloading::DataOffloadingNode::equal_with(other)) {
         return false;
     }
 
-    auto& other_node = static_cast<const HIPDataOffloadingNode&>(other);
+    auto& other_node = static_cast<const ROCMDataOffloadingNode&>(other);
     if (!symbolic::null_safe_eq(this->device_id(), other_node.device_id())) {
         return false;
     }
@@ -128,7 +128,7 @@ bool HIPDataOffloadingNode::equal_with(const offloading::DataOffloadingNode& oth
     return true;
 }
 
-HIPDataOffloadingNodeDispatcher::HIPDataOffloadingNodeDispatcher(
+ROCMDataOffloadingNodeDispatcher::ROCMDataOffloadingNodeDispatcher(
     codegen::LanguageExtension& language_extension,
     const Function& function,
     const data_flow::DataFlowGraph& data_flow_graph,
@@ -136,64 +136,64 @@ HIPDataOffloadingNodeDispatcher::HIPDataOffloadingNodeDispatcher(
 )
     : codegen::LibraryNodeDispatcher(language_extension, function, data_flow_graph, node) {}
 
-void HIPDataOffloadingNodeDispatcher::dispatch_code(
+void ROCMDataOffloadingNodeDispatcher::dispatch_code(
     codegen::PrettyPrinter& stream,
     codegen::PrettyPrinter& globals_stream,
     codegen::CodeSnippetFactory& library_snippet_factory
 ) {
-    auto& offloading_node = static_cast<const HIPDataOffloadingNode&>(this->node_);
+    auto& offloading_node = static_cast<const ROCMDataOffloadingNode&>(this->node_);
 
     stream << "hipError_t err;" << std::endl;
 
     if (offloading_node.is_alloc()) {
         stream << "err = hipMalloc(&" << offloading_node.output(0) << ", "
                << this->language_extension_.expression(offloading_node.size()) << ");" << std::endl;
-        hip_error_checking(stream, this->language_extension_, "err");
+        rocm_error_checking(stream, this->language_extension_, "err");
     }
 
     if (offloading_node.is_h2d()) {
         stream << "err = hipMemcpy(" << offloading_node.output(0) << ", " << offloading_node.input(0) << ", "
                << this->language_extension_.expression(offloading_node.size()) << ", hipMemcpyHostToDevice);"
                << std::endl;
-        hip_error_checking(stream, this->language_extension_, "err");
+        rocm_error_checking(stream, this->language_extension_, "err");
     } else if (offloading_node.is_d2h()) {
         stream << "err = hipMemcpy(" << offloading_node.output(0) << ", " << offloading_node.input(0) << ", "
                << this->language_extension_.expression(offloading_node.size()) << ", hipMemcpyDeviceToHost);"
                << std::endl;
-        hip_error_checking(stream, this->language_extension_, "err");
+        rocm_error_checking(stream, this->language_extension_, "err");
     }
 
     if (offloading_node.is_free()) {
         stream << "err = hipFree(" << offloading_node.input(0) << ");" << std::endl;
-        hip_error_checking(stream, this->language_extension_, "err");
+        rocm_error_checking(stream, this->language_extension_, "err");
     }
 }
 
-codegen::InstrumentationInfo HIPDataOffloadingNodeDispatcher::instrumentation_info() const {
-    auto& hip_node = static_cast<const HIPDataOffloadingNode&>(node_);
-    if (hip_node.is_d2h()) {
+codegen::InstrumentationInfo ROCMDataOffloadingNodeDispatcher::instrumentation_info() const {
+    auto& rocm_node = static_cast<const ROCMDataOffloadingNode&>(node_);
+    if (rocm_node.is_d2h()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
             codegen::ElementType_D2HTransfer,
-            TargetType_HIP,
+            TargetType_ROCM,
             analysis::LoopInfo{},
-            {{"pcie_bytes", language_extension_.expression(hip_node.size())}}
+            {{"pcie_bytes", language_extension_.expression(rocm_node.size())}}
         );
-    } else if (hip_node.is_h2d()) {
+    } else if (rocm_node.is_h2d()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
             codegen::ElementType_H2DTransfer,
-            TargetType_HIP,
+            TargetType_ROCM,
             analysis::LoopInfo{},
-            {{"pcie_bytes", language_extension_.expression(hip_node.size())}}
+            {{"pcie_bytes", language_extension_.expression(rocm_node.size())}}
         );
     } else {
         return codegen::LibraryNodeDispatcher::instrumentation_info();
     }
 }
 
-nlohmann::json HIPDataOffloadingNodeSerializer::serialize(const sdfg::data_flow::LibraryNode& library_node) {
-    const auto& node = static_cast<const HIPDataOffloadingNode&>(library_node);
+nlohmann::json ROCMDataOffloadingNodeSerializer::serialize(const sdfg::data_flow::LibraryNode& library_node) {
+    const auto& node = static_cast<const ROCMDataOffloadingNode&>(library_node);
     nlohmann::json j;
 
     // Library node
@@ -226,11 +226,11 @@ nlohmann::json HIPDataOffloadingNodeSerializer::serialize(const sdfg::data_flow:
     return j;
 }
 
-data_flow::LibraryNode& HIPDataOffloadingNodeSerializer::deserialize(
+data_flow::LibraryNode& ROCMDataOffloadingNodeSerializer::deserialize(
     const nlohmann::json& j, sdfg::builder::StructuredSDFGBuilder& builder, structured_control_flow::Block& parent
 ) {
     auto code = j["code"].get<std::string>();
-    if (code != LibraryNodeType_HIP_Offloading.value()) {
+    if (code != LibraryNodeType_ROCM_Offloading.value()) {
         throw std::runtime_error("Invalid library node code");
     }
 
@@ -248,8 +248,8 @@ data_flow::LibraryNode& HIPDataOffloadingNodeSerializer::deserialize(
     auto buffer_lifecycle = static_cast<offloading::BufferLifecycle>(j["buffer_lifecycle"].get<int8_t>());
 
     return builder.add_library_node<
-        HIPDataOffloadingNode>(parent, debug_info, size, device_id, transfer_direction, buffer_lifecycle);
+        ROCMDataOffloadingNode>(parent, debug_info, size, device_id, transfer_direction, buffer_lifecycle);
 }
 
-} // namespace hip
+} // namespace rocm
 } // namespace sdfg

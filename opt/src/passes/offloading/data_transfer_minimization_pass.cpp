@@ -22,8 +22,8 @@
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda_data_offloading_node.h"
-#include "sdfg/targets/hip/hip_data_offloading_node.h"
 #include "sdfg/targets/offloading/data_offloading_node.h"
+#include "sdfg/targets/rocm/rocm_data_offloading_node.h"
 #include "sdfg/types/pointer.h"
 #include "sdfg/visitor/structured_sdfg_visitor.h"
 
@@ -204,7 +204,7 @@ std::pair<data_flow::AccessNode*, data_flow::AccessNode*> DataTransferMinimizati
     if (dynamic_cast<cuda::CUDADataOffloadingNode*>(offloading_node)) {
         src = this->get_in_access(offloading_node, "_src");
         dst = this->get_out_access(offloading_node, "_dst");
-    } else if (dynamic_cast<hip::HIPDataOffloadingNode*>(offloading_node)) {
+    } else if (dynamic_cast<rocm::ROCMDataOffloadingNode*>(offloading_node)) {
         src = this->get_in_access(offloading_node, "_src");
         dst = this->get_out_access(offloading_node, "_dst");
     } else {

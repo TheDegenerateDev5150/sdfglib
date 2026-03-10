@@ -6,13 +6,13 @@
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
-#include "sdfg/targets/hip/hip.h"
+#include "sdfg/targets/rocm/rocm.h"
 
 
 namespace sdfg {
-namespace hip {
+namespace rocm {
 
-class HIPMapDispatcher : public codegen::NodeDispatcher {
+class ROCMMapDispatcher : public codegen::NodeDispatcher {
 private:
     structured_control_flow::Map& node_;
 
@@ -53,7 +53,7 @@ private:
     );
 
 public:
-    HIPMapDispatcher(
+    ROCMMapDispatcher(
         codegen::LanguageExtension& language_extension,
         StructuredSDFG& sdfg,
         analysis::AnalysisManager& analysis_manager,
@@ -71,5 +71,5 @@ public:
     virtual codegen::InstrumentationInfo instrumentation_info() const override;
 };
 
-} // namespace hip
+} // namespace rocm
 } // namespace sdfg

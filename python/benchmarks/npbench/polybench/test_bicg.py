@@ -75,13 +75,13 @@ def test_bicg(target):
                 "Malloc": 2,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 2,
+                "ROCM": 2,
                 "FOR": 2,
                 "MAP": 2,
-                "HIPOffloading": 8,
+                "ROCMOffloading": 8,
                 "GEMM": 2,
                 "Malloc": 2,
             }

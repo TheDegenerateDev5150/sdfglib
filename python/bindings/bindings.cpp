@@ -32,9 +32,9 @@
 #include <sdfg/serializer/json_serializer.h>
 #include <sdfg/targets/cuda/plugin.h>
 #include <sdfg/targets/highway/plugin.h>
-#include <sdfg/targets/hip/plugin.h>
 #include <sdfg/targets/omp/plugin.h>
 #include <sdfg/targets/onnx/plugin.h>
+#include <sdfg/targets/rocm/plugin.h>
 
 #include "sdfg/passes/rpc/rpc_scheduler.h"
 #include "sdfg/passes/scheduler/cuda_scheduler.h"
@@ -56,7 +56,7 @@ PYBIND11_MODULE(_sdfg, m) {
     sdfg::onnx::register_onnx_plugin();
     sdfg::highway::register_highway_plugin();
     sdfg::cuda::register_cuda_plugin();
-    sdfg::hip::register_hip_plugin();
+    sdfg::rocm::register_rocm_plugin();
 #ifdef DOCC_HAS_TARGET_ET
     docc::target::et::register_plugin(docc_context);
 #endif

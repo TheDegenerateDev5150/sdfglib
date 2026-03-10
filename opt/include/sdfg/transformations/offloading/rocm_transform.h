@@ -1,21 +1,21 @@
 #pragma once
 
-#include "sdfg/targets/hip/hip.h"
+#include "sdfg/targets/rocm/rocm.h"
 #include "sdfg/transformations/offloading/offload_transform.h"
 
 namespace sdfg {
-namespace hip {
+namespace rocm {
 
-class HIPTransform : public transformations::OffloadTransform {
+class ROCMTransform : public transformations::OffloadTransform {
 public:
-    explicit HIPTransform(structured_control_flow::Map& map, int block_size = 64, bool allow_dynamic_sizes = false)
+    explicit ROCMTransform(structured_control_flow::Map& map, int block_size = 64, bool allow_dynamic_sizes = false)
         : OffloadTransform(map, allow_dynamic_sizes), block_size_(block_size) {};
 
     std::string name() const override;
 
     void to_json(nlohmann::json& j) const override;
 
-    static HIPTransform from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc);
+    static ROCMTransform from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc);
 
 protected:
     types::StorageType local_device_storage_type() override {
@@ -37,14 +37,14 @@ protected:
     }
 
     ScheduleType transformed_schedule_type() override {
-        auto schedule = ScheduleType_HIP::create();
+        auto schedule = ScheduleType_ROCM::create();
         if (block_size_ != 0) {
-            ScheduleType_HIP::block_size(schedule, symbolic::integer(block_size_));
+            ScheduleType_ROCM::block_size(schedule, symbolic::integer(block_size_));
         }
         return schedule;
     }
 
-    std::string copy_prefix() override { return HIP_DEVICE_PREFIX; }
+    std::string copy_prefix() override { return ROCM_DEVICE_PREFIX; }
 
     void add_device_buffer(
         builder::StructuredSDFGBuilder& builder,
@@ -113,5 +113,5 @@ private:
     int block_size_;
 };
 
-} // namespace hip
+} // namespace rocm
 } // namespace sdfg

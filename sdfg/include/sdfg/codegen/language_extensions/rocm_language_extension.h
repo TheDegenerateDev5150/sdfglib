@@ -11,12 +11,12 @@
 namespace sdfg {
 namespace codegen {
 
-class HIPLanguageExtension : public LanguageExtension {
+class ROCMLanguageExtension : public LanguageExtension {
 public:
-    HIPLanguageExtension(sdfg::Function& function, const std::string& external_prefix = "")
+    ROCMLanguageExtension(sdfg::Function& function, const std::string& external_prefix = "")
         : LanguageExtension(function, external_prefix) {}
 
-    const std::string language() const override { return "HIP"; }
+    const std::string language() const override { return "ROCM"; }
 
     std::string primitive_type(const types::PrimitiveType prim_type) override;
 

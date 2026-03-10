@@ -289,7 +289,7 @@ def main():
         "--targets",
         type=str,
         nargs="+",
-        default=["none", "sequential", "openmp", "cuda", "hip", "numpy"],
+        default=["none", "sequential", "openmp", "cuda", "rocm", "numpy"],
         help="Targets to run (default: none sequential openmp cuda hip numpy). Use 'numpy' for numpy baseline.",
     )
     parser.add_argument(

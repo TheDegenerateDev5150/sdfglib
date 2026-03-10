@@ -1,4 +1,4 @@
-#include "sdfg/codegen/language_extensions/hip_language_extension.h"
+#include "sdfg/codegen/language_extensions/rocm_language_extension.h"
 
 #include "sdfg/codegen/language_extensions/cpp_language_extension.h"
 #include "sdfg/codegen/utils.h"
@@ -8,7 +8,7 @@
 namespace sdfg {
 namespace codegen {
 
-std::string HIPLanguageExtension::primitive_type(const types::PrimitiveType prim_type) {
+std::string ROCMLanguageExtension::primitive_type(const types::PrimitiveType prim_type) {
     switch (prim_type) {
         case types::PrimitiveType::Void:
             return "void";
@@ -53,7 +53,7 @@ std::string HIPLanguageExtension::primitive_type(const types::PrimitiveType prim
     throw std::runtime_error("Unknown primitive type");
 };
 
-std::string HIPLanguageExtension::
+std::string ROCMLanguageExtension::
     declaration(const std::string& name, const types::IType& type, bool use_initializer, bool use_alignment) {
     std::stringstream val;
 
@@ -128,7 +128,7 @@ std::string HIPLanguageExtension::
     return val.str();
 };
 
-std::string HIPLanguageExtension::type_cast(const std::string& name, const types::IType& type) {
+std::string ROCMLanguageExtension::type_cast(const std::string& name, const types::IType& type) {
     std::stringstream val;
 
     val << "reinterpret_cast";
@@ -140,7 +140,7 @@ std::string HIPLanguageExtension::type_cast(const std::string& name, const types
     return val.str();
 };
 
-std::string HIPLanguageExtension::subset(const types::IType& type, const data_flow::Subset& sub) {
+std::string ROCMLanguageExtension::subset(const types::IType& type, const data_flow::Subset& sub) {
     if (sub.empty()) {
         return "";
     }
@@ -180,12 +180,12 @@ std::string HIPLanguageExtension::subset(const types::IType& type, const data_fl
     throw std::invalid_argument("Invalid subset type");
 };
 
-std::string HIPLanguageExtension::expression(const symbolic::Expression expr) {
+std::string ROCMLanguageExtension::expression(const symbolic::Expression expr) {
     CPPSymbolicPrinter printer(this->function_, this->external_prefix_);
     return printer.apply(expr);
 };
 
-std::string HIPLanguageExtension::access_node(const data_flow::AccessNode& node) {
+std::string ROCMLanguageExtension::access_node(const data_flow::AccessNode& node) {
     if (dynamic_cast<const data_flow::ConstantNode*>(&node)) {
         std::string name = node.data();
         if (symbolic::is_nullptr(symbolic::symbol(name))) {
@@ -201,7 +201,7 @@ std::string HIPLanguageExtension::access_node(const data_flow::AccessNode& node)
     }
 };
 
-std::string HIPLanguageExtension::tasklet(const data_flow::Tasklet& tasklet) {
+std::string ROCMLanguageExtension::tasklet(const data_flow::Tasklet& tasklet) {
     switch (tasklet.code()) {
         case data_flow::TaskletCode::assign:
             return tasklet.inputs().at(0);
@@ -324,7 +324,7 @@ std::string HIPLanguageExtension::tasklet(const data_flow::Tasklet& tasklet) {
     throw std::invalid_argument("Invalid tasklet code");
 };
 
-std::string HIPLanguageExtension::zero(const types::PrimitiveType prim_type) {
+std::string ROCMLanguageExtension::zero(const types::PrimitiveType prim_type) {
     switch (prim_type) {
         case types::Void:
             throw InvalidSDFGException("No zero for void type possible");

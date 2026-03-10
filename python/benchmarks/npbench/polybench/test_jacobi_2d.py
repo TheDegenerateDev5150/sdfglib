@@ -66,12 +66,12 @@ def test_jacobi_2d(target):
                 "Malloc": 10,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 24,
+                "ROCM": 24,
                 "MAP": 24,
-                "HIPOffloading": 50,
+                "ROCMOffloading": 50,
                 "FOR": 25,
                 "Malloc": 10,
             }

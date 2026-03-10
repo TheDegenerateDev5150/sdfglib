@@ -72,14 +72,14 @@ def test_compute(target):
                 "Malloc": 6,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "Free": 6,
-                "HIP": 14,
+                "ROCM": 14,
                 "FOR": 14,
                 "MAP": 14,
-                "HIPOffloading": 24,
+                "ROCMOffloading": 24,
                 "Malloc": 6,
             }
         )

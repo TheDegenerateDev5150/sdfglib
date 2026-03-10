@@ -58,14 +58,14 @@ def test_syrk(target):
             },
             non_critical=True,
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 1,
+                "ROCM": 1,
                 "SEQUENTIAL": 2,
                 "FOR": 5,
                 "MAP": 3,
-                "HIPOffloading": 2,
+                "ROCMOffloading": 2,
             },
             non_critical=True,
         )

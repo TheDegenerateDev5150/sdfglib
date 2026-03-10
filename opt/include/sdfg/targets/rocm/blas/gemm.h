@@ -3,7 +3,7 @@
 #include "sdfg/codegen/dispatchers/block_dispatcher.h"
 #include "sdfg/data_flow/library_nodes/math/blas/gemm_node.h"
 
-namespace sdfg::hip::blas {
+namespace sdfg::rocm::blas {
 
 void generate_kernel_gemm(
     codegen::PrettyPrinter& stream,
@@ -11,9 +11,9 @@ void generate_kernel_gemm(
     const math::blas::GEMMNode& gemm_node
 );
 
-class GEMMNodeDispatcher_HIPBLASWithTransfers : public codegen::LibraryNodeDispatcher {
+class GEMMNodeDispatcher_ROCMBLASWithTransfers : public codegen::LibraryNodeDispatcher {
 public:
-    GEMMNodeDispatcher_HIPBLASWithTransfers(
+    GEMMNodeDispatcher_ROCMBLASWithTransfers(
         codegen::LanguageExtension& language_extension,
         const Function& function,
         const data_flow::DataFlowGraph& data_flow_graph,
@@ -27,9 +27,9 @@ public:
     ) override;
 };
 
-class GEMMNodeDispatcher_HIPBLASWithoutTransfers : public codegen::LibraryNodeDispatcher {
+class GEMMNodeDispatcher_ROCMBLASWithoutTransfers : public codegen::LibraryNodeDispatcher {
 public:
-    GEMMNodeDispatcher_HIPBLASWithoutTransfers(
+    GEMMNodeDispatcher_ROCMBLASWithoutTransfers(
         codegen::LanguageExtension& language_extension,
         const Function& function,
         const data_flow::DataFlowGraph& data_flow_graph,
@@ -44,4 +44,4 @@ public:
 };
 
 
-} // namespace sdfg::hip::blas
+} // namespace sdfg::rocm::blas

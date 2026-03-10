@@ -1,6 +1,6 @@
-#include "sdfg/targets/hip/hip_map_dispatcher.h"
+#include "sdfg/targets/rocm/rocm_map_dispatcher.h"
 
-#include "sdfg/targets/hip/hip.h"
+#include "sdfg/targets/rocm/rocm.h"
 
 #include <sdfg/analysis/analysis.h>
 #include <sdfg/analysis/assumptions_analysis.h>
@@ -21,12 +21,12 @@
 
 
 #include "sdfg/analysis/arguments_analysis.h"
-#include "sdfg/codegen/language_extensions/hip_language_extension.h"
+#include "sdfg/codegen/language_extensions/rocm_language_extension.h"
 
 namespace sdfg {
-namespace hip {
+namespace rocm {
 
-HIPMapDispatcher::HIPMapDispatcher(
+ROCMMapDispatcher::ROCMMapDispatcher(
     codegen::LanguageExtension& language_extension,
     StructuredSDFG& sdfg,
     analysis::AnalysisManager& analysis_manager,
@@ -39,7 +39,7 @@ HIPMapDispatcher::HIPMapDispatcher(
 
       };
 
-void HIPMapDispatcher::dispatch_node(
+void ROCMMapDispatcher::dispatch_node(
     codegen::PrettyPrinter& main_stream,
     codegen::PrettyPrinter& globals_stream,
     codegen::CodeSnippetFactory& library_snippet_factory
@@ -73,7 +73,7 @@ void HIPMapDispatcher::dispatch_node(
     std::sort(arguments.begin(), arguments.end());
     std::vector<std::string> arguments_device;
     for (auto& argument : arguments) {
-        if (argument.starts_with(HIP_DEVICE_PREFIX)) {
+        if (argument.starts_with(ROCM_DEVICE_PREFIX)) {
             arguments_device.push_back(argument);
         } else if (sdfg_.type(argument).type_id() == types::TypeID::Scalar) {
             arguments_device.push_back(argument);
@@ -84,9 +84,9 @@ void HIPMapDispatcher::dispatch_node(
 
     std::vector<std::string> scope_variables;
 
-    auto x_vars = gpu::get_gpu_indvars<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::X);
-    auto y_vars = gpu::get_gpu_indvars<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::Y);
-    auto z_vars = gpu::get_gpu_indvars<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::Z);
+    auto x_vars = gpu::get_gpu_indvars<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::X);
+    auto y_vars = gpu::get_gpu_indvars<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::Y);
+    auto z_vars = gpu::get_gpu_indvars<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::Z);
 
     for (auto& var : scope_variables_unfiltered) {
         if (x_vars.find(symbolic::symbol(var)) == x_vars.end() && y_vars.find(symbolic::symbol(var)) == y_vars.end() &&
@@ -103,22 +103,22 @@ void HIPMapDispatcher::dispatch_node(
         arguments_declaration.push_back(this->language_extension_.declaration(container, sdfg_.type(container)));
     }
 
-    auto block_size_x = gpu::find_nested_gpu_blocksize<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::X);
-    auto block_size_y = gpu::find_nested_gpu_blocksize<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::Y);
-    auto block_size_z = gpu::find_nested_gpu_blocksize<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::Z);
-    auto num_iters_x = gpu::find_nested_gpu_iterations<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::X);
-    auto num_iters_y = gpu::find_nested_gpu_iterations<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::Y);
-    auto num_iters_z = gpu::find_nested_gpu_iterations<ScheduleType_HIP>(node_, analysis_manager, HIPDimension::Z);
+    auto block_size_x = gpu::find_nested_gpu_blocksize<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::X);
+    auto block_size_y = gpu::find_nested_gpu_blocksize<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::Y);
+    auto block_size_z = gpu::find_nested_gpu_blocksize<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::Z);
+    auto num_iters_x = gpu::find_nested_gpu_iterations<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::X);
+    auto num_iters_y = gpu::find_nested_gpu_iterations<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::Y);
+    auto num_iters_z = gpu::find_nested_gpu_iterations<ScheduleType_ROCM>(node_, analysis_manager, ROCMDimension::Z);
 
     symbolic::Expression num_iters;
-    if (HIPDimension::X == ScheduleType_HIP::dimension(node_.schedule_type())) {
+    if (ROCMDimension::X == ScheduleType_ROCM::dimension(node_.schedule_type())) {
         num_iters = num_iters_x;
-    } else if (HIPDimension::Y == ScheduleType_HIP::dimension(node_.schedule_type())) {
+    } else if (ROCMDimension::Y == ScheduleType_ROCM::dimension(node_.schedule_type())) {
         num_iters = num_iters_y;
-    } else if (HIPDimension::Z == ScheduleType_HIP::dimension(node_.schedule_type())) {
+    } else if (ROCMDimension::Z == ScheduleType_ROCM::dimension(node_.schedule_type())) {
         num_iters = num_iters_z;
     } else {
-        throw InvalidSDFGException("Invalid HIP dimension");
+        throw InvalidSDFGException("Invalid ROCM dimension");
     }
 
     // Block sizes
@@ -131,7 +131,7 @@ void HIPMapDispatcher::dispatch_node(
 
     std::string kernel_name = "kernel_" + sdfg_.name() + "_" + std::to_string(node_.element_id());
 
-    if (gpu::is_outermost_gpu_map<ScheduleType_HIP>(node_, analysis_manager)) {
+    if (gpu::is_outermost_gpu_map<ScheduleType_ROCM>(node_, analysis_manager)) {
         this->dispatch_kernel_call(
             main_stream,
             kernel_name,
@@ -150,7 +150,7 @@ void HIPMapDispatcher::dispatch_node(
         this->dispatch_header(globals_stream, kernel_name, arguments_declaration);
         globals_stream << ";" << std::endl;
 
-        auto& library_stream = library_snippet_factory.require(kernel_name, "hip.cpp", true).stream();
+        auto& library_stream = library_snippet_factory.require(kernel_name, "rocm.cpp", true).stream();
 
         library_stream << "#include " << library_snippet_factory.header_path().filename() << std::endl << std::endl;
         library_stream << "#include <hip/hip_runtime.h>" << std::endl;
@@ -168,7 +168,7 @@ void HIPMapDispatcher::dispatch_node(
     }
 };
 
-void HIPMapDispatcher::dispatch_header(
+void ROCMMapDispatcher::dispatch_header(
     codegen::PrettyPrinter& globals_stream,
     const std::string& kernel_name,
     std::vector<std::string>& arguments_declaration
@@ -178,21 +178,21 @@ void HIPMapDispatcher::dispatch_header(
     globals_stream << ")";
 }
 
-void HIPMapDispatcher::dispatch_kernel_body(
+void ROCMMapDispatcher::dispatch_kernel_body(
     codegen::CodeSnippetFactory& library_snippet_factory,
     codegen::PrettyPrinter& library_stream,
     symbolic::Symbol indvar,
     std::vector<std::string>& scope_variables,
     symbolic::Expression& num_iterations
 ) {
-    codegen::HIPLanguageExtension hip_language_extension(sdfg_);
-    if (gpu::is_outermost_gpu_map<ScheduleType_HIP>(node_, analysis_manager_)) {
+    codegen::ROCMLanguageExtension rocm_language_extension(sdfg_);
+    if (gpu::is_outermost_gpu_map<ScheduleType_ROCM>(node_, analysis_manager_)) {
         // Declare and optionally allocate scope variables
         for (auto& local : scope_variables) {
             if (local.starts_with("__daisy_hip")) {
                 continue;
             }
-            std::string val = hip_language_extension.declaration(local, sdfg_.type(local), false, true);
+            std::string val = rocm_language_extension.declaration(local, sdfg_.type(local), false, true);
             if (!val.empty()) {
                 library_stream << val;
                 library_stream << ";" << std::endl;
@@ -200,22 +200,22 @@ void HIPMapDispatcher::dispatch_kernel_body(
             auto& type = sdfg_.type(local);
             if (type.storage_type().allocation() == types::StorageType::AllocationType::Managed) {
                 library_stream << local << " = ";
-                library_stream << "malloc(" << hip_language_extension.expression(type.storage_type().allocation_size())
+                library_stream << "malloc(" << rocm_language_extension.expression(type.storage_type().allocation_size())
                                << ")";
                 library_stream << ";" << std::endl;
             }
         }
     }
     // Boundary Conditions
-    if (!ScheduleType_HIP::nested_sync(node_.schedule_type())) {
-        library_stream << "if (" << indvar->get_name() << " < " << hip_language_extension.expression(num_iterations)
+    if (!ScheduleType_ROCM::nested_sync(node_.schedule_type())) {
+        library_stream << "if (" << indvar->get_name() << " < " << rocm_language_extension.expression(num_iterations)
                        << ") {" << std::endl;
         library_stream.setIndent(library_stream.indent() + 4);
     }
 
     // Body
     codegen::SequenceDispatcher dispatcher(
-        hip_language_extension, sdfg_, analysis_manager_, node_.root(), instrumentation_plan_, arg_capture_plan_
+        rocm_language_extension, sdfg_, analysis_manager_, node_.root(), instrumentation_plan_, arg_capture_plan_
     );
     dispatcher.dispatch(library_stream, library_stream, library_snippet_factory);
 
@@ -228,13 +228,13 @@ void HIPMapDispatcher::dispatch_kernel_body(
         }
     }
 
-    if (!ScheduleType_HIP::nested_sync(node_.schedule_type())) {
+    if (!ScheduleType_ROCM::nested_sync(node_.schedule_type())) {
         library_stream.setIndent(library_stream.indent() - 4);
         library_stream << "}" << std::endl;
     }
 }
 
-void HIPMapDispatcher::dispatch_kernel_call(
+void ROCMMapDispatcher::dispatch_kernel_call(
     codegen::PrettyPrinter& main_stream,
     const std::string& kernel_name,
     symbolic::Expression& num_blocks_x,
@@ -262,13 +262,13 @@ void HIPMapDispatcher::dispatch_kernel_call(
     main_stream << ";" << std::endl;
 
     // Synchronize
-    check_hip_kernel_launch_errors(main_stream, this->language_extension_);
+    check_rocm_kernel_launch_errors(main_stream, this->language_extension_);
 
     main_stream.setIndent(main_stream.indent() - 4);
     main_stream << "}" << std::endl;
 }
 
-void HIPMapDispatcher::dispatch_kernel_preamble(
+void ROCMMapDispatcher::dispatch_kernel_preamble(
     codegen::PrettyPrinter& library_stream,
     analysis::AnalysisManager& analysis_manager,
     const std::string& kernel_name,
@@ -331,7 +331,7 @@ void HIPMapDispatcher::dispatch_kernel_preamble(
     }
 }
 
-codegen::InstrumentationInfo HIPMapDispatcher::instrumentation_info() const {
+codegen::InstrumentationInfo ROCMMapDispatcher::instrumentation_info() const {
     auto& loop_analysis = analysis_manager_.get<analysis::LoopAnalysis>();
     analysis::LoopInfo loop_info = loop_analysis.loop_info(&node_);
 
@@ -344,8 +344,8 @@ codegen::InstrumentationInfo HIPMapDispatcher::instrumentation_info() const {
         metrics.insert({"flop", flop_str});
     }
 
-    return codegen::InstrumentationInfo(node_.element_id(), codegen::ElementType_Map, TargetType_HIP, loop_info, metrics);
+    return codegen::InstrumentationInfo(node_.element_id(), codegen::ElementType_Map, TargetType_ROCM, loop_info, metrics);
 };
 
-} // namespace hip
+} // namespace rocm
 } // namespace sdfg

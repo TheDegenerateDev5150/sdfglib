@@ -70,15 +70,15 @@ def test_syr2k(target):
             },
             non_critical=True,
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "Malloc": 3,
-                "HIP": 1,
+                "ROCM": 1,
                 "SEQUENTIAL": 5,
                 "FOR": 8,
                 "MAP": 6,
-                "HIPOffloading": 2,
+                "ROCMOffloading": 2,
             },
             non_critical=True,
         )

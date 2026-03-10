@@ -56,12 +56,12 @@ def test_floyd_warshall(target):
                 "Malloc": 2,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIP": 6,
+                "ROCM": 6,
                 "MAP": 6,
-                "HIPOffloading": 12,
+                "ROCMOffloading": 12,
                 "FOR": 7,
                 "Malloc": 2,
             }

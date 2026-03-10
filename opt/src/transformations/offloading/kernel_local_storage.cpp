@@ -358,17 +358,17 @@ void KernelLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis
     analysis::UsersView inner_body_users(users, inner_body);
 
     // Detect GPU backend from ancestor map schedule types
-    bool is_hip = false;
+    bool is_rocm = false;
     for (auto node : ancestors) {
         if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
-            if (ancestor_map->schedule_type().value() == "HIP") {
-                is_hip = true;
+            if (ancestor_map->schedule_type().value() == "ROCM") {
+                is_rocm = true;
                 break;
             }
         }
     }
 
-    std::string thread_prefix = is_hip ? "__daisy_hip_thread_idx_" : "__daisy_cuda_thread_idx_";
+    std::string thread_prefix = is_rocm ? "__daisy_hip_thread_idx_" : "__daisy_cuda_thread_idx_";
     std::string x_name = thread_prefix + "x";
     std::string y_name = thread_prefix + "y";
     std::string z_name = thread_prefix + "z";
@@ -451,7 +451,7 @@ void KernelLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis
     //     );
     // }
 
-    auto generic_storage = is_hip ? types::StorageType("AMD_Generic") : types::StorageType::NV_Generic();
+    auto generic_storage = is_rocm ? types::StorageType("AMD_Generic") : types::StorageType::NV_Generic();
 
     types::Array tile_array_type(types::StorageType::NV_Shared(), 8, {}, peeled_type, iteration_count);
     types::Array z_array_type(generic_storage, 8, {}, tile_array_type, z_dim_size);

@@ -58,7 +58,7 @@ def kernel(input, w1, b1, w2, b2, w3, b3):
         "sequential",
         "openmp",
         # "cuda"
-        # "hip"
+        # "rocm"
     ],
 )
 def test_mlp(target):
@@ -113,7 +113,7 @@ def test_mlp(target):
                 "Malloc": 13,
             }
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "HIGHWAY": 8,

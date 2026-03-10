@@ -98,10 +98,10 @@ public:
 };
 
 /**
- * @brief Check if a schedule type is a GPU schedule (CUDA or HIP)
+ * @brief Check if a schedule type is a GPU schedule (CUDA or ROCM)
  */
 inline bool is_gpu_schedule(const structured_control_flow::ScheduleType& schedule) {
-    return schedule.value() == "CUDA" || schedule.value() == "HIP";
+    return schedule.value() == "CUDA" || schedule.value() == "ROCM";
 }
 
 /**
@@ -121,7 +121,7 @@ inline void gpu_dimension(structured_control_flow::ScheduleType& schedule, const
 /**
  * @brief Get the block size from any GPU schedule type
  * Returns default values if not explicitly set:
- * - X: 32 for CUDA, 64 for HIP
+ * - X: 32 for CUDA, 64 for ROCM
  * - Y: 8
  * - Z: 4
  */
@@ -130,7 +130,7 @@ inline symbolic::Integer gpu_block_size(const structured_control_flow::ScheduleT
         auto dim = gpu_dimension(schedule);
         if (dim == GPUDimension::X) {
             // Default block size depends on the backend
-            if (schedule.value() == "HIP") {
+            if (schedule.value() == "ROCM") {
                 return symbolic::integer(64);
             }
             return symbolic::integer(32);

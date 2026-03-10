@@ -70,7 +70,7 @@ def test_heat_3d(target):
         verifier = SDFGVerification(
             verification={"MAP": 92, "Malloc": 30, "SEQUENTIAL": 92, "FOR": 97}
         )
-    else:  # hip
+    else:  # rocm
         verifier = SDFGVerification(
             verification={"MAP": 92, "Malloc": 30, "SEQUENTIAL": 92, "FOR": 97}
         )
