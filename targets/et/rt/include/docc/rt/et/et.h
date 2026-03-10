@@ -10,7 +10,7 @@ class EtRuntimeWrapper {
     ::rt::RuntimePtr runtime_;
 
 public:
-    static constexpr size_t DEFAULT_TRACE_BUFFER_SIZE = 4096UL * 2080UL;
+    static constexpr size_t DEFAULT_TRACE_BUFFER_SIZE = 4096UL * 2048UL;
 
     EtRuntimeWrapper(::rt::RuntimePtr runtime);
     static EtRuntimeWrapper& get_instance();
