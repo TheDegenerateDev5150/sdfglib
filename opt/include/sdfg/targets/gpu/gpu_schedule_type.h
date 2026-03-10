@@ -97,5 +97,62 @@ public:
     }
 };
 
+/**
+ * @brief Check if a schedule type is a GPU schedule (CUDA or HIP)
+ */
+inline bool is_gpu_schedule(const structured_control_flow::ScheduleType& schedule) {
+    return schedule.value() == "CUDA" || schedule.value() == "HIP";
+}
+
+/**
+ * @brief Get the GPU dimension from any GPU schedule type
+ */
+inline GPUDimension gpu_dimension(const structured_control_flow::ScheduleType& schedule) {
+    return static_cast<GPUDimension>(std::stoi(schedule.properties().at("dimension")));
+}
+
+/**
+ * @brief Set the GPU dimension on any GPU schedule type
+ */
+inline void gpu_dimension(structured_control_flow::ScheduleType& schedule, const GPUDimension& dimension) {
+    schedule.set_property("dimension", std::to_string(dimension));
+}
+
+/**
+ * @brief Get the block size from any GPU schedule type
+ * Returns default values if not explicitly set:
+ * - X: 32 for CUDA, 64 for HIP
+ * - Y: 8
+ * - Z: 4
+ */
+inline symbolic::Integer gpu_block_size(const structured_control_flow::ScheduleType& schedule) {
+    if (schedule.properties().find("block_size") == schedule.properties().end()) {
+        auto dim = gpu_dimension(schedule);
+        if (dim == GPUDimension::X) {
+            // Default block size depends on the backend
+            if (schedule.value() == "HIP") {
+                return symbolic::integer(64);
+            }
+            return symbolic::integer(32);
+        } else if (dim == GPUDimension::Y) {
+            return symbolic::integer(8);
+        } else if (dim == GPUDimension::Z) {
+            return symbolic::integer(4);
+        } else {
+            throw InvalidSDFGException("Invalid GPU dimension");
+        }
+    }
+    std::string expr_str = schedule.properties().at("block_size");
+    return symbolic::integer(std::stoi(expr_str));
+}
+
+/**
+ * @brief Set the block size on any GPU schedule type
+ */
+inline void gpu_block_size(structured_control_flow::ScheduleType& schedule, const symbolic::Expression block_size) {
+    serializer::JSONSerializer serializer;
+    schedule.set_property("block_size", serializer.expression(block_size));
+}
+
 } // namespace gpu
 } // namespace sdfg

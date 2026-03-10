@@ -23,7 +23,7 @@
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/cuda/cuda.h"
+#include "sdfg/targets/gpu/gpu_schedule_type.h"
 #include "sdfg/transformations/utils.h"
 #include "sdfg/types/array.h"
 #include "sdfg/types/structure.h"
@@ -73,20 +73,18 @@ std::tuple<symbolic::Integer, symbolic::Integer, symbolic::Integer> KernelLocalS
     for (auto node : ancestors) {
         if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
             auto schedule_type = ancestor_map->schedule_type();
-            if (schedule_type.value() != cuda::ScheduleType_CUDA::value()) {
+            if (!gpu::is_gpu_schedule(schedule_type)) {
                 continue;
             }
-            if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::X) {
-                x_dim_size = cuda::ScheduleType_CUDA::block_size(schedule_type);
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Y) {
-                y_dim_size = cuda::ScheduleType_CUDA::block_size(schedule_type);
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Z) {
-                z_dim_size = cuda::ScheduleType_CUDA::block_size(schedule_type);
+            auto dim = gpu::gpu_dimension(schedule_type);
+            if (dim == gpu::GPUDimension::X) {
+                x_dim_size = gpu::gpu_block_size(schedule_type);
+            } else if (dim == gpu::GPUDimension::Y) {
+                y_dim_size = gpu::gpu_block_size(schedule_type);
+            } else if (dim == gpu::GPUDimension::Z) {
+                z_dim_size = gpu::gpu_block_size(schedule_type);
             } else {
-                throw InvalidSDFGException(
-                    "Unknown dimension in CUDA Schedule type: " +
-                    std::to_string((int) cuda::ScheduleType_CUDA::dimension(schedule_type))
-                );
+                throw InvalidSDFGException("Unknown dimension in GPU Schedule type: " + std::to_string((int) dim));
             }
         }
     }
@@ -103,20 +101,18 @@ std::tuple<symbolic::Symbol, symbolic::Symbol, symbolic::Symbol> KernelLocalStor
     for (auto node : ancestors) {
         if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
             auto schedule_type = ancestor_map->schedule_type();
-            if (schedule_type.value() != cuda::ScheduleType_CUDA::value()) {
+            if (!gpu::is_gpu_schedule(schedule_type)) {
                 continue;
             }
-            if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::X) {
+            auto dim = gpu::gpu_dimension(schedule_type);
+            if (dim == gpu::GPUDimension::X) {
                 x_dim_indvar = ancestor_map->indvar();
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Y) {
+            } else if (dim == gpu::GPUDimension::Y) {
                 y_dim_indvar = ancestor_map->indvar();
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Z) {
+            } else if (dim == gpu::GPUDimension::Z) {
                 z_dim_indvar = ancestor_map->indvar();
             } else {
-                throw InvalidSDFGException(
-                    "Unknown dimension in CUDA Schedule type: " +
-                    std::to_string((int) cuda::ScheduleType_CUDA::dimension(schedule_type))
-                );
+                throw InvalidSDFGException("Unknown dimension in GPU Schedule type: " + std::to_string((int) dim));
             }
         }
     }
@@ -207,19 +203,19 @@ bool KernelLocalStorage::
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
     auto ancestors = scope_analysis.ancestor_scopes(&loop_);
 
-    // Criterion: Must not be a CUDA map itself
+    // Criterion: Must not be a GPU map itself
     if (auto loop_map = dynamic_cast<structured_control_flow::Map*>(&loop_)) {
-        if (loop_map->schedule_type().value() == cuda::ScheduleType_CUDA::value()) {
+        if (gpu::is_gpu_schedule(loop_map->schedule_type())) {
             return false;
         }
     }
 
-    // Criterion: Must be nested in a cuda schedule
-    bool is_cuda_scope = false;
+    // Criterion: Must be nested in a GPU schedule
+    bool is_gpu_scope = false;
     for (auto ancestor : ancestors) {
         if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(ancestor)) {
-            if (ancestor_map->schedule_type().value() == cuda::ScheduleType_CUDA::value()) {
-                is_cuda_scope = true;
+            if (gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
+                is_gpu_scope = true;
             } else if (ancestor_map->schedule_type().value() == ScheduleType_Sequential::value()) {
                 continue;
             } else {
@@ -227,7 +223,7 @@ bool KernelLocalStorage::
             }
         }
     }
-    if (!is_cuda_scope) {
+    if (!is_gpu_scope) {
         return false;
     }
 
