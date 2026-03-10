@@ -67,6 +67,9 @@ HighwayMapDispatcher::HighwayMapDispatcher(
             throw std::runtime_error("Unsupported control flow node of type " + std::string(typeid(*node).name()));
         }
     }
+    if (bitwidth == 0) {
+        bitwidth = 64;
+    }
 
     switch (bitwidth) {
         case 8:
