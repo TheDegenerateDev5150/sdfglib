@@ -11,14 +11,14 @@ namespace sdfg {
 namespace gpu {
 
 /**
- * @brief Base class for GPU schedule types (CUDA/HIP) using CRTP pattern
+ * @brief Base class for GPU schedule types (CUDA/ROCm) using CRTP pattern
  *
- * This template class provides shared functionality for both CUDA and HIP
+ * This template class provides shared functionality for both CUDA and ROCm
  * schedule types. Derived classes only need to implement:
- * - static const std::string value() - Returns "CUDA" or "HIP"
+ * - static const std::string value() - Returns "CUDA" or "ROCm"
  * - static symbolic::Integer default_block_size_x() - Default block size for X dimension
  *
- * @tparam Derived The derived class (ScheduleType_CUDA or ScheduleType_HIP)
+ * @tparam Derived The derived class (ScheduleType_CUDA or ScheduleType_ROCM)
  */
 template<typename Derived>
 class ScheduleType_GPU_Base {
@@ -48,7 +48,7 @@ public:
     /**
      * @brief Get the block size from a schedule
      * Returns default values if not explicitly set:
-     * - X: Derived::default_block_size_x() (32 for CUDA, 64 for HIP)
+     * - X: Derived::default_block_size_x() (32 for CUDA, 64 for ROCm)
      * - Y: 8
      * - Z: 4
      */

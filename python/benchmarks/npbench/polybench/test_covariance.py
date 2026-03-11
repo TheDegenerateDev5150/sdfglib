@@ -76,7 +76,7 @@ def test_covariance(target):
                 "Malloc": 4,
             }
         )
-    else:  # cuda / hip
+    else:  # cuda / rocm
         verifier = SDFGVerification(verification={})
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

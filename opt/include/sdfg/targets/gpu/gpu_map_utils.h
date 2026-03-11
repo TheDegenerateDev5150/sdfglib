@@ -11,19 +11,19 @@ namespace sdfg {
 namespace cuda {
 class ScheduleType_CUDA;
 }
-namespace hip {
-class ScheduleType_HIP;
+namespace rocm {
+class ScheduleType_ROCM;
 }
 
 namespace gpu {
 
 /**
- * @brief GPU map utility functions shared between CUDA and HIP
+ * @brief GPU map utility functions shared between CUDA and ROCm
  *
  * These template functions provide common functionality for GPU map dispatchers.
- * They are parameterized by the ScheduleType class (ScheduleType_CUDA or ScheduleType_HIP).
+ * They are parameterized by the ScheduleType class (ScheduleType_CUDA or ScheduleType_ROCM).
  *
- * @tparam ScheduleT The schedule type class (cuda::ScheduleType_CUDA or hip::ScheduleType_HIP)
+ * @tparam ScheduleT The schedule type class (cuda::ScheduleType_CUDA or rocm::ScheduleType_ROCM)
  */
 
 /**
@@ -79,22 +79,22 @@ symbolic::SymbolSet get_gpu_indvars(
 extern template symbolic::Expression find_nested_gpu_blocksize<
     cuda::ScheduleType_CUDA>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
 extern template symbolic::Expression find_nested_gpu_blocksize<
-    hip::ScheduleType_HIP>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
+    rocm::ScheduleType_ROCM>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
 
 extern template symbolic::Expression find_nested_gpu_iterations<
     cuda::ScheduleType_CUDA>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
 extern template symbolic::Expression find_nested_gpu_iterations<
-    hip::ScheduleType_HIP>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
+    rocm::ScheduleType_ROCM>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
 
 extern template bool is_outermost_gpu_map<
     cuda::ScheduleType_CUDA>(structured_control_flow::Map&, analysis::AnalysisManager&);
 extern template bool is_outermost_gpu_map<
-    hip::ScheduleType_HIP>(structured_control_flow::Map&, analysis::AnalysisManager&);
+    rocm::ScheduleType_ROCM>(structured_control_flow::Map&, analysis::AnalysisManager&);
 
 extern template symbolic::SymbolSet get_gpu_indvars<
     cuda::ScheduleType_CUDA>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
 extern template symbolic::SymbolSet get_gpu_indvars<
-    hip::ScheduleType_HIP>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
+    rocm::ScheduleType_ROCM>(structured_control_flow::Map&, analysis::AnalysisManager&, GPUDimension);
 
 } // namespace gpu
 } // namespace sdfg

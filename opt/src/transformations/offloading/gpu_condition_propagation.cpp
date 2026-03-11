@@ -18,7 +18,7 @@ GPUConditionPropagation::GPUConditionPropagation(structured_control_flow::Map& m
 
 bool GPUConditionPropagation::
     can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    // Criterion: Must be a GPU map (CUDA or HIP)
+    // Criterion: Must be a GPU map (CUDA or ROCm)
     if (!gpu::is_gpu_schedule(map_.schedule_type())) {
         return false;
     }
