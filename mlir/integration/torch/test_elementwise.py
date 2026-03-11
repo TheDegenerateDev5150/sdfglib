@@ -1379,8 +1379,6 @@ def test_real():
 
     assert torch.allclose(res, ref, equal_nan=True)
 
-
-@pytest.mark.skip("Missing cf.assert")
 def test_reciprocal():
     class ReciprocalNet(nn.Module):
         def forward(self, x: torch.Tensor):
