@@ -67,12 +67,23 @@ def test_ludcmp(target):
                 "Malloc": 2,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 2,
                 "MAP": 2,
                 "CUDAOffloading": 8,
+                "FOR": 11,
+                "Memset": 2,
+                "Malloc": 2,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "ROCM": 2,
+                "MAP": 2,
+                "ROCMOffloading": 8,
                 "FOR": 11,
                 "Memset": 2,
                 "Malloc": 2,

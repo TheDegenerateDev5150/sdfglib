@@ -47,7 +47,7 @@ def test_syrk(target):
             },
             non_critical=True,
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 1,
@@ -55,6 +55,17 @@ def test_syrk(target):
                 "FOR": 5,
                 "MAP": 3,
                 "CUDAOffloading": 2,
+            },
+            non_critical=True,
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "ROCM": 1,
+                "SEQUENTIAL": 2,
+                "FOR": 5,
+                "MAP": 3,
+                "ROCMOffloading": 2,
             },
             non_critical=True,
         )

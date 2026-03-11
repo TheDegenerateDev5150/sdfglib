@@ -5,7 +5,8 @@
 #include "sdfg/codegen/instrumentation/instrumentation_info.h"
 #include "sdfg/codegen/language_extension.h"
 #include "sdfg/codegen/utils.h"
-#include "sdfg/structured_control_flow/map.h"
+#include "sdfg/targets/gpu/gpu_schedule_type.h"
+#include "sdfg/targets/gpu/gpu_types.h"
 
 namespace sdfg {
 namespace cuda {
@@ -26,23 +27,17 @@ inline data_flow::ImplementationType ImplementationType_CUBLASWithTransfers{"CUB
 inline data_flow::ImplementationType ImplementationType_CUBLASWithoutTransfers{"CUBLASWithoutTransfers"};
 } // namespace blas
 
-enum CUDADimension { X = 0, Y = 1, Z = 2 };
+// Use shared GPU dimension type
+using CUDADimension = gpu::GPUDimension;
 
-class ScheduleType_CUDA {
+/**
+ * @brief CUDA schedule type inheriting shared GPU functionality
+ * Provides CUDA-specific value() and default block size (32 for warp size)
+ */
+class ScheduleType_CUDA : public gpu::ScheduleType_GPU_Base<ScheduleType_CUDA> {
 public:
-    static void dimension(structured_control_flow::ScheduleType& schedule, const CUDADimension& dimension);
-    static CUDADimension dimension(const structured_control_flow::ScheduleType& schedule);
-    static void block_size(structured_control_flow::ScheduleType& schedule, const symbolic::Expression block_size);
-    static symbolic::Integer block_size(const structured_control_flow::ScheduleType& schedule);
-    static bool nested_sync(const structured_control_flow::ScheduleType& schedule);
-    static void nested_sync(structured_control_flow::ScheduleType& schedule, const bool nested_sync);
     static const std::string value() { return "CUDA"; }
-    static structured_control_flow::ScheduleType create() {
-        auto schedule_type =
-            structured_control_flow::ScheduleType(value(), structured_control_flow::ScheduleTypeCategory::Offloader);
-        dimension(schedule_type, CUDADimension::X);
-        return schedule_type;
-    }
+    static symbolic::Integer default_block_size_x() { return symbolic::integer(32); }
 };
 
 inline codegen::TargetType TargetType_CUDA{ScheduleType_CUDA::value()};

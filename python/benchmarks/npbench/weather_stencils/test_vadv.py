@@ -126,6 +126,7 @@ def kernel(utens_stage, u_stage, wcon, u_pos, utens, dtr_stage):
         "sequential",
         "openmp",
         # "cuda"
+        # "rocm"
     ],
 )
 def test_vadv(target):
@@ -153,7 +154,17 @@ def test_vadv(target):
                 "Malloc": 69,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
+        verifier = SDFGVerification(
+            verification={
+                "HIGHWAY": 35,
+                "MAP": 141,
+                "SEQUENTIAL": 106,
+                "FOR": 165,
+                "Malloc": 69,
+            }
+        )
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "HIGHWAY": 25,

@@ -57,11 +57,21 @@ def run_benchmark_with_target(
         # Create args object to pass to run_benchmark
         if use_numpy:
             args = SimpleNamespace(
-                size=size, docc=False, numpy=True, target="none", n_runs=n_runs, remote_tuning=False
+                size=size,
+                docc=False,
+                numpy=True,
+                target="none",
+                n_runs=n_runs,
+                remote_tuning=False,
             )
         else:
             args = SimpleNamespace(
-                size=size, docc=True, numpy=False, target=target, n_runs=n_runs, remote_tuning=remote_tuning
+                size=size,
+                docc=True,
+                numpy=False,
+                target=target,
+                n_runs=n_runs,
+                remote_tuning=remote_tuning,
             )
 
         # Capture the output from run_benchmark (silence stdout and stderr)
@@ -279,8 +289,8 @@ def main():
         "--targets",
         type=str,
         nargs="+",
-        default=["none", "sequential", "openmp", "cuda", "numpy"],
-        help="Targets to run (default: none sequential openmp cuda numpy). Use 'numpy' for numpy baseline.",
+        default=["none", "sequential", "openmp", "cuda", "rocm", "numpy"],
+        help="Targets to run (default: none sequential openmp cuda rocm numpy). Use 'numpy' for numpy baseline.",
     )
     parser.add_argument(
         "--size",
@@ -301,7 +311,9 @@ def main():
     targets = args.targets
     remote_tuning = args.remote_tuning
 
-    print(f"Configuration: n_runs={n_runs}, targets={targets}, size={size}, remote_tuning={remote_tuning}")
+    print(
+        f"Configuration: n_runs={n_runs}, targets={targets}, size={size}, remote_tuning={remote_tuning}"
+    )
 
     # Discover all benchmarks
     print("Discovering benchmarks...")

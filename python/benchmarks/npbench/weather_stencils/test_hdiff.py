@@ -81,7 +81,7 @@ def test_hdiff(target):
         verifier = SDFGVerification(
             verification={"MAP": 53, "SEQUENTIAL": 53, "FOR": 87, "Malloc": 28}
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 36,
@@ -89,6 +89,17 @@ def test_hdiff(target):
                 "FOR": 63,
                 "MAP": 57,
                 "CUDAOffloading": 80,
+                "Malloc": 20,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "ROCM": 36,
+                "SEQUENTIAL": 21,
+                "FOR": 63,
+                "MAP": 57,
+                "ROCMOffloading": 80,
                 "Malloc": 20,
             }
         )

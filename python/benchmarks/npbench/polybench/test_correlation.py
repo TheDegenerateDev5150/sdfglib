@@ -73,7 +73,7 @@ def test_correlation(target):
                 "Malloc": 7,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "GEMM": 1,
@@ -84,6 +84,20 @@ def test_correlation(target):
                 "FOR": 27,
                 "MAP": 23,
                 "CUDAOffloading": 52,
+                "Malloc": 7,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "GEMM": 1,
+                "CMath": 2,
+                "ROCM": 21,
+                "SEQUENTIAL": 2,
+                "Memset": 1,
+                "FOR": 27,
+                "MAP": 23,
+                "ROCMOffloading": 52,
                 "Malloc": 7,
             }
         )

@@ -57,13 +57,25 @@ def test_go_fast(target):
                 "FOR": 5,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "Free": 1,
                 "CUDA": 4,
                 "MAP": 4,
                 "CUDAOffloading": 8,
+                "CMath": 1,
+                "FOR": 5,
+                "Malloc": 1,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "Free": 1,
+                "ROCM": 4,
+                "MAP": 4,
+                "ROCMOffloading": 7,
                 "CMath": 1,
                 "FOR": 5,
                 "Malloc": 1,

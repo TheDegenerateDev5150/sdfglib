@@ -109,12 +109,25 @@ def test_adi(target):
             },
             non_critical=True,
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "Free": 5,
                 "CUDA": 2,
                 "CUDAOffloading": 4,
+                "MAP": 24,
+                "SEQUENTIAL": 22,
+                "FOR": 29,
+                "Malloc": 11,
+            },
+            non_critical=True,
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "Free": 5,
+                "ROCM": 2,
+                "ROCMOffloading": 4,
                 "MAP": 24,
                 "SEQUENTIAL": 22,
                 "FOR": 29,
