@@ -246,7 +246,7 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
         auto iterator_type_attr = llvm::dyn_cast<linalg::IteratorTypeAttr>(attr);
 
         auto indvar_container = builder.find_new_name("_i");
-        builder.add_container(indvar_container, ::sdfg::types::Scalar(::sdfg::types::PrimitiveType::Int64));
+        builder.add_container(indvar_container, ::sdfg::types::Scalar(sdfg_index_type));
         auto indvar = ::sdfg::symbolic::symbol(indvar_container);
         indvars.push_back(indvar);
         auto condition = ::sdfg::symbolic::Lt(indvar, ::sdfg::symbolic::integer(dimensions.at(i)));
