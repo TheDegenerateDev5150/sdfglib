@@ -16,7 +16,7 @@ namespace transformations {
  *
  * @note The inner loop must not depend on the outer loop's induction variable
  * @note The outer loop must have exactly one child (the inner loop)
- * @note At least one of the loops must be a Map
+ * @note For-For interchange is checked via dependence analysis (delta sets must remain lex-non-negative)
  */
 class LoopInterchange : public Transformation {
     structured_control_flow::StructuredLoop& outer_loop_;

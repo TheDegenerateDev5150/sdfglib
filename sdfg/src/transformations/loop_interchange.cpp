@@ -1,5 +1,11 @@
 #include "sdfg/transformations/loop_interchange.h"
 
+#include <isl/ctx.h>
+#include <isl/map.h>
+#include <isl/options.h>
+#include <isl/set.h>
+
+#include "sdfg/analysis/data_dependency_analysis.h"
 #include "sdfg/analysis/scope_analysis.h"
 #include "sdfg/exceptions.h"
 #include "sdfg/structured_control_flow/for.h"
@@ -7,6 +13,83 @@
 
 namespace sdfg {
 namespace transformations {
+
+/// Check that a 2D delta set {[d0, d1]} remains lex-non-negative after
+/// swapping dimensions to {[d1, d0]}.
+/// Returns false (unsafe) if any vector in the swapped set is lex-negative.
+static bool is_interchange_legal_2d(const std::string& deltas_str) {
+    if (deltas_str.empty()) {
+        return false;
+    }
+
+    isl_ctx* ctx = isl_ctx_alloc();
+    isl_options_set_on_error(ctx, ISL_ON_ERROR_CONTINUE);
+
+    isl_set* deltas = isl_set_read_from_str(ctx, deltas_str.c_str());
+    if (!deltas) {
+        isl_ctx_free(ctx);
+        return false;
+    }
+
+    int n_dims = isl_set_dim(deltas, isl_dim_set);
+    if (n_dims != 2) {
+        isl_set_free(deltas);
+        isl_ctx_free(ctx);
+        return false;
+    }
+
+    // Swap dimensions: {[d0, d1]} -> {[d1, d0]}
+    // Use isl_set_project_out + re-introduce, or use a map to swap.
+    // Simplest: apply a swap map {[a, b] -> [b, a]}
+    isl_map* swap = isl_map_read_from_str(ctx, "{ [a, b] -> [b, a] }");
+    isl_set* swapped = isl_set_apply(deltas, swap);
+    if (!swapped) {
+        isl_ctx_free(ctx);
+        return false;
+    }
+
+    // Check that swapped set is a subset of the lex-non-negative cone:
+    // { [x, y] : x > 0 } union { [x, y] : x = 0 and y >= 0 }
+    isl_set* lex_neg = isl_set_read_from_str(ctx, "{ [x, y] : x < 0 or (x = 0 and y < 0) }");
+    isl_set* violation = isl_set_intersect(swapped, lex_neg);
+    bool legal = isl_set_is_empty(violation);
+    isl_set_free(violation);
+    isl_ctx_free(ctx);
+
+    return legal;
+}
+
+/// Check that a 1D delta set {[d]} has no negative values.
+/// After interchange the inner loop becomes the outer, so we need d >= 0.
+static bool is_interchange_legal_1d(const std::string& deltas_str) {
+    if (deltas_str.empty()) {
+        return false;
+    }
+
+    isl_ctx* ctx = isl_ctx_alloc();
+    isl_options_set_on_error(ctx, ISL_ON_ERROR_CONTINUE);
+
+    isl_set* deltas = isl_set_read_from_str(ctx, deltas_str.c_str());
+    if (!deltas) {
+        isl_ctx_free(ctx);
+        return false;
+    }
+
+    int n_dims = isl_set_dim(deltas, isl_dim_set);
+    if (n_dims != 1) {
+        isl_set_free(deltas);
+        isl_ctx_free(ctx);
+        return false;
+    }
+
+    isl_set* neg = isl_set_read_from_str(ctx, "{ [x] : x < 0 }");
+    isl_set* violation = isl_set_intersect(deltas, neg);
+    bool legal = isl_set_is_empty(violation);
+    isl_set_free(violation);
+    isl_ctx_free(ctx);
+
+    return legal;
+}
 
 LoopInterchange::LoopInterchange(
     structured_control_flow::StructuredLoop& outer_loop, structured_control_flow::StructuredLoop& inner_loop
@@ -46,7 +129,62 @@ bool LoopInterchange::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         return true;
     }
 
-    return false;
+    // For-For: check legality using dependence delta sets
+    analysis::DataDependencyAnalysis dda(builder.subject(), true);
+    dda.run(analysis_manager);
+
+    std::string outer_indvar_name = outer_loop_.indvar()->get_name();
+    std::string inner_indvar_name = inner_loop_.indvar()->get_name();
+
+    // Check outer loop dependencies (2D delta sets: [d_outer, d_inner])
+    auto& outer_deps = dda.dependencies(outer_loop_);
+    for (auto& dep : outer_deps) {
+        // Skip dependencies on loop induction variables — structurally safe
+        if (dep.first == outer_indvar_name || dep.first == inner_indvar_name) {
+            continue;
+        }
+        auto& deltas = dep.second.deltas;
+        if (deltas.empty) {
+            continue;
+        }
+        if (deltas.deltas_str.empty()) {
+            // Dependence exists but no isl info — conservative reject
+            return false;
+        }
+        if (deltas.dimensions.size() == 2) {
+            if (!is_interchange_legal_2d(deltas.deltas_str)) {
+                return false;
+            }
+        } else if (deltas.dimensions.size() == 1) {
+            // Only outer dimension — after interchange becomes inner, always safe
+        } else {
+            return false;
+        }
+    }
+
+    // Check inner loop dependencies (1D delta sets: [d_inner])
+    auto& inner_deps = dda.dependencies(inner_loop_);
+    for (auto& dep : inner_deps) {
+        if (dep.first == outer_indvar_name || dep.first == inner_indvar_name) {
+            continue;
+        }
+        auto& deltas = dep.second.deltas;
+        if (deltas.empty) {
+            continue;
+        }
+        if (deltas.deltas_str.empty()) {
+            return false;
+        }
+        if (deltas.dimensions.size() == 1) {
+            if (!is_interchange_legal_1d(deltas.deltas_str)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    return true;
 };
 
 void LoopInterchange::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {

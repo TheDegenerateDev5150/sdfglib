@@ -1246,7 +1246,7 @@ TEST(LoopDependencyAnalysisTest, Last_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Sum_1D) {
@@ -1294,7 +1294,7 @@ TEST(LoopDependencyAnalysisTest, Sum_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Shift_1D) {
@@ -1340,7 +1340,7 @@ TEST(LoopDependencyAnalysisTest, Shift_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, PartialSum_1D) {
@@ -1387,7 +1387,7 @@ TEST(LoopDependencyAnalysisTest, PartialSum_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, LoopLocal_1D) {
@@ -1439,7 +1439,7 @@ TEST(LoopDependencyAnalysisTest, LoopLocal_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional) {
@@ -1491,7 +1491,7 @@ TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional_Incomplete) {
@@ -1540,7 +1540,7 @@ TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional_Incomplete) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Store_1D) {
@@ -1866,7 +1866,7 @@ TEST(LoopDependencyAnalysisTest, Map_1D_Tiled) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("i"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("i").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 0);
 }
 
@@ -1936,8 +1936,8 @@ TEST(LoopDependencyAnalysisTest, Map_1D_Incomplete) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 2);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies.at("k"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("k").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, MapParameterized_1D) {
@@ -1998,7 +1998,7 @@ TEST(LoopDependencyAnalysisTest, MapParameterized_1D) {
     // Check
     // m == 0 -> all iterations access the same location
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Stencil_1D) {
@@ -2106,7 +2106,7 @@ TEST(LoopDependencyAnalysisTest, Gather_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("b"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("b").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Scatter_1D) {
@@ -2160,8 +2160,8 @@ TEST(LoopDependencyAnalysisTest, Scatter_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 2);
-    EXPECT_EQ(dependencies.at("b"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies.at("C"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("b").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("C").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, MapDeg2_1D) {
@@ -2265,7 +2265,7 @@ TEST(LoopDependencyAnalysisTest, Map_2D) {
     // Check
     auto& dependencies = analysis.dependencies(loop);
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 
     // Check loop 2
     auto& dependencies_2 = analysis.dependencies(loop_2);
@@ -2330,10 +2330,10 @@ TEST(LoopDependencyAnalysisTest, PartialSumInner_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 
     EXPECT_EQ(dependencies2.size(), 1);
-    EXPECT_EQ(dependencies2.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies2.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, PartialSumOuter_2D) {
@@ -2392,8 +2392,8 @@ TEST(LoopDependencyAnalysisTest, PartialSumOuter_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies1.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 
     EXPECT_EQ(dependencies2.size(), 0);
 }
@@ -2458,10 +2458,10 @@ TEST(LoopDependencyAnalysisTest, PartialSum_1D_Triangle) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 1);
-    EXPECT_EQ(dependencies2.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies2.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Transpose_2D) {
@@ -2523,7 +2523,7 @@ TEST(LoopDependencyAnalysisTest, Transpose_2D) {
     // Check
     EXPECT_EQ(dependencies2.size(), 0);
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, TransposeTriangle_2D) {
@@ -2580,7 +2580,7 @@ TEST(LoopDependencyAnalysisTest, TransposeTriangle_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 0);
 }
 
@@ -2638,7 +2638,7 @@ TEST(LoopDependencyAnalysisTest, TransposeTriangleWithDiagonal_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 0);
 }
 
@@ -2697,8 +2697,8 @@ TEST(LoopDependencyAnalysisTest, TransposeSquare_2D) {
     // Check
     EXPECT_EQ(dependencies2.size(), 0);
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, ReductionWithLocalStorage) {
@@ -2808,8 +2808,8 @@ TEST(LoopDependencyAnalysisTest, ReductionWithLocalStorage) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("local"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("local").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 1);
-    EXPECT_EQ(dependencies2.at("local"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies2.at("local").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
