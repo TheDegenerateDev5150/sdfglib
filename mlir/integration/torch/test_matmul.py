@@ -383,3 +383,60 @@ def test_chained_matmul_backend():
         res_ref = model_ref(example_input)
 
     assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+# --- Expand / Collapse (reshape around matmul) ---
+
+
+def test_expand_collapse_compile():
+    """Flatten a 3D input to 2D, matmul, then reshape back to 3D."""
+
+    class ExpandCollapseNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            B, S, D = x.shape
+            flat = x.reshape(B * S, D)  # collapse: 3D -> 2D
+            out = torch.matmul(flat, self.W)
+            return out.reshape(B, S, -1)  # expand: 2D -> 3D
+
+    weight = torch.randn(16, 8)
+    model = ExpandCollapseNet(weight)
+    model_ref = ExpandCollapseNet(weight.clone())
+    example_input = torch.randn(4, 6, 16)
+
+    program = docc.torch.compile_torch(model, example_input)
+    with torch.no_grad():
+        res = program(example_input)
+        res_ref = model_ref(example_input)
+
+    assert torch.allclose(res, res_ref, rtol=1e-4)
+
+
+def test_expand_collapse_backend():
+    """Flatten a 3D input to 2D, matmul, then reshape back to 3D."""
+
+    class ExpandCollapseNet(nn.Module):
+        def __init__(self, weight: torch.Tensor):
+            super().__init__()
+            self.W = nn.Parameter(weight)
+
+        def forward(self, x: torch.Tensor):
+            B, S, D = x.shape
+            flat = x.reshape(B * S, D)
+            out = torch.matmul(flat, self.W)
+            return out.reshape(B, S, -1)
+
+    weight = torch.randn(16, 8)
+    model = ExpandCollapseNet(weight)
+    model_ref = ExpandCollapseNet(weight.clone())
+    example_input = torch.randn(4, 6, 16)
+
+    program = torch.compile(model, backend="docc")
+    with torch.no_grad():
+        res = program(example_input)
+        res_ref = model_ref(example_input)
+
+    assert torch.allclose(res, res_ref, rtol=1e-4)
