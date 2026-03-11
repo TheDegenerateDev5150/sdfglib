@@ -1,5 +1,6 @@
 #include "sdfg/transformations/offloading/kernel_local_storage.h"
 
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -17,6 +18,7 @@
 #include "sdfg/passes/structured_control_flow/sequence_fusion.h"
 #include "sdfg/serializer/json_serializer.h"
 #include "sdfg/structured_control_flow/control_flow_node.h"
+#include "sdfg/structured_control_flow/for.h"
 #include "sdfg/structured_control_flow/if_else.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
@@ -199,6 +201,13 @@ std::tuple<bool, bool, bool> KernelLocalStorage::
 bool KernelLocalStorage::
     can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& sdfg = builder.subject();
+
+    // Criterion: transformation cannot be applied twice on the same container
+    std::set<std::string> containers(sdfg.containers().begin(), sdfg.containers().end());
+    std::string shared_container_name = "__daisy_shared_" + container_;
+    if (containers.find(shared_container_name) != containers.end()) {
+        return false;
+    }
 
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
     auto ancestors = scope_analysis.ancestor_scopes(&loop_);
