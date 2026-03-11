@@ -52,7 +52,7 @@ def test_crc16(target):
         verifier = SDFGVerification(verification={"FOR": 2})
     elif target == "openmp":
         verifier = SDFGVerification(verification={"FOR": 2})
-    else:  # cuda
+    else:  # cuda / rocm
         verifier = SDFGVerification(verification={"FOR": 2})
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

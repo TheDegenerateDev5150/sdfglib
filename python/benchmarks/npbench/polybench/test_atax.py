@@ -64,13 +64,24 @@ def test_atax(target):
                 "DOT": 0,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 1,
                 "FOR": 1,
                 "MAP": 1,
                 "CUDAOffloading": 4,
+                "GEMM": 2,
+                "Malloc": 2,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "ROCM": 1,
+                "FOR": 1,
+                "MAP": 1,
+                "ROCMOffloading": 4,
                 "GEMM": 2,
                 "Malloc": 2,
             }

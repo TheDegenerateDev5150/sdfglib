@@ -7,7 +7,7 @@
 #include "sdfg/structured_control_flow/control_flow_node.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_sdfg.h"
-#include "sdfg/targets/cuda/cuda.h"
+#include "sdfg/targets/gpu/gpu_schedule_type.h"
 #include "sdfg/visitor/structured_sdfg_visitor.h"
 
 namespace sdfg {
@@ -18,8 +18,8 @@ GPUConditionPropagation::GPUConditionPropagation(structured_control_flow::Map& m
 
 bool GPUConditionPropagation::
     can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    // Criterion: Must be a CUDA map
-    if (map_.schedule_type().value() != cuda::ScheduleType_CUDA::value()) {
+    // Criterion: Must be a GPU map (CUDA or ROCm)
+    if (!gpu::is_gpu_schedule(map_.schedule_type())) {
         return false;
     }
 
@@ -39,7 +39,7 @@ void GPUConditionPropagation::apply(builder::StructuredSDFGBuilder& builder, ana
     //  4. else mark the node as relevant for condition propagation
 
     auto new_sched_type = map_.schedule_type();
-    cuda::ScheduleType_CUDA::nested_sync(new_sched_type, true);
+    new_sched_type.set_property("nested_sync", "true");
     builder.update_schedule_type(map_, new_sched_type);
 
     std::vector<structured_control_flow::ControlFlowNode*> nodes_to_visit;
