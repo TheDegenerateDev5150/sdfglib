@@ -432,7 +432,6 @@ def test_single_channel_out_backend():
 # --- Depthwise Conv2d (groups=in_channels) ---
 
 
-@pytest.mark.skip("depthwise conv not supported yet")
 def test_depthwise_compile():
     class DepthwiseConv2dNet(nn.Module):
         def __init__(self):
@@ -455,7 +454,6 @@ def test_depthwise_compile():
     assert torch.allclose(res, res_ref, rtol=1e-4)
 
 
-@pytest.mark.skip("depthwise conv not supported yet")
 def test_depthwise_backend():
     class DepthwiseConv2dNet(nn.Module):
         def __init__(self):
