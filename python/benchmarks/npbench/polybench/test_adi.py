@@ -81,8 +81,7 @@ def test_adi(target):
                 "SEQUENTIAL": 24,
                 "FOR": 29,
                 "Malloc": 11,
-            },
-            non_critical=True,
+            }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
@@ -93,8 +92,7 @@ def test_adi(target):
                 "SEQUENTIAL": 16,
                 "FOR": 29,
                 "Malloc": 11,
-            },
-            non_critical=True,
+            }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
@@ -106,8 +104,7 @@ def test_adi(target):
                 "SEQUENTIAL": 15,
                 "FOR": 29,
                 "Malloc": 11,
-            },
-            non_critical=True,
+            }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
@@ -119,8 +116,7 @@ def test_adi(target):
                 "SEQUENTIAL": 22,
                 "FOR": 29,
                 "Malloc": 11,
-            },
-            non_critical=True,
+            }
         )
     else:  # rocm
         verifier = SDFGVerification(
@@ -132,8 +128,7 @@ def test_adi(target):
                 "SEQUENTIAL": 22,
                 "FOR": 29,
                 "Malloc": 11,
-            },
-            non_critical=True,
+            }
         )
 
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

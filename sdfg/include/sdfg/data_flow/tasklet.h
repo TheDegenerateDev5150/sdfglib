@@ -384,6 +384,8 @@ public:
      */
     void validate(const Function& function) const override;
 
+    [[nodiscard]] bool side_effect() const override { return false; }
+
     /**
      * @brief Get the operation code
      * @return TaskletCode for this tasklet

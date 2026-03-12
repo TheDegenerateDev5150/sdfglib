@@ -37,13 +37,11 @@ def kernel(alpha, beta, A, u1, v1, u2, v2, w, x, y, z):
 def test_gemver(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"SEQUENTIAL": 2, "FOR": 2, "MAP": 2, "Malloc": 2, "GEMM": 4},
-            non_critical=True,
+            verification={"SEQUENTIAL": 2, "FOR": 2, "MAP": 2, "Malloc": 2, "GEMM": 4}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
-            verification={"HIGHWAY": 2, "FOR": 2, "MAP": 2, "Malloc": 2, "GEMM": 4},
-            non_critical=True,
+            verification={"HIGHWAY": 2, "FOR": 2, "MAP": 2, "Malloc": 2, "GEMM": 4}
         )
     elif target == "openmp":
         verifier = SDFGVerification(
@@ -53,8 +51,7 @@ def test_gemver(target):
                 "MAP": 2,
                 "Malloc": 2,
                 "GEMM": 4,
-            },
-            non_critical=True,
+            }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
@@ -65,8 +62,7 @@ def test_gemver(target):
                 "CUDAOffloading": 10,
                 "Malloc": 2,
                 "GEMM": 4,
-            },
-            non_critical=True,
+            }
         )
     else:  # rocm
         verifier = SDFGVerification(
@@ -77,8 +73,7 @@ def test_gemver(target):
                 "ROCMOffloading": 10,
                 "Malloc": 2,
                 "GEMM": 4,
-            },
-            non_critical=True,
+            }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

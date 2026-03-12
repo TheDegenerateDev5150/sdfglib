@@ -35,6 +35,29 @@ const Element* DataFlowGraph::get_parent() const { return this->parent_; };
 
 Element* DataFlowGraph::get_parent() { return this->parent_; };
 
+const data_flow::Memlet* DataFlowGraph::in_edge_for_connector(const data_flow::CodeNode& node, const std::string& conn)
+    const {
+    for (const auto& edge : this->in_edges(node)) {
+        if (edge.dst_conn() == conn) {
+            return &edge;
+        }
+    }
+    return nullptr;
+}
+
+const data_flow::Memlet* DataFlowGraph::in_edge(const data_flow::AccessNode& node) const {
+    auto edges = in_edges(node);
+    auto it = edges.begin();
+    if (it == edges.end()) {
+        return nullptr;
+    }
+    const auto& edge = *it;
+    if (++it != edges.end()) {
+        throw InvalidSDFGException("Access node " + node.data() + " has multiple incoming edges.");
+    }
+    return &edge;
+}
+
 std::vector<data_flow::Memlet*> DataFlowGraph::in_edges_by_connector(const data_flow::CodeNode& node) {
     std::vector<data_flow::Memlet*> in_edges(node.inputs().size(), nullptr);
     for (auto& iedge : this->in_edges(node)) {
@@ -85,6 +108,17 @@ std::vector<const data_flow::Memlet*> DataFlowGraph::out_edges_by_connector(cons
         }
     }
     return out_edges;
+}
+
+std::vector<const data_flow::Memlet*> DataFlowGraph::
+    out_edges_for_connector(const data_flow::CodeNode& node, const std::string& conn) const {
+    std::vector<const data_flow::Memlet*> outs;
+    for (auto& edge : out_edges(node)) {
+        if (edge.src_conn() == conn) {
+            outs.push_back(&edge);
+        }
+    }
+    return outs;
 }
 
 size_t DataFlowGraph::in_degree(const data_flow::DataFlowNode& node) const {

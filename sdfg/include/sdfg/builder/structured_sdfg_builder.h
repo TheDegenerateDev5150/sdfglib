@@ -495,9 +495,14 @@ public:
 
     void remove_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node);
 
-    void clear_node(structured_control_flow::Block& block, const data_flow::CodeNode& node);
+    void clear_code_node_legacy(structured_control_flow::Block& block, const data_flow::CodeNode& node);
 
-    void clear_node(structured_control_flow::Block& block, const data_flow::AccessNode& node);
+    void clear_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node);
+    void clear_node(
+        structured_control_flow::Block& block,
+        const data_flow::DataFlowNode& node,
+        const std::unordered_set<const data_flow::DataFlowNode*>& ignore_side_effects
+    );
 
     void merge_siblings(data_flow::AccessNode& in_node);
 };

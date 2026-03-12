@@ -45,7 +45,9 @@ void AccessNode::validate(const Function& function) const {
 
 const std::string& AccessNode::data() const { return this->data_; };
 
-void AccessNode::data(const std::string data) { this->data_ = data; };
+void AccessNode::data(const std::string data) { this->data_ = data; }
+
+bool AccessNode::side_effect() const { return get_parent().in_degree(*this) > 0; }
 
 std::unique_ptr<DataFlowNode> AccessNode::clone(size_t element_id, const graph::Vertex vertex, DataFlowGraph& parent)
     const {

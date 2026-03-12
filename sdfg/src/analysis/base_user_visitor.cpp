@@ -48,8 +48,11 @@ bool BaseUserVisitor::visit(sdfg::structured_control_flow::Block& node) {
 }
 
 bool BaseUserVisitor::visit(sdfg::structured_control_flow::Return& node) {
-    if (node.is_data() && node.data() != symbolic::__nullptr__()->get_name()) {
-        useAsReturnSrc(node.data(), node);
+    if (node.is_data()) {
+        auto& container = node.data();
+        if (!container.empty()) {
+            useAsReturnSrc(node.data(), node);
+        }
     }
 
     return true;

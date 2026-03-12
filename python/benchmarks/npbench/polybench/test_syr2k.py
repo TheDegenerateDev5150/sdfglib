@@ -32,8 +32,7 @@ def kernel(alpha, beta, C, A, B):
 def test_syr2k(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"Malloc": 3, "MAP": 5, "SEQUENTIAL": 5, "FOR": 7},
-            non_critical=True,
+            verification={"Malloc": 3, "MAP": 5, "SEQUENTIAL": 5, "FOR": 7}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
@@ -43,8 +42,7 @@ def test_syr2k(target):
                 "SEQUENTIAL": 3,
                 "FOR": 8,
                 "MAP": 6,
-            },
-            non_critical=True,
+            }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
@@ -55,8 +53,7 @@ def test_syr2k(target):
                 "SEQUENTIAL": 2,
                 "FOR": 8,
                 "MAP": 6,
-            },
-            non_critical=True,
+            }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
@@ -67,8 +64,7 @@ def test_syr2k(target):
                 "FOR": 8,
                 "MAP": 6,
                 "CUDAOffloading": 2,
-            },
-            non_critical=True,
+            }
         )
     else:  # rocm
         verifier = SDFGVerification(
@@ -79,8 +75,7 @@ def test_syr2k(target):
                 "FOR": 8,
                 "MAP": 6,
                 "ROCMOffloading": 2,
-            },
-            non_critical=True,
+            }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

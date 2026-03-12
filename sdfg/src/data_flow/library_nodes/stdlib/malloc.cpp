@@ -18,7 +18,7 @@ MallocNode::MallocNode(
           LibraryNodeType_Malloc,
           {"_ret"},
           {},
-          true,
+          false,
           data_flow::ImplementationType_NONE
       ),
       size_(size) {}

@@ -705,10 +705,10 @@ TEST(DeadDataEliminationTest, OwnedHeapMemoryWithFree) {
     EXPECT_TRUE(applied);
 
     // Check result
-    EXPECT_TRUE(sdfg->exists("tmp"));
+    EXPECT_FALSE(sdfg->exists("tmp"));
     EXPECT_TRUE(sdfg->exists("out"));
     EXPECT_TRUE(sdfg->exists("i"));
-    EXPECT_EQ(sdfg->root().size(), 3);
+    EXPECT_EQ(sdfg->root().size(), 1);
 }
 
 TEST(DeadDataEliminationTest, MultiWrittenOwnedHeapMemoryIsRemoved) {
