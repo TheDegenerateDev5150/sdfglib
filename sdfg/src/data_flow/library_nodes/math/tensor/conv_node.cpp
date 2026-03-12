@@ -307,14 +307,17 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     builder.add_computational_memlet(init_block, init_tasklet, "_out", accum_init, {}, scalar_type, block.debug_info());
 
     // Create nested for loops for input channels and kernel dimensions
-    // For loop over input channels
+    // For grouped convolution, each output channel group only reads C_in/group input channels
+    auto C_in_per_group = symbolic::div(C_in, group_);
+
+    // For loop over input channels (per group)
     std::string ic_str = builder.find_new_name("ic");
     builder.add_container(ic_str, types::Scalar(types::PrimitiveType::UInt64));
     auto ic_var = symbolic::symbol(ic_str);
     auto& for_ic = builder.add_for(
         *current_scope,
         ic_var,
-        symbolic::Lt(ic_var, C_in),
+        symbolic::Lt(ic_var, C_in_per_group),
         symbolic::zero(),
         symbolic::add(ic_var, symbolic::one()),
         {},
@@ -378,12 +381,16 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     w_shape_vec.insert(w_shape_vec.end(), kernel_shape_.begin(), kernel_shape_.end());
 
     // Connect edges with subsets
-    std::vector<symbolic::Expression> x_indices_vec = {n_var, ic_var};
+    // For grouped conv, compute group index g = oc / (C_out/group), then
+    // input channel = g * (C_in/group) + ic
+    // For group=1: g=0, input_channel=ic. For depthwise (group=C): g=oc, input_channel=oc+ic.
+    auto C_out_per_group = symbolic::div(C_out, group_);
+    auto group_idx = symbolic::div(oc_var, C_out_per_group);
+    auto input_channel_idx = symbolic::add(symbolic::mul(group_idx, C_in_per_group), ic_var);
+    std::vector<symbolic::Expression> x_indices_vec = {n_var, input_channel_idx};
     x_indices_vec.insert(x_indices_vec.end(), input_spatial_indices.begin(), input_spatial_indices.end());
 
-    std::vector<symbolic::Expression> w_indices_vec = {oc_var, ic_var}; // Assuming group=1 for now for simplicity of
-                                                                        // indices
-    // TODO: Handle groups properly in indices if needed, but for standard conv:
+    std::vector<symbolic::Expression> w_indices_vec = {oc_var, ic_var};
     w_indices_vec.insert(w_indices_vec.end(), kernel_vars.begin(), kernel_vars.end());
 
     data_flow::Subset x_subset(x_indices_vec);

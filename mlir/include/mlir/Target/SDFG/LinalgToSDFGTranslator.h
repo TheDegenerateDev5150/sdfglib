@@ -23,5 +23,7 @@ LogicalResult translateLinalgBroadcastOp(SDFGTranslator& translator, linalg::Bro
 
 LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg::Conv2DNchwFchwOp* op);
 
+LogicalResult translateLinalgDepthwiseConv2DNchwChwOp(SDFGTranslator& translator, linalg::DepthwiseConv2DNchwChwOp* op);
+
 } // namespace sdfg
 } // namespace mlir
