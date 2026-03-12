@@ -198,15 +198,14 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
             }
         }
 
-        // Check that all candidates are equal
+        // Get the maximum of all candidates
         if (candidates.empty()) {
             return generic_op->emitOpError("Could not found candidates for dimension: ") << i;
         }
         int64_t dim = candidates.at(0);
         for (int64_t candidate : candidates) {
-            if (candidate != dim) {
-                return generic_op->emitOpError("Candidate mismatch for dimension ")
-                       << i << ": " << candidate << " != " << dim;
+            if (candidate > dim) {
+                dim = candidate;
             }
         }
 
