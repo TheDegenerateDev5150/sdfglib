@@ -1178,6 +1178,23 @@ std::string JSONSerializer::expression(const symbolic::Expression expr) {
     return printer.apply(expr);
 };
 
+void JSONSerializer::writeToFile(const StructuredSDFG& sdfg, const std::filesystem::path& file) {
+    JSONSerializer ser;
+    auto json = ser.serialize(sdfg);
+
+    auto parent_path = file.parent_path();
+    if (!parent_path.empty()) {
+        std::filesystem::create_directories(file.parent_path());
+    }
+
+    std::ofstream out(file, std::ofstream::out);
+    if (!out.is_open()) {
+        std::cerr << "Could not open file " << file << " for writing JSON output." << std::endl;
+    }
+    out << json << std::endl;
+    out.close();
+}
+
 void JSONSymbolicPrinter::bvisit(const SymEngine::Equality& x) {
     str_ = apply(x.get_args()[0]) + " == " + apply(x.get_args()[1]);
     str_ = parenthesize(str_);

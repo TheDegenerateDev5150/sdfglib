@@ -290,11 +290,24 @@ bool Memlet::is_src_read() const {
         if (t == Computational) {
             return true;
         }
-        if (t == Dereference_Src) {
+        if (t == Dereference_Dst || t == Dereference_Src) {
             return true;
         }
         if (t == Reference && !subset_.empty() && base_type_ && base_type_->type_id() == types::TypeID::Pointer) {
             return true; // we hide the read of src for pointer types
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_direct_read() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") { // anything else is not an access node on the input
+        auto t = type();
+        if (t == Computational && base_type_ && (base_type_->type_id() != types::TypeID::Pointer || subset_.empty())) {
+            return true;
+        }
+        if (t == Dereference_Dst) {
+            return true;
         }
     }
     return false;
@@ -328,11 +341,32 @@ bool Memlet::is_src_address_leak() const {
     return false;
 }
 
-bool Memlet::is_src_pointed_to_address_leak() const {
+bool Memlet::is_src_pointed_to_address_leak(const types::IType& src_type) const {
     if (src_conn_ == "void" || src_conn_ == "deref") {
         auto t = type();
-        if (t == Reference && !subset_.empty() && base_type_ && base_type_->type_id() == types::TypeID::Pointer) {
-            return true;
+        if (src_type.type_id() == types::TypeID::Pointer) { // even if we use it as integer
+            if (t == Computational && base_type_ && base_type_->type_id() != types::TypeID::Pointer) { // reinterpret as
+                                                                                                       // not pointer,
+                                                                                                       // but the
+                                                                                                       // pointer is
+                                                                                                       // still read
+                return true;
+            }
+            if (t == Dereference_Dst) {
+                return true;
+            }
+        }
+        if (base_type_ && base_type_->type_id() == types::TypeID::Pointer) { // read as pointer, so more hidden things
+                                                                             // possible
+            if (t == Reference && !subset_.empty()) { // = address calc of ptr + subsets
+                return true;
+            }
+            if (t == Dereference_Dst) { // straight reads the contents of the ptr
+                return true;
+            }
+            if (t == Computational && subset().empty()) {
+                return true;
+            }
         }
     }
     return false;

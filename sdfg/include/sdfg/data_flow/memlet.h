@@ -221,6 +221,12 @@ public:
     bool is_src_read() const;
 
     /**
+     * Memlet returns the contents of src (this is [is_src_read()], excluding that the contents are only used
+     * transitively)
+     */
+    bool is_src_direct_read() const;
+
+    /**
      * Makes a memory read with src-contents as (partial) address
      */
     bool is_src_pointed_to_read() const;
@@ -234,7 +240,7 @@ public:
     /**
      * Leaks address of what src points to. Only valid for when src is a pointer-like
      */
-    bool is_src_pointed_to_address_leak() const;
+    bool is_src_pointed_to_address_leak(const types::IType& src_type) const;
 
     /**
      * makes a memory write to dst (itself). Using dst as pointer is not a write to dst
