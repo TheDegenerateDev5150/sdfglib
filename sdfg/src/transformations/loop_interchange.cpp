@@ -231,6 +231,13 @@ bool LoopInterchange::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         return true;
     }
 
+    auto& users_analysis = analysis_manager.get<analysis::Users>();
+    analysis::UsersView body_users(users_analysis, inner_loop_.root());
+    if (!body_users.views().empty() || !body_users.moves().empty()) {
+        // Views and moves may have complex semantics that we don't handle yet
+        return false;
+    }
+
     // For-For: check legality using dependence delta sets
     analysis::DataDependencyAnalysis dda(builder.subject(), true);
     dda.run(analysis_manager);
