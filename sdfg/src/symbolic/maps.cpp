@@ -86,20 +86,18 @@ DependenceDeltas compute_deltas_isl(
     const Assumptions& assums1,
     const Assumptions& assums2
 ) {
-    DependenceDeltas result{true, "", {}};
-
     if (expr1.size() != expr2.size()) {
-        return result;
+        return DependenceDeltas{false, "", {}};
     }
     if (expr1.empty()) {
-        return result;
+        return DependenceDeltas{false, "", {}};
     }
 
     // Transform both expressions into two maps with separate dimensions
     auto expr1_delinearized = delinearize(expr1, assums1);
     auto expr2_delinearized = delinearize(expr2, assums2);
     if (expr1_delinearized.size() != expr2_delinearized.size()) {
-        return result;
+        return DependenceDeltas{false, "", {}};
     }
 
     // Cheap per-dimension check — if any single dimension is provably disjoint, no dependence
@@ -144,7 +142,7 @@ DependenceDeltas compute_deltas_isl(
         isl_map_free(alias_pairs);
         isl_ctx_free(ctx);
         if (disjoint) {
-            return result; // empty=true
+            return DependenceDeltas{true, "", {}};
         }
     }
 
@@ -208,7 +206,7 @@ DependenceDeltas compute_deltas_isl(
     if (isl_map_is_empty(alias_pairs)) {
         isl_map_free(alias_pairs);
         isl_ctx_free(ctx);
-        return result; // empty=true
+        return DependenceDeltas{true, "", {}};
     }
 
     // isl_map_deltas requires matching domain/range dimensions
@@ -263,6 +261,7 @@ DependenceDeltas compute_deltas_isl(
     isl_set_free(deltas);
     isl_ctx_free(ctx);
 
+    DependenceDeltas result;
     result.empty = false;
     result.deltas_str = deltas_str;
     result.dimensions = dimensions;
