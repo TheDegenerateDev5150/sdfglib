@@ -518,8 +518,6 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
 
     translator.add_reference(output_container, result_container);
 
-    auto& block = translator.builder().add_block(sequence);
-
     // For now, only handle 2D matmul with no transposes or broadcasts
     auto lhs_type = dyn_cast_or_null<RankedTensorType>(op->getOperand(0).getType());
     auto rhs_type = dyn_cast_or_null<RankedTensorType>(op->getOperand(1).getType());
@@ -533,8 +531,22 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
     auto in_container_rhs = translator.get_or_create_container(op->getOperand(1));
     auto out_container = translator.get_or_create_container(op->getResult(0));
 
+    // Ensure inputs are in C order (MatMulNode requires contiguous data)
+    auto element_type = translator.convertType(lhs_type.getElementType());
+    auto scalar_type = static_cast<::sdfg::types::Scalar&>(*element_type);
+    {
+        auto& tensor_info_lhs = translator.get_or_create_tensor_info(in_container_lhs, lhs_type);
+        in_container_lhs = translator.store_in_c_order(in_container_lhs, tensor_info_lhs, scalar_type);
+    }
+    {
+        auto& tensor_info_rhs = translator.get_or_create_tensor_info(in_container_rhs, rhs_type);
+        in_container_rhs = translator.store_in_c_order(in_container_rhs, tensor_info_rhs, scalar_type);
+    }
+
+    auto& block = translator.builder().add_block(sequence);
+
     ::sdfg::data_flow::AccessNode* lhs_access = &translator.builder().add_access(block, in_container_lhs);
-    ::sdfg::data_flow::AccessNode* rhs_access = &translator.builder().add_access(block, in_container_rhs);
+    ::sdfg::data_flow::AccessNode* rhs_access;
 
     if (in_container_lhs == in_container_rhs) {
         rhs_access = lhs_access;
@@ -542,6 +554,7 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
         rhs_access = &translator.builder().add_access(block, in_container_rhs);
     }
 
+    // Get tensor info after possible reordering
     auto& tensor_info_lhs = translator.get_or_create_tensor_info(in_container_lhs, lhs_type);
     auto& tensor_info_rhs = translator.get_or_create_tensor_info(in_container_rhs, rhs_type);
     auto& tensor_info_out = translator.get_or_create_tensor_info(out_container, output_type);
@@ -612,8 +625,6 @@ LogicalResult translateLinalgBatchMatmulOp(SDFGTranslator& translator, linalg::B
 
     translator.add_reference(output_container, result_container);
 
-    auto& block = translator.builder().add_block(sequence);
-
     auto lhs_type = dyn_cast_or_null<RankedTensorType>(op->getOperand(0).getType());
     auto rhs_type = dyn_cast_or_null<RankedTensorType>(op->getOperand(1).getType());
     auto output_type = dyn_cast_or_null<RankedTensorType>(op->getResult(0).getType());
@@ -626,6 +637,20 @@ LogicalResult translateLinalgBatchMatmulOp(SDFGTranslator& translator, linalg::B
     auto in_container_rhs = translator.get_or_create_container(op->getOperand(1));
     auto out_container = translator.get_or_create_container(op->getResult(0));
 
+    // Ensure inputs are in C order (MatMulNode requires contiguous data)
+    auto element_type = translator.convertType(lhs_type.getElementType());
+    auto scalar_type = static_cast<::sdfg::types::Scalar&>(*element_type);
+    {
+        auto& tensor_info_lhs = translator.get_or_create_tensor_info(in_container_lhs, lhs_type);
+        in_container_lhs = translator.store_in_c_order(in_container_lhs, tensor_info_lhs, scalar_type);
+    }
+    {
+        auto& tensor_info_rhs = translator.get_or_create_tensor_info(in_container_rhs, rhs_type);
+        in_container_rhs = translator.store_in_c_order(in_container_rhs, tensor_info_rhs, scalar_type);
+    }
+
+    auto& block = translator.builder().add_block(sequence);
+
     ::sdfg::data_flow::AccessNode* lhs_access = &translator.builder().add_access(block, in_container_lhs);
     ::sdfg::data_flow::AccessNode* rhs_access;
 
@@ -635,6 +660,7 @@ LogicalResult translateLinalgBatchMatmulOp(SDFGTranslator& translator, linalg::B
         rhs_access = &translator.builder().add_access(block, in_container_rhs);
     }
 
+    // Get tensor info after possible reordering
     auto& tensor_info_lhs = translator.get_or_create_tensor_info(in_container_lhs, lhs_type);
     auto& tensor_info_rhs = translator.get_or_create_tensor_info(in_container_rhs, rhs_type);
     auto& tensor_info_out = translator.get_or_create_tensor_info(out_container, output_type);
