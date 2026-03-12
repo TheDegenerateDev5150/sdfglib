@@ -743,3 +743,85 @@ TEST(LoopInterchangeTest, ForFor_Jacobi_Illegal) {
     transformations::LoopInterchange transformation(loop_i, loop_j);
     EXPECT_FALSE(transformation.can_be_applied(builder, analysis_manager));
 }
+
+/// FM interchange with non-unit inner stride.
+/// Models a tile loop that depends on the time loop after skewing:
+///   for t = 0; t < T; t++
+///     for tile = 32*t; tile < 32*t + N; tile += 32
+///       A[tile] = A[tile] + 1.0
+///
+/// After interchange (FM, coefficient α = 32):
+///   for tile = 0; tile < 32*(T-1) + N; tile += 32
+///     for t = max(0, idiv(tile - N, 32) + 1) .. min(T, idiv(tile, 32) + 1)
+TEST(LoopInterchangeTest, ForFor_FM_NonUnitStride) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+    builder.add_container("T", sym_desc, true);
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("t", sym_desc);
+    builder.add_container("tile", sym_desc);
+
+    types::Scalar elem_desc(types::PrimitiveType::Double);
+    types::Array arr_desc(elem_desc, symbolic::symbol("N"));
+    builder.add_container("A", arr_desc, true);
+
+    // for t = 0; t < T; t++
+    auto& loop_t = builder.add_for(
+        root,
+        symbolic::symbol("t"),
+        symbolic::Lt(symbolic::symbol("t"), symbolic::symbol("T")),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("t"), symbolic::integer(1))
+    );
+
+    // for tile = 32*t; tile < 32*t + N; tile += 32
+    auto& loop_tile = builder.add_for(
+        loop_t.root(),
+        symbolic::symbol("tile"),
+        symbolic::
+            Lt(symbolic::symbol("tile"),
+               symbolic::add(symbolic::mul(symbolic::integer(32), symbolic::symbol("t")), symbolic::symbol("N"))),
+        symbolic::mul(symbolic::integer(32), symbolic::symbol("t")),
+        symbolic::add(symbolic::symbol("tile"), symbolic::integer(32))
+    );
+
+    // A[tile] = A[tile] + 1.0  (self-dep, safe)
+    auto& block = builder.add_block(loop_tile.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& one_node = builder.add_constant(block, "1.0", elem_desc);
+    auto& a_out = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in1", {symbolic::symbol("tile")}, arr_desc);
+    builder.add_computational_memlet(block, one_node, tasklet, "_in2", {});
+    builder.add_computational_memlet(block, tasklet, "_out", a_out, {symbolic::symbol("tile")}, arr_desc);
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    transformations::LoopInterchange transformation(loop_t, loop_tile);
+    ASSERT_TRUE(transformation.can_be_applied(builder, analysis_manager));
+    transformation.apply(builder, analysis_manager);
+
+    // After interchange: outer = tile (stride 32), inner = t (stride 1)
+    auto* outer = dynamic_cast<structured_control_flow::For*>(&sdfg.root().at(0).first);
+    ASSERT_NE(outer, nullptr);
+    EXPECT_EQ(outer->indvar()->get_name(), "tile");
+
+    auto* inner = dynamic_cast<structured_control_flow::For*>(&outer->root().at(0).first);
+    ASSERT_NE(inner, nullptr);
+    EXPECT_EQ(inner->indvar()->get_name(), "t");
+
+    // New outer stride = old inner stride = 32
+    EXPECT_TRUE(symbolic::eq(symbolic::sub(outer->update(), outer->indvar()), symbolic::integer(32)));
+
+    // New inner stride = old outer stride = 1
+    EXPECT_TRUE(symbolic::eq(symbolic::sub(inner->update(), inner->indvar()), symbolic::integer(1)));
+
+    // New outer init = inner_init(t=0) = 32*0 = 0
+    EXPECT_TRUE(symbolic::eq(outer->init(), symbolic::integer(0)));
+
+    // New inner init uses max(..., idiv(...) + 1) — verify it references tile
+    EXPECT_TRUE(symbolic::uses(inner->init(), outer->indvar()->get_name()));
+}

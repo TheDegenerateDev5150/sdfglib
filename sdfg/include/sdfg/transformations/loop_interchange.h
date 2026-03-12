@@ -14,7 +14,14 @@ namespace transformations {
  * The transformation preserves the computational semantics while reordering
  * loop execution.
  *
- * @note The inner loop must not depend on the outer loop's induction variable
+ * Supports two cases:
+ * - Independent bounds: inner loop bounds do not reference the outer induction
+ *   variable. The loop headers are simply swapped.
+ * - Dependent bounds (Fourier-Motzkin): inner loop bounds are unit-affine in
+ *   the outer induction variable. The new outer range is obtained by projecting
+ *   the inner bounds over the outer range, and the new inner range is obtained
+ *   by inverting the affine relationship, yielding min/max expressions.
+ *
  * @note The outer loop must have exactly one child (the inner loop)
  * @note For-For interchange is checked via dependence analysis (delta sets must remain lex-non-negative)
  */
