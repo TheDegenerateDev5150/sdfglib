@@ -51,11 +51,11 @@ steps:
       energy: true
       env:
         DOCC_CI: regions
-    # linear_cuda:
-    #   command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=cuda
-    #   energy: true
-    #   env:
-    #     DOCC_CI: regions
+    linear_cuda:
+      command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=cuda
+      energy: true
+      env:
+        DOCC_CI: regions
     matmul_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --torch
       energy: true
@@ -76,11 +76,11 @@ steps:
       energy: true
       env:
         DOCC_CI: regions
-    # matmul_cuda:
-    #   command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=cuda
-    #   energy: true
-    #   env:
-    #     DOCC_CI: regions
+    matmul_cuda:
+      command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=cuda
+      energy: true
+      env:
+        DOCC_CI: regions
     resnet18_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/resnet18.py --torch
       energy: true

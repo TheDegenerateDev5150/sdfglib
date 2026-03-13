@@ -50,7 +50,6 @@ std::unique_ptr<data_flow::DataFlowNode> FillNode::
 }
 
 bool FillNode::expand(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    std::cerr << "expand" << std::endl;
     auto& dataflow = this->get_parent();
     auto& block = static_cast<structured_control_flow::Block&>(*dataflow.get_parent());
     if (dataflow.in_degree(*this) != 1 || dataflow.out_degree(*this) != 1) {

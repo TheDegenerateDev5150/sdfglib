@@ -1,6 +1,7 @@
 #include "sdfg/symbolic/maps.h"
 
 #include <isl/ctx.h>
+#include <isl/map.h>
 #include <isl/options.h>
 #include <isl/set.h>
 #include <isl/space.h>
@@ -78,7 +79,7 @@ bool is_monotonic(const Expression expr, const Symbol sym, const Assumptions& as
     return is_monotonic_pow(expr, sym, assums);
 }
 
-bool is_disjoint_isl(
+DependenceDeltas compute_deltas_isl(
     const MultiExpression& expr1,
     const MultiExpression& expr2,
     const Symbol indvar,
@@ -86,20 +87,20 @@ bool is_disjoint_isl(
     const Assumptions& assums2
 ) {
     if (expr1.size() != expr2.size()) {
-        return false;
+        return DependenceDeltas{false, "", {}};
     }
     if (expr1.empty()) {
-        return false;
+        return DependenceDeltas{false, "", {}};
     }
 
     // Transform both expressions into two maps with separate dimensions
     auto expr1_delinearized = delinearize(expr1, assums1);
     auto expr2_delinearized = delinearize(expr2, assums2);
     if (expr1_delinearized.size() != expr2_delinearized.size()) {
-        return false;
+        return DependenceDeltas{false, "", {}};
     }
 
-    // Cheap per-dimension check
+    // Cheap per-dimension check — if any single dimension is provably disjoint, no dependence
     for (size_t i = 0; i < expr1_delinearized.size(); i++) {
         auto& dim1 = expr1_delinearized[i];
         auto& dim2 = expr2_delinearized[i];
@@ -125,28 +126,14 @@ bool is_disjoint_isl(
             continue;
         }
 
-        // Find aliasing pairs under the constraint that dimensions are different
-
         isl_map* composed = isl_map_apply_domain(map_2, map_3);
         if (!composed) {
             isl_map_free(map_1);
-            if (map_2) {
-                isl_map_free(map_2);
-            }
-            if (map_3) {
-                isl_map_free(map_3);
-            }
             isl_ctx_free(ctx);
             continue;
         }
         isl_map* alias_pairs = isl_map_intersect(composed, map_1);
         if (!alias_pairs) {
-            if (composed) {
-                isl_map_free(composed);
-            }
-            if (map_1) {
-                isl_map_free(map_1);
-            }
             isl_ctx_free(ctx);
             continue;
         }
@@ -155,14 +142,11 @@ bool is_disjoint_isl(
         isl_map_free(alias_pairs);
         isl_ctx_free(ctx);
         if (disjoint) {
-            return true;
+            return DependenceDeltas{true, "", {}};
         }
     }
-    if (expr1_delinearized.size() == 1) {
-        return false;
-    }
 
-    // Now check on all dimensions together
+    // Build combined analysis on all dimensions together
     auto maps = expressions_to_intersection_map_str(expr1_delinearized, expr2_delinearized, indvar, assums1, assums2);
 
     isl_ctx* ctx = isl_ctx_alloc();
@@ -182,40 +166,106 @@ bool is_disjoint_isl(
             isl_map_free(map_3);
         }
         isl_ctx_free(ctx);
-        return false;
+        // Conservative: assume dependence exists when isl can't analyze
+        return DependenceDeltas{false, "", {}};
     }
 
-    // Find aliasing pairs under the constraint that dimensions are different
-
-    isl_map* composed = isl_map_apply_domain(map_2, map_3);
-    if (!composed) {
+    // Compute alias pairs: { iter_1 -> iter_2 : access_1(iter_1) = access_2(iter_2) }
+    // with monotonicity constraint from map_3.
+    //
+    // Compose access maps directly: apply_range(map_1, reverse(map_2)) gives
+    // { iter_1 -> iter_2 : access_1(iter_1) = access_2(iter_2) }, then
+    // intersect with reverse(map_3) for the monotonicity constraint.
+    // This correctly captures cross-dimensional dependence vectors for both
+    // square (n_iter == n_access) and rectangular (n_iter > n_access) cases.
+    isl_map* map_2_inv = isl_map_reverse(map_2);
+    if (!map_2_inv) {
         isl_map_free(map_1);
-        if (map_2) {
-            isl_map_free(map_2);
-        }
-        if (map_3) {
-            isl_map_free(map_3);
-        }
+        isl_map_free(map_3);
         isl_ctx_free(ctx);
-        return false;
+        return DependenceDeltas{false, "", {}};
     }
-    isl_map* alias_pairs = isl_map_intersect(composed, map_1);
-    if (!alias_pairs) {
-        if (composed) {
-            isl_map_free(composed);
-        }
-        if (map_1) {
-            isl_map_free(map_1);
-        }
+    isl_map* alias_unconstrained = isl_map_apply_range(map_1, map_2_inv);
+    if (!alias_unconstrained) {
+        isl_map_free(map_3);
         isl_ctx_free(ctx);
-        return false;
+        return DependenceDeltas{false, "", {}};
+    }
+    isl_map* mono = isl_map_reverse(map_3);
+    if (!mono) {
+        isl_map_free(alias_unconstrained);
+        isl_ctx_free(ctx);
+        return DependenceDeltas{false, "", {}};
+    }
+    isl_map* alias_pairs = isl_map_intersect(alias_unconstrained, mono);
+    if (!alias_pairs) {
+        isl_ctx_free(ctx);
+        return DependenceDeltas{false, "", {}};
     }
 
-    bool disjoint = isl_map_is_empty(alias_pairs);
-    isl_map_free(alias_pairs);
+    if (isl_map_is_empty(alias_pairs)) {
+        isl_map_free(alias_pairs);
+        isl_ctx_free(ctx);
+        return DependenceDeltas{true, "", {}};
+    }
+
+    // isl_map_deltas requires matching domain/range dimensions
+    int n_in = isl_map_dim(alias_pairs, isl_dim_in);
+    int n_out = isl_map_dim(alias_pairs, isl_dim_out);
+    if (n_in != n_out) {
+        isl_map_free(alias_pairs);
+        isl_ctx_free(ctx);
+        // Dependence exists but can't compute deltas
+        return DependenceDeltas{false, "", {}};
+    }
+
+    // Compute delta set: {d : exists i1,i2 in alias_pairs, d = i2 - i1}
+    isl_set* deltas = isl_map_deltas(alias_pairs);
+    if (!deltas || isl_set_is_empty(deltas)) {
+        if (deltas) {
+            isl_set_free(deltas);
+        }
+        isl_ctx_free(ctx);
+        // Conservative: if deltas computation fails, assume dependence
+        return DependenceDeltas{false, "", {}};
+    }
+
+    // Extract dimension names from the delta set
+    int n_dims = isl_set_dim(deltas, isl_dim_set);
+    std::vector<std::string> dimensions;
+    dimensions.reserve(n_dims);
+    for (int i = 0; i < n_dims; i++) {
+        const char* name = isl_set_get_dim_name(deltas, isl_dim_set, i);
+        if (name) {
+            // Delta dim names are like "i_1" — strip the "_1" suffix
+            std::string dim_name(name);
+            if (dim_name.size() > 2 && dim_name.substr(dim_name.size() - 2) == "_1") {
+                dim_name = dim_name.substr(0, dim_name.size() - 2);
+            }
+            dimensions.push_back(dim_name);
+        } else {
+            dimensions.push_back("d" + std::to_string(i));
+        }
+    }
+
+    // Serialize to string
+    char* str = isl_set_to_str(deltas);
+    if (!str) {
+        isl_set_free(deltas);
+        isl_ctx_free(ctx);
+        return DependenceDeltas{false, "", {}};
+    }
+    std::string deltas_str(str);
+    free(str);
+
+    isl_set_free(deltas);
     isl_ctx_free(ctx);
 
-    return disjoint;
+    DependenceDeltas result;
+    result.empty = false;
+    result.deltas_str = deltas_str;
+    result.dimensions = dimensions;
+    return result;
 }
 
 bool is_disjoint_monotonic(
@@ -273,13 +323,20 @@ bool intersects(
     const Assumptions& assums1,
     const Assumptions& assums2
 ) {
+    return !dependence_deltas(expr1, expr2, indvar, assums1, assums2).empty;
+}
+
+DependenceDeltas dependence_deltas(
+    const MultiExpression& expr1,
+    const MultiExpression& expr2,
+    const Symbol indvar,
+    const Assumptions& assums1,
+    const Assumptions& assums2
+) {
     if (is_disjoint_monotonic(expr1, expr2, indvar, assums1, assums2)) {
-        return false;
+        return DependenceDeltas{true, "", {}};
     }
-    if (is_disjoint_isl(expr1, expr2, indvar, assums1, assums2)) {
-        return false;
-    }
-    return true;
+    return compute_deltas_isl(expr1, expr2, indvar, assums1, assums2);
 }
 
 } // namespace maps

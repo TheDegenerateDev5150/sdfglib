@@ -191,83 +191,6 @@ std::string MatMulNode::toStr() const {
     return ss.str();
 }
 
-std::string copy_if_view(
-    const std::string& name,
-    builder::StructuredSDFGBuilder& builder,
-    structured_control_flow::Sequence& parent,
-    types::PrimitiveType type,
-    const symbolic::MultiExpression& shape,
-    const symbolic::MultiExpression& strides,
-    symbolic::Expression offset
-) {
-    // If the tensor is already a view (has non-default strides or offset), we need to create a copy to ensure correct
-    // semantics
-    types::Tensor tensor_type(type, shape, strides, offset);
-
-    auto C_style_strides = tensor_type.strides_from_shape(shape);
-
-    bool is_view = false;
-    for (size_t i = 0; i < strides.size(); ++i) {
-        if (!symbolic::eq(strides[i], C_style_strides[i])) {
-            is_view = true;
-            break;
-        }
-    }
-
-    if (is_view) {
-        std::string copy_name = builder.find_new_name(name + "_copy");
-        types::Pointer copy_type((types::Scalar(types::PrimitiveType::Void)));
-        builder.add_container(copy_name, copy_type);
-        symbolic::Expression num_elements = symbolic::one();
-        for (const auto& dim : shape) {
-            num_elements = symbolic::mul(num_elements, dim);
-        }
-        auto elem_size = types::get_type_size(types::Scalar(type));
-        auto copy_size = symbolic::mul(num_elements, elem_size);
-
-        // Allocate a C-order copy
-        auto& alloc_block = builder.add_block(parent, {}, DebugInfo());
-        auto& out_access = builder.add_access(alloc_block, copy_name);
-        auto& malloc_node = builder.add_library_node<stdlib::MallocNode>(alloc_block, DebugInfo(), copy_size);
-        builder.add_computational_memlet(
-            alloc_block, malloc_node, "_ret", out_access, {}, types::Pointer(types::Scalar(type))
-        );
-
-        // Build a loop nest over each dimension
-        structured_control_flow::Sequence* inner_scope = &parent;
-        std::vector<symbolic::Expression> loop_vars;
-        std::vector<symbolic::Expression> orig_accesses;
-        for (size_t i = 0; i < shape.size(); ++i) {
-            std::string indvar_str = builder.find_new_name(name + "_ci");
-            builder.add_container(indvar_str, types::Scalar(types::PrimitiveType::UInt64));
-            auto indvar = symbolic::symbol(indvar_str);
-            auto init = symbolic::zero();
-            auto update = symbolic::add(indvar, symbolic::one());
-            auto condition = symbolic::Lt(indvar, shape[i]);
-            auto& copy_map =
-                builder.add_map(*inner_scope, indvar, condition, init, update, ScheduleType_Sequential::create());
-            inner_scope = &copy_map.root();
-            loop_vars.push_back(indvar);
-        }
-
-        // Inside the innermost loop: copy one element
-        auto& copy_block = builder.add_block(*inner_scope);
-        auto& in_access_copy = builder.add_access(copy_block, name);
-        auto& out_access_copy = builder.add_access(copy_block, copy_name);
-        auto& tasklet = builder.add_tasklet(copy_block, data_flow::TaskletCode::assign, "_out", {"_in"});
-
-        // Read with original strides/offset
-        builder.add_computational_memlet(copy_block, in_access_copy, tasklet, "_in", loop_vars, tensor_type);
-        // Write with C-order strides (default strides, zero offset)
-        types::Tensor c_order_type(type, shape);
-        builder.add_computational_memlet(copy_block, tasklet, "_out", out_access_copy, loop_vars, c_order_type);
-
-        return copy_name;
-    } else {
-        return name;
-    }
-}
-
 void free_after_copy(
     const std::string& copy_name, builder::StructuredSDFGBuilder& builder, structured_control_flow::Sequence& parent
 ) {
@@ -343,11 +266,9 @@ bool MatMulNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     // Add new graph after the current block
     auto& new_sequence = builder.add_sequence_before(parent, block, transition.assignments(), block.debug_info());
 
-    auto copy_name_a =
-        copy_if_view(input_node_a.data(), builder, new_sequence, prim_type, shape_a_, strides_a_, offset_a_);
+    auto copy_name_a = input_node_a.data();
     strides_a_ = types::Tensor::strides_from_shape(shape_a_);
-    auto copy_name_b =
-        copy_if_view(input_node_b.data(), builder, new_sequence, prim_type, shape_b_, strides_b_, offset_b_);
+    auto copy_name_b = input_node_b.data();
     strides_b_ = types::Tensor::strides_from_shape(shape_b_);
 
     // Create maps for batch dimensions and M, N dimensions

@@ -70,7 +70,7 @@ bool LoopDistribute::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
         if (child_users.uses(container).empty()) {
             continue;
         }
-        if (dep.second == analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE) {
+        if (dep.second.type == analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE) {
             if (child_locals.find(container) != child_locals.end()) {
                 continue;
             }

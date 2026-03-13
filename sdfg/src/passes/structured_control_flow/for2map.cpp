@@ -66,7 +66,7 @@ bool For2MapPass::can_be_applied(
 
     // a. No true dependencies (RAW) between iterations
     for (auto& dep : dependencies) {
-        if (dep.second == analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE) {
+        if (dep.second.type == analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE) {
             return false;
         }
     }

@@ -1246,7 +1246,7 @@ TEST(LoopDependencyAnalysisTest, Last_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Sum_1D) {
@@ -1294,7 +1294,7 @@ TEST(LoopDependencyAnalysisTest, Sum_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Shift_1D) {
@@ -1340,7 +1340,7 @@ TEST(LoopDependencyAnalysisTest, Shift_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, PartialSum_1D) {
@@ -1387,7 +1387,7 @@ TEST(LoopDependencyAnalysisTest, PartialSum_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, LoopLocal_1D) {
@@ -1439,7 +1439,7 @@ TEST(LoopDependencyAnalysisTest, LoopLocal_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional) {
@@ -1491,7 +1491,7 @@ TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional_Incomplete) {
@@ -1540,7 +1540,7 @@ TEST(LoopDependencyAnalysisTest, LoopLocal_Conditional_Incomplete) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Store_1D) {
@@ -1866,7 +1866,7 @@ TEST(LoopDependencyAnalysisTest, Map_1D_Tiled) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("i"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("i").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 0);
 }
 
@@ -1936,8 +1936,8 @@ TEST(LoopDependencyAnalysisTest, Map_1D_Incomplete) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 2);
-    EXPECT_EQ(dependencies.at("tmp"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies.at("k"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("tmp").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("k").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, MapParameterized_1D) {
@@ -1998,7 +1998,7 @@ TEST(LoopDependencyAnalysisTest, MapParameterized_1D) {
     // Check
     // m == 0 -> all iterations access the same location
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Stencil_1D) {
@@ -2106,7 +2106,7 @@ TEST(LoopDependencyAnalysisTest, Gather_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("b"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("b").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Scatter_1D) {
@@ -2160,8 +2160,8 @@ TEST(LoopDependencyAnalysisTest, Scatter_1D) {
 
     // Check
     EXPECT_EQ(dependencies.size(), 2);
-    EXPECT_EQ(dependencies.at("b"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies.at("C"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("b").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("C").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, MapDeg2_1D) {
@@ -2265,7 +2265,7 @@ TEST(LoopDependencyAnalysisTest, Map_2D) {
     // Check
     auto& dependencies = analysis.dependencies(loop);
     EXPECT_EQ(dependencies.size(), 1);
-    EXPECT_EQ(dependencies.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 
     // Check loop 2
     auto& dependencies_2 = analysis.dependencies(loop_2);
@@ -2330,10 +2330,10 @@ TEST(LoopDependencyAnalysisTest, PartialSumInner_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 
     EXPECT_EQ(dependencies2.size(), 1);
-    EXPECT_EQ(dependencies2.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies2.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, PartialSumOuter_2D) {
@@ -2392,8 +2392,8 @@ TEST(LoopDependencyAnalysisTest, PartialSumOuter_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies1.at("B"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("B").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 
     EXPECT_EQ(dependencies2.size(), 0);
 }
@@ -2458,10 +2458,10 @@ TEST(LoopDependencyAnalysisTest, PartialSum_1D_Triangle) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 1);
-    EXPECT_EQ(dependencies2.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies2.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, Transpose_2D) {
@@ -2523,7 +2523,7 @@ TEST(LoopDependencyAnalysisTest, Transpose_2D) {
     // Check
     EXPECT_EQ(dependencies2.size(), 0);
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, TransposeTriangle_2D) {
@@ -2580,7 +2580,7 @@ TEST(LoopDependencyAnalysisTest, TransposeTriangle_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 0);
 }
 
@@ -2638,7 +2638,7 @@ TEST(LoopDependencyAnalysisTest, TransposeTriangleWithDiagonal_2D) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 1);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 0);
 }
 
@@ -2697,8 +2697,8 @@ TEST(LoopDependencyAnalysisTest, TransposeSquare_2D) {
     // Check
     EXPECT_EQ(dependencies2.size(), 0);
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("A"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
 }
 
 TEST(LoopDependencyAnalysisTest, ReductionWithLocalStorage) {
@@ -2808,8 +2808,244 @@ TEST(LoopDependencyAnalysisTest, ReductionWithLocalStorage) {
 
     // Check
     EXPECT_EQ(dependencies1.size(), 2);
-    EXPECT_EQ(dependencies1.at("local"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
-    EXPECT_EQ(dependencies1.at("j"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("local").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
+    EXPECT_EQ(dependencies1.at("j").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_WRITE_WRITE);
     EXPECT_EQ(dependencies2.size(), 1);
-    EXPECT_EQ(dependencies2.at("local"), analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+    EXPECT_EQ(dependencies2.at("local").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
+}
+
+TEST(LoopDependencyAnalysisTest, Cholesky_Full) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar sym_desc(types::PrimitiveType::Int64);
+    types::Scalar usym_desc(types::PrimitiveType::UInt64); // Unsigned type for inner loop indices
+    types::Scalar base_desc(types::PrimitiveType::Double);
+    types::Pointer ptr_desc(base_desc);
+    types::Pointer opaque_desc;
+
+    builder.add_container("A", opaque_desc, true);
+    builder.add_container("_s0", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+    builder.add_container("_i0", usym_desc); // UInt64 - causes signed/unsigned mismatch
+    builder.add_container("_i1", usym_desc); // UInt64 - causes signed/unsigned mismatch
+    builder.add_container("_dot_res_3", base_desc);
+    builder.add_container("_dot_res_5", base_desc);
+    builder.add_container("tmp_0", base_desc);
+    builder.add_container("_tmp_1", base_desc);
+    builder.add_container("tmp_5", base_desc);
+    builder.add_container("_tmp_6", base_desc);
+
+    auto sym_i = symbolic::symbol("i");
+    auto sym_s0 = symbolic::symbol("_s0");
+
+    // === Initial diagonal element (A[0]) computation ===
+
+    // Block: tmp_0 = A[0]
+    {
+        auto& block = builder.add_block(root);
+        auto& A_in = builder.add_access(block, "A");
+        auto& tmp_out = builder.add_access(block, "tmp_0");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, A_in, tasklet, "_in", {symbolic::integer(0)}, ptr_desc);
+        builder.add_computational_memlet(block, tasklet, "_out", tmp_out, {});
+    }
+
+    // Block: _tmp_1 = sqrt(tmp_0)
+    {
+        auto& block = builder.add_block(root);
+        auto& tmp_in = builder.add_access(block, "tmp_0");
+        auto& tmp_out = builder.add_access(block, "_tmp_1");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_neg, "_out", {"_in1"});
+        builder.add_computational_memlet(block, tmp_in, tasklet, "_in1", {});
+        builder.add_computational_memlet(block, tasklet, "_out", tmp_out, {});
+    }
+
+    // Block: A[0] = _tmp_1
+    {
+        auto& block = builder.add_block(root);
+        auto& tmp_in = builder.add_access(block, "_tmp_1");
+        auto& A_out = builder.add_access(block, "A");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, tmp_in, tasklet, "_in", {});
+        builder.add_computational_memlet(block, tasklet, "_out", A_out, {symbolic::integer(0)}, ptr_desc);
+    }
+
+    // Outer loop: for (i = 1; i < _s0; i++)
+    auto indvar_i = symbolic::symbol("i");
+    auto init_i = symbolic::integer(1);
+    auto condition_i = symbolic::Lt(indvar_i, symbolic::symbol("_s0"));
+    auto update_i = symbolic::add(indvar_i, symbolic::integer(1));
+
+    auto& loop_i = builder.add_for(root, indvar_i, condition_i, init_i, update_i);
+    auto& body_i = loop_i.root();
+
+    // Middle loop: for (j = 0; j < i; j++)
+    auto indvar_j = symbolic::symbol("j");
+    auto init_j = symbolic::integer(0);
+    auto condition_j = symbolic::Lt(indvar_j, indvar_i);
+    auto update_j = symbolic::add(indvar_j, symbolic::integer(1));
+
+    auto& loop_j = builder.add_for(body_i, indvar_j, condition_j, init_j, update_j);
+    auto& body_j = loop_j.root();
+
+    // Block: _dot_res_3 = 0.0
+    {
+        auto& block = builder.add_block(body_j);
+        auto& zero = builder.add_constant(block, "0.0", base_desc);
+        auto& out = builder.add_access(block, "_dot_res_3");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, zero, tasklet, "_in", {});
+        builder.add_computational_memlet(block, tasklet, "_out", out, {});
+    }
+
+    // Inner loop: for (_i0 = 0; _i0 < j; _i0++)
+    auto indvar_i0 = symbolic::symbol("_i0");
+    auto init_i0 = symbolic::integer(0);
+    auto condition_i0 = symbolic::Lt(indvar_i0, indvar_j);
+    auto update_i0 = symbolic::add(indvar_i0, symbolic::integer(1));
+
+    auto& loop_i0 = builder.add_for(body_j, indvar_i0, condition_i0, init_i0, update_i0);
+    auto& body_i0 = loop_i0.root();
+
+    // Inner body: _dot_res_3 = A[_i0 + i*_s0] * A[_i0 + j*_s0] + _dot_res_3 (FMA)
+    {
+        auto& block = builder.add_block(body_i0);
+        auto& A_in1 = builder.add_access(block, "A");
+        auto& A_in2 = builder.add_access(block, "A");
+        auto& dot_in = builder.add_access(block, "_dot_res_3");
+        auto& dot_out = builder.add_access(block, "_dot_res_3");
+
+        auto& fma_tasklet =
+            builder.add_tasklet(block, data_flow::TaskletCode::fp_fma, "__out", {"_in1", "_in2", "_in3"});
+        auto read_idx1 = symbolic::add(indvar_i0, symbolic::mul(sym_i, sym_s0));
+        auto read_idx2 = symbolic::add(indvar_i0, symbolic::mul(indvar_j, sym_s0));
+        builder.add_computational_memlet(block, A_in1, fma_tasklet, "_in1", {read_idx1}, ptr_desc);
+        builder.add_computational_memlet(block, A_in2, fma_tasklet, "_in2", {read_idx2}, ptr_desc);
+        builder.add_computational_memlet(block, dot_in, fma_tasklet, "_in3", {});
+        builder.add_computational_memlet(block, fma_tasklet, "__out", dot_out, {});
+    }
+
+    // Block: A[j + i*_s0] -= _dot_res_3
+    {
+        auto& block = builder.add_block(body_j);
+        auto& A_in = builder.add_access(block, "A");
+        auto& dot_in = builder.add_access(block, "_dot_res_3");
+        auto& A_out = builder.add_access(block, "A");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_sub, "_out", {"_in1", "_in2"});
+        auto idx = symbolic::add(indvar_j, symbolic::mul(sym_i, sym_s0));
+        builder.add_computational_memlet(block, A_in, tasklet, "_in1", {idx}, ptr_desc);
+        builder.add_computational_memlet(block, dot_in, tasklet, "_in2", {});
+        builder.add_computational_memlet(block, tasklet, "_out", A_out, {idx}, ptr_desc);
+    }
+
+    // Block: A[j + i*_s0] /= A[j + j*_s0]
+    {
+        auto& block = builder.add_block(body_j);
+        auto& A_in1 = builder.add_access(block, "A");
+        auto& A_in2 = builder.add_access(block, "A");
+        auto& A_out = builder.add_access(block, "A");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_div, "_out", {"_in1", "_in2"});
+        auto idx1 = symbolic::add(indvar_j, symbolic::mul(sym_i, sym_s0));
+        auto idx2 = symbolic::add(indvar_j, symbolic::mul(indvar_j, sym_s0));
+        builder.add_computational_memlet(block, A_in1, tasklet, "_in1", {idx1}, ptr_desc);
+        builder.add_computational_memlet(block, A_in2, tasklet, "_in2", {idx2}, ptr_desc);
+        builder.add_computational_memlet(block, tasklet, "_out", A_out, {idx1}, ptr_desc);
+    }
+
+    // === Diagonal element computation (after j-loop, still in body_i) ===
+
+    // Block: _dot_res_5 = 0.0
+    {
+        auto& block = builder.add_block(body_i);
+        auto& zero = builder.add_constant(block, "0.0", base_desc);
+        auto& out = builder.add_access(block, "_dot_res_5");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, zero, tasklet, "_in", {});
+        builder.add_computational_memlet(block, tasklet, "_out", out, {});
+    }
+
+    // Diagonal dot product loop: for (_i1 = 0; _i1 < i; _i1++)
+    auto indvar_i1 = symbolic::symbol("_i1");
+    auto init_i1 = symbolic::integer(0);
+    auto condition_i1 = symbolic::Lt(indvar_i1, indvar_i);
+    auto update_i1 = symbolic::add(indvar_i1, symbolic::integer(1));
+
+    auto& loop_i1 = builder.add_for(body_i, indvar_i1, condition_i1, init_i1, update_i1);
+    auto& body_i1 = loop_i1.root();
+
+    // Loop body: _dot_res_5 = A[_i1 + i*_s0] * A[_i1 + i*_s0] + _dot_res_5 (FMA)
+    {
+        auto& block = builder.add_block(body_i1);
+        auto& A_in1 = builder.add_access(block, "A");
+        auto& A_in2 = builder.add_access(block, "A");
+        auto& dot_in = builder.add_access(block, "_dot_res_5");
+        auto& dot_out = builder.add_access(block, "_dot_res_5");
+
+        auto& fma_tasklet =
+            builder.add_tasklet(block, data_flow::TaskletCode::fp_fma, "__out", {"_in1", "_in2", "_in3"});
+        auto read_idx = symbolic::add(indvar_i1, symbolic::mul(sym_i, sym_s0));
+        builder.add_computational_memlet(block, A_in1, fma_tasklet, "_in1", {read_idx}, ptr_desc);
+        builder.add_computational_memlet(block, A_in2, fma_tasklet, "_in2", {read_idx}, ptr_desc);
+        builder.add_computational_memlet(block, dot_in, fma_tasklet, "_in3", {});
+        builder.add_computational_memlet(block, fma_tasklet, "__out", dot_out, {});
+    }
+
+    // Block: A[i + i*_s0] -= _dot_res_5
+    {
+        auto& block = builder.add_block(body_i);
+        auto& A_in = builder.add_access(block, "A");
+        auto& dot_in = builder.add_access(block, "_dot_res_5");
+        auto& A_out = builder.add_access(block, "A");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_sub, "_out", {"_in1", "_in2"});
+        auto diag_idx = symbolic::add(sym_i, symbolic::mul(sym_i, sym_s0));
+        builder.add_computational_memlet(block, A_in, tasklet, "_in1", {diag_idx}, ptr_desc);
+        builder.add_computational_memlet(block, dot_in, tasklet, "_in2", {});
+        builder.add_computational_memlet(block, tasklet, "_out", A_out, {diag_idx}, ptr_desc);
+    }
+
+    // Block: tmp_5 = A[i + i*_s0]
+    {
+        auto& block = builder.add_block(body_i);
+        auto& A_in = builder.add_access(block, "A");
+        auto& tmp_out = builder.add_access(block, "tmp_5");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        auto diag_idx = symbolic::add(sym_i, symbolic::mul(sym_i, sym_s0));
+        builder.add_computational_memlet(block, A_in, tasklet, "_in", {diag_idx}, ptr_desc);
+        builder.add_computational_memlet(block, tasklet, "_out", tmp_out, {});
+    }
+
+    // Block: _tmp_6 = sqrt(tmp_5) (using fp_neg as placeholder for sqrt)
+    {
+        auto& block = builder.add_block(body_i);
+        auto& tmp_in = builder.add_access(block, "tmp_5");
+        auto& tmp_out = builder.add_access(block, "_tmp_6");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_neg, "_out", {"_in1"});
+        builder.add_computational_memlet(block, tmp_in, tasklet, "_in1", {});
+        builder.add_computational_memlet(block, tasklet, "_out", tmp_out, {});
+    }
+
+    // Block: A[i + i*_s0] = _tmp_6
+    {
+        auto& block = builder.add_block(body_i);
+        auto& tmp_in = builder.add_access(block, "_tmp_6");
+        auto& A_out = builder.add_access(block, "A");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        auto diag_idx = symbolic::add(sym_i, symbolic::mul(sym_i, sym_s0));
+        builder.add_computational_memlet(block, tmp_in, tasklet, "_in", {});
+        builder.add_computational_memlet(block, tasklet, "_out", A_out, {diag_idx}, ptr_desc);
+    }
+
+    // Analysis
+    analysis::AnalysisManager analysis_manager(sdfg);
+    analysis::DataDependencyAnalysis analysis(sdfg, true);
+    analysis.run(analysis_manager);
+    auto& dependencies_j = analysis.dependencies(loop_j);
+
+    // j-loop: A has RAW dependency (inner loop reads A[_i0+i*_s0], body writes A[j+i*_s0])
+    EXPECT_NE(dependencies_j.find("A"), dependencies_j.end());
+    EXPECT_EQ(dependencies_j.at("A").type, analysis::LoopCarriedDependency::LOOP_CARRIED_DEPENDENCY_READ_WRITE);
 }
