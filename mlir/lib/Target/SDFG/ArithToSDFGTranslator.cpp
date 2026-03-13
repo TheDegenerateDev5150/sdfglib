@@ -692,7 +692,9 @@ LogicalResult translateArithOp(SDFGTranslator& translator, Operation* op) {
         .Case<arith::NegFOp>([&](arith::NegFOp negf_op) { return translateArithNegFOp(translator, &negf_op); })
         .Case<arith::SelectOp>([&](arith::SelectOp select_op) { return translateArithSelectOp(translator, &select_op); }
         )
-        .Default([&](Operation* op) { return op->emitError("Unknown operation from arith dialect encountered"); });
+        .Default([&](Operation* op) {
+            return op->emitError("Unknown operation from arith dialect encountered: ") << op->getName();
+        });
 }
 
 } // namespace sdfg

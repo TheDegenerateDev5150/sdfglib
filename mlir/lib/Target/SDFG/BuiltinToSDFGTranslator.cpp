@@ -22,7 +22,7 @@ LogicalResult translateBuiltinModuleOp(SDFGTranslator& translator, ModuleOp* mod
 LogicalResult translateBuiltinOp(SDFGTranslator& translator, Operation* op) {
     return llvm::TypeSwitch<Operation*, LogicalResult>(op)
         .Case<ModuleOp>([&](ModuleOp module_op) { return translateBuiltinModuleOp(translator, &module_op); })
-        .Default([&](Operation* op) { return op->emitError("A module op is required here"); });
+        .Default([&](Operation* op) { return op->emitError("A module op is required here, got: ") << op->getName(); });
 }
 
 } // namespace sdfg

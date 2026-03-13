@@ -473,7 +473,9 @@ LogicalResult translateMathOp(SDFGTranslator& translator, Operation* op) {
         .Case<math::TruncOp>([&](math::TruncOp trunc_op) {
             return translateMathUnaryOp<math::TruncOp, ::sdfg::math::cmath::CMathFunction::trunc>(translator, &trunc_op);
         })
-        .Default([&](Operation* op) { return op->emitError("Unknown operation from math dialect encountered"); });
+        .Default([&](Operation* op) {
+            return op->emitError("Unknown operation from math dialect encountered: ") << op->getName();
+        });
 }
 
 } // namespace sdfg

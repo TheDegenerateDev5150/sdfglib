@@ -1,5 +1,5 @@
 #include "mlir/Target/SDFG/SDFGTranslator.h"
-
+#include <cmath>
 #include <cstdint>
 #include <llvm/ADT/TypeSwitch.h>
 #include <memory>
@@ -274,7 +274,16 @@ std::unique_ptr<::sdfg::types::IType> SDFGTranslator::convertType(const Type mli
 
 std::string SDFGTranslator::convertTypedAttr(const TypedAttr attr) {
     return llvm::TypeSwitch<TypedAttr, std::string>(attr)
-        .Case<FloatAttr>([](FloatAttr attr) { return std::to_string(attr.getValue().convertToDouble()); })
+        .Case<FloatAttr>([](FloatAttr attr) {
+            double val = attr.getValue().convertToDouble();
+            if (std::isinf(val)) {
+                return val < 0 ? std::string("-INFINITY") : std::string("INFINITY");
+            }
+            if (std::isnan(val)) {
+                return std::string("NAN");
+            }
+            return std::to_string(val);
+        })
         .Case<IntegerAttr>([](IntegerAttr attr) { return std::to_string(attr.getInt()); })
         .Default([](TypedAttr attr) { return ""; });
 }
