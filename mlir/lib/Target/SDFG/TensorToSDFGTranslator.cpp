@@ -1,10 +1,12 @@
 #include "mlir/Target/SDFG/TensorToSDFGTranslator.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <llvm-19/llvm/Support/Casting.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/Support/LogicalResult.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -19,6 +21,7 @@
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/types/scalar.h"
+#include "sdfg/types/tensor.h"
 
 namespace mlir {
 namespace sdfg {
@@ -60,7 +63,7 @@ LogicalResult translateTensorCollapseOp(SDFGTranslator& translator, tensor::Coll
     translator.add_reference(in_container, out_container);
 
     auto& in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
-    auto in_element_type = translator.convertType(input.getType());
+    auto in_element_type = translator.convertType(input_tensor_type.getElementType());
     auto& in_scalar_type = static_cast<::sdfg::types::Scalar&>(*in_element_type);
     in_container = translator.store_in_c_order(in_container, in_tensor_info, in_scalar_type);
     in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
@@ -72,6 +75,103 @@ LogicalResult translateTensorCollapseOp(SDFGTranslator& translator, tensor::Coll
 
     auto out_tensor_info = in_tensor_info.reshape(new_shape);
     translator.tensor_info_map().insert({out_container, out_tensor_info});
+
+    return success();
+}
+
+LogicalResult translateTensorConcatOp(SDFGTranslator& translator, tensor::ConcatOp* concat_op) {
+    OperandRange inputs = concat_op->getInputs();
+    std::vector<std::string> inputs_container;
+    inputs_container.reserve(inputs.size());
+    std::vector<std::unique_ptr<::sdfg::types::Tensor>> inputs_sdfg_tensor;
+    inputs_sdfg_tensor.reserve(inputs.size());
+    for (Value input : inputs) {
+        auto input_container = translator.get_or_create_container(input);
+        inputs_container.push_back(input_container);
+        auto input_tensor_type = llvm::dyn_cast<TensorType>(input.getType());
+        auto& input_tensor_info = translator.get_or_create_tensor_info(input_container, input_tensor_type);
+        auto input_element_type = translator.convertType(input_tensor_type.getElementType());
+        auto& input_scalar_type = static_cast<::sdfg::types::Scalar&>(*input_element_type);
+        auto input_sdfg_tensor = input_tensor_info.get_sdfg_tensor(input_scalar_type);
+        inputs_sdfg_tensor.push_back(std::move(input_sdfg_tensor));
+    }
+
+    Value result = concat_op->getResult();
+    auto result_container = translator.get_or_create_container(result);
+    auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
+    auto& result_tensor_info = translator.get_or_create_tensor_info(result_container, result_tensor_type);
+    auto result_element_type = translator.convertType(result_tensor_type.getElementType());
+    auto result_scalar_type = static_cast<::sdfg::types::Scalar&>(*result_element_type);
+    auto result_sdfg_tensor = result_tensor_info.get_sdfg_tensor(result_scalar_type);
+
+    uint64_t dim = concat_op->getDim();
+    if (dim >= result_tensor_info.shape().size()) {
+        return concat_op->emitOpError("has dimension ")
+               << dim << " but maximum dimension of result is " << result_tensor_info.shape().size();
+    }
+
+    // Allocation for concatenated container
+    uint64_t size = 1;
+    for (int64_t dim : result_tensor_info.shape()) {
+        size *= dim;
+    }
+    translator.handle_malloc(
+        result_container,
+        ::sdfg::symbolic::mul(::sdfg::symbolic::integer(size), ::sdfg::symbolic::size_of_type(result_scalar_type))
+    );
+
+    // Create maps
+    auto& builder = translator.builder();
+    ::sdfg::structured_control_flow::Sequence* current_seq = &translator.insertion_point();
+    std::vector<std::string> indvars;
+    ::sdfg::data_flow::Subset subset;
+    for (size_t i = 0; i < result_tensor_info.shape().size(); i++) {
+        int64_t dim = result_tensor_info.shape().at(i);
+        auto indvar_container = builder.find_new_name("_i");
+        builder.add_container(indvar_container, ::sdfg::types::Scalar(sdfg_index_type));
+        indvars.push_back(indvar_container);
+        subset.push_back(::sdfg::symbolic::symbol(indvar_container));
+        auto indvar = ::sdfg::symbolic::symbol(indvar_container);
+        auto bound = ::sdfg::symbolic::integer(dim);
+        auto condition = ::sdfg::symbolic::Lt(indvar, bound);
+        auto init = ::sdfg::symbolic::zero();
+        auto update = ::sdfg::symbolic::add(indvar, ::sdfg::symbolic::one());
+
+        auto& map = builder.add_map(
+            *current_seq,
+            indvar,
+            condition,
+            init,
+            update,
+            ::sdfg::structured_control_flow::ScheduleType_Sequential::create()
+        );
+        current_seq = &map.root();
+    }
+
+    // Create if/else
+    auto& if_else = builder.add_if_else(*current_seq);
+    auto dim_indvar = subset.at(dim);
+
+    // Create conditional copy for every input
+    ::sdfg::symbolic::Expression offset = ::sdfg::symbolic::zero();
+    for (size_t i = 0; i < inputs.size(); i++) {
+        auto new_offset = ::sdfg::symbolic::add(offset, inputs_sdfg_tensor.at(i)->shape().at(dim));
+        auto condition =
+            ::sdfg::symbolic::And(::sdfg::symbolic::Ge(dim_indvar, offset), ::sdfg::symbolic::Lt(dim_indvar, new_offset));
+        auto& sequence = builder.add_case(if_else, condition);
+
+        ::sdfg::data_flow::Subset offset_subset(subset);
+        offset_subset[dim] = ::sdfg::symbolic::sub(dim_indvar, offset);
+
+        auto& block = builder.add_block(sequence);
+        auto& input_access = builder.add_access(block, inputs_container.at(i));
+        auto& result_access = builder.add_access(block, result_container);
+        auto& tasklet = builder.add_tasklet(block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, input_access, tasklet, "_in", offset_subset, *inputs_sdfg_tensor.at(i));
+        builder.add_computational_memlet(block, tasklet, "_out", result_access, subset, *result_sdfg_tensor);
+
+        offset = new_offset;
+    }
 
     return success();
 }
@@ -92,7 +192,7 @@ LogicalResult translateTensorExpandOp(SDFGTranslator& translator, tensor::Expand
     translator.add_reference(in_container, out_container);
 
     auto& in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
-    auto in_element_type = translator.convertType(input.getType());
+    auto in_element_type = translator.convertType(input_tensor_type.getElementType());
     auto& in_scalar_type = static_cast<::sdfg::types::Scalar&>(*in_element_type);
     in_container = translator.store_in_c_order(in_container, in_tensor_info, in_scalar_type);
     in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
@@ -113,7 +213,7 @@ LogicalResult translateTensorExtractOp(SDFGTranslator& translator, tensor::Extra
     auto tensor_container = translator.get_or_create_container(tensor);
     auto tensor_type = llvm::dyn_cast<TensorType>(tensor.getType());
     auto& tensor_info = translator.get_or_create_tensor_info(tensor_container, tensor_type);
-    auto element_type = translator.convertType(tensor.getType());
+    auto element_type = translator.convertType(tensor_type.getElementType());
     auto sdfg_tensor = tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
 
     OperandRange indices = extract_op->getIndices();
@@ -301,10 +401,13 @@ LogicalResult translateTensorPadOp(SDFGTranslator& translator, tensor::PadOp* pa
 
 LogicalResult translateTensorOp(SDFGTranslator& translator, Operation* op) {
     return llvm::TypeSwitch<Operation*, LogicalResult>(op)
-        .Case<tensor::EmptyOp>([&](tensor::EmptyOp empty_op) { return translateTensorEmptyOp(translator, &empty_op); })
         .Case<tensor::CollapseShapeOp>([&](tensor::CollapseShapeOp collapse_op) {
             return translateTensorCollapseOp(translator, &collapse_op);
         })
+        .Case<tensor::ConcatOp>([&](tensor::ConcatOp concat_op) {
+            return translateTensorConcatOp(translator, &concat_op);
+        })
+        .Case<tensor::EmptyOp>([&](tensor::EmptyOp empty_op) { return translateTensorEmptyOp(translator, &empty_op); })
         .Case<tensor::ExpandShapeOp>([&](tensor::ExpandShapeOp expand_op) {
             return translateTensorExpandOp(translator, &expand_op);
         })
