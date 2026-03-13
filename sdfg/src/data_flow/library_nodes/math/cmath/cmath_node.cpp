@@ -238,7 +238,17 @@ void CMathNode::validate(const Function& function) const {
     }
     for (const auto& iedge : dataflow.in_edges(*this)) {
         auto inferred_type = types::infer_type(function, iedge.base_type(), iedge.subset());
-        if (inferred_type->type_id() != types::TypeID::Scalar) {
+        auto type_id = inferred_type->type_id();
+        bool type_ok = false;
+        if (type_id == types::TypeID::Scalar) {
+            type_ok = true;
+        } else if (type_id == types::TypeID::Tensor) {
+            auto& tensor = dynamic_cast<types::Tensor&>(*inferred_type);
+            if (tensor.is_scalar()) {
+                type_ok = true;
+            }
+        }
+        if (!type_ok) {
             throw InvalidSDFGException("CMathNode: Input type must be scalar");
         }
         auto& scalar_type = static_cast<const types::Scalar&>(*inferred_type);

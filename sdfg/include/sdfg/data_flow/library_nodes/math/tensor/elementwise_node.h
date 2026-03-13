@@ -60,8 +60,10 @@
 
 #include "sdfg/codegen/dispatchers/block_dispatcher.h"
 #include "sdfg/serializer/json_serializer.h"
+#include "sdfg/structured_control_flow/block.h"
 
 namespace sdfg {
+
 namespace math {
 namespace tensor {
 
@@ -265,6 +267,31 @@ public:
      * @return True if expansion succeeded
      */
     bool expand(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
+
+    /**
+     * @brief Create an input memlet for a binary operation
+     *
+     * Handles both regular data containers and constants, as well as scalar
+     * vs tensor inputs. This is a common pattern shared by multiple binary
+     * elementwise operations (add, sub, mul, div, etc.).
+     *
+     * @param builder SDFG builder
+     * @param input_conn Input connector name on the tasklet (e.g. "_in1", "_in2")
+     * @param input_name Input data name
+     * @param input_type Input tensor type
+     * @param subset Data subset for the operation
+     * @param code_block Block to add the memlet to
+     * @param tasklet Tasklet to connect the input to
+     */
+    static void create_input_memlet(
+        builder::StructuredSDFGBuilder& builder,
+        const std::string& input_conn,
+        const std::string& input_name,
+        const types::Tensor& input_type,
+        const data_flow::Subset& subset,
+        structured_control_flow::Block& code_block,
+        data_flow::CodeNode& code_node
+    );
 
     /**
      * @brief Generate the actual operation code

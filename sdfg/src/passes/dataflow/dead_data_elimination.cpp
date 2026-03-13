@@ -85,7 +85,11 @@ private:
 };
 
 void MemoryOwnershipAnalysis::OwnedArea::remove_from(builder::StructuredSDFGBuilder& builder) const {
-    builder.clear_node(*this->producer_block, dynamic_cast<data_flow::AccessNode&>(this->producer->dst()));
+    auto& malloc_write = this->producer->dst();
+    auto& malloc_node = this->producer->src();
+    builder.clear_node(
+        *this->producer_block, dynamic_cast<data_flow::AccessNode&>(malloc_write), {&malloc_write, &malloc_node}
+    );
 
     for (auto& free_cluster : this->free_clusters) {
         auto& memlet = *free_cluster.out;

@@ -24,38 +24,36 @@ def kernel(path):
 def test_floyd_warshall(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 6, "Malloc": 2, "SEQUENTIAL": 6, "FOR": 7}
+            verification={"MAP": 4, "Malloc": 1, "SEQUENTIAL": 4, "FOR": 5}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 1,
-                "MAP": 6,
-                "SEQUENTIAL": 5,
-                "FOR": 7,
-                "Malloc": 2,
+                "HIGHWAY": 2,
+                "MAP": 4,
+                "SEQUENTIAL": 2,
+                "FOR": 5,
+                "Malloc": 1,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 1,
-                "CPU_PARALLEL": 3,
-                "MAP": 6,
-                "SEQUENTIAL": 2,
-                "FOR": 7,
-                "Malloc": 2,
+                "HIGHWAY": 2,
+                "CPU_PARALLEL": 2,
+                "MAP": 4,
+                "FOR": 5,
+                "Malloc": 1,
             }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 2,
-                "MAP": 6,
-                "CUDAOffloading": 4,
-                "SEQUENTIAL": 4,
-                "FOR": 7,
-                "Malloc": 2,
+                "CUDA": 4,
+                "MAP": 4,
+                "CUDAOffloading": 7,
+                "FOR": 5,
+                "Malloc": 1,
             }
         )
     else:  # rocm

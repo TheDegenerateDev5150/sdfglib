@@ -1392,7 +1392,7 @@ data_flow::Memlet& StructuredSDFGBuilder::add_memlet(
 data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
     structured_control_flow::Block& block,
     data_flow::AccessNode& src,
-    data_flow::Tasklet& dst,
+    data_flow::CodeNode& dst,
     const std::string& dst_conn,
     const data_flow::Subset& subset,
     const types::IType& base_type,
@@ -1403,7 +1403,7 @@ data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
 
 data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
     structured_control_flow::Block& block,
-    data_flow::Tasklet& src,
+    data_flow::CodeNode& src,
     const std::string& src_conn,
     data_flow::AccessNode& dst,
     const data_flow::Subset& subset,
@@ -1448,30 +1448,6 @@ data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
         throw InvalidSDFGException("Computational memlet must have a scalar type");
     }
     return this->add_memlet(block, src, src_conn, dst, "void", subset, dst_type, debug_info);
-};
-
-data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
-    structured_control_flow::Block& block,
-    data_flow::AccessNode& src,
-    data_flow::LibraryNode& dst,
-    const std::string& dst_conn,
-    const data_flow::Subset& subset,
-    const types::IType& base_type,
-    const DebugInfo& debug_info
-) {
-    return this->add_memlet(block, src, "void", dst, dst_conn, subset, base_type, debug_info);
-};
-
-data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
-    structured_control_flow::Block& block,
-    data_flow::LibraryNode& src,
-    const std::string& src_conn,
-    data_flow::AccessNode& dst,
-    const data_flow::Subset& subset,
-    const types::IType& base_type,
-    const DebugInfo& debug_info
-) {
-    return this->add_memlet(block, src, src_conn, dst, "void", subset, base_type, debug_info);
 };
 
 data_flow::Memlet& StructuredSDFGBuilder::add_reference_memlet(
