@@ -190,7 +190,7 @@ LogicalResult translateTensorPadOp(SDFGTranslator& translator, tensor::PadOp* pa
                 And(copy_condition,
                     ::sdfg::symbolic::
                         And(::sdfg::symbolic::Ge(indvar, low.at(i)),
-                            ::sdfg::symbolic::Le(indvar, ::sdfg::symbolic::sub(bound, high.at(i)))));
+                            ::sdfg::symbolic::Lt(indvar, ::sdfg::symbolic::sub(bound, high.at(i)))));
         }
 
         auto& map = builder.add_map(
