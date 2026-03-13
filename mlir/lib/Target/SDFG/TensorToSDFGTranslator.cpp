@@ -308,6 +308,10 @@ LogicalResult translateTensorOp(SDFGTranslator& translator, Operation* op) {
         .Case<tensor::ExpandShapeOp>([&](tensor::ExpandShapeOp expand_op) {
             return translateTensorExpandOp(translator, &expand_op);
         })
+        .Case<tensor::ExtractOp>([&](tensor::ExtractOp extract_op) {
+            return translateTensorExtractOp(translator, &extract_op);
+        })
+        .Case<tensor::PadOp>([&](tensor::PadOp pad_op) { return translateTensorPadOp(translator, &pad_op); })
         .Default([&](Operation* op) {
             return op->emitError("Unknown operation from tensor dialect encountered: ") << op->getName();
         });
