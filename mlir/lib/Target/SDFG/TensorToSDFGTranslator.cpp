@@ -59,6 +59,10 @@ LogicalResult translateTensorCollapseOp(SDFGTranslator& translator, tensor::Coll
     translator.add_reference(in_container, out_container);
 
     auto& in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
+    auto in_element_type = translator.convertType(input.getType());
+    auto& in_scalar_type = static_cast<::sdfg::types::Scalar&>(*in_element_type);
+    in_container = translator.store_in_c_order(in_container, in_tensor_info, in_scalar_type);
+    in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
 
     auto new_shape = result_tensor_type.getShape();
     if (!in_tensor_info.is_reshape_valid(new_shape)) {
@@ -87,6 +91,10 @@ LogicalResult translateTensorExpandOp(SDFGTranslator& translator, tensor::Expand
     translator.add_reference(in_container, out_container);
 
     auto& in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
+    auto in_element_type = translator.convertType(input.getType());
+    auto& in_scalar_type = static_cast<::sdfg::types::Scalar&>(*in_element_type);
+    in_container = translator.store_in_c_order(in_container, in_tensor_info, in_scalar_type);
+    in_tensor_info = translator.get_or_create_tensor_info(in_container, input_tensor_type);
 
     auto new_shape = result_tensor_type.getShape();
     if (!in_tensor_info.is_reshape_valid(new_shape)) {
@@ -137,9 +145,9 @@ LogicalResult translateTensorPadOp(SDFGTranslator& translator, tensor::PadOp* pa
     auto result_container = translator.get_or_create_container(result);
 
     auto source_tensor_type = llvm::dyn_cast<TensorType>(source.getType());
-    auto source_tensor_info = translator.get_or_create_tensor_info(source_container, source_tensor_type);
+    auto& source_tensor_info = translator.get_or_create_tensor_info(source_container, source_tensor_type);
     auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
-    auto result_tensor_info = translator.get_or_create_tensor_info(result_container, result_tensor_type);
+    auto& result_tensor_info = translator.get_or_create_tensor_info(result_container, result_tensor_type);
 
     auto source_element_type = translator.convertType(source_tensor_type.getElementType());
     auto source_sdfg_tensor =
