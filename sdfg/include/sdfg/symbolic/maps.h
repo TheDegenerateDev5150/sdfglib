@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "sdfg/symbolic/assumptions.h"
 #include "sdfg/symbolic/symbolic.h"
@@ -25,6 +27,20 @@
 namespace sdfg {
 namespace symbolic {
 namespace maps {
+
+/**
+ * @brief Represents the set of dependence distance vectors between two access patterns.
+ *
+ * When two memory accesses touch overlapping cells at different iterations,
+ * this struct captures the full set of iteration-distance vectors as an ISL set string.
+ * The dimensions of the delta set correspond to the non-constant symbols
+ * (loop induction variables) in the order listed in `dimensions`.
+ */
+struct DependenceDeltas {
+    bool empty; ///< True if no cross-iteration dependence exists
+    std::string deltas_str; ///< ISL set string representing the delta set (empty string if no dependence)
+    std::vector<std::string> dimensions; ///< Dimension names in order, matching the ISL set dimensions
+};
 
 /**
  * @brief Checks if an expression is monotonic with respect to a symbol
@@ -64,6 +80,25 @@ bool is_monotonic(const Expression expr, const Symbol sym, const Assumptions& as
  * @endcode
  */
 bool intersects(
+    const MultiExpression& expr1,
+    const MultiExpression& expr2,
+    const Symbol indvar,
+    const Assumptions& assums1,
+    const Assumptions& assums2
+);
+
+/**
+ * @brief Computes the dependence distance delta set between two access patterns.
+ *
+ * Returns a DependenceDeltas struct containing the full ISL delta set
+ * representing all possible iteration-distance vectors between aliasing
+ * pairs of the two expressions. The dimensions correspond to all
+ * non-constant symbols (induction variables).
+ *
+ * If the accesses are provably disjoint (via monotonicity or ISL analysis),
+ * returns an empty delta set.
+ */
+DependenceDeltas dependence_deltas(
     const MultiExpression& expr1,
     const MultiExpression& expr2,
     const Symbol indvar,
