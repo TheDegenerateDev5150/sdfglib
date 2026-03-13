@@ -27,6 +27,7 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/fill_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/pooling_node.h"
 #include "sdfg/data_flow/tasklet.h"
 #include "sdfg/element.h"
 #include "sdfg/structured_control_flow/map.h"
@@ -352,6 +353,9 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
     return success();
 }
 
+template<typename PoolOp>
+LogicalResult translateLinalgPoolingNchwOp(SDFGTranslator& translator, PoolOp* op, ::sdfg::math::tensor::PoolingMode mode);
+
 LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
     return llvm::TypeSwitch<Operation*, LogicalResult>(op)
         .Case<linalg::AddOp>([&](linalg::AddOp add_op) {
@@ -460,7 +464,15 @@ LogicalResult translateLinalgOp(SDFGTranslator& translator, Operation* op) {
         .Case<linalg::DepthwiseConv2DNchwChwOp>([&](linalg::DepthwiseConv2DNchwChwOp conv_op) {
             return translateLinalgDepthwiseConv2DNchwChwOp(translator, &conv_op);
         })
-        .Default([&](Operation* op) { return op->emitError("Unknown operation from linalg dialect encountered"); });
+        .Case<linalg::PoolingNchwMaxOp>([&](linalg::PoolingNchwMaxOp pool_op) {
+            return translateLinalgPoolingNchwOp(translator, &pool_op, ::sdfg::math::tensor::PoolingMode::Max);
+        })
+        .Case<linalg::PoolingNchwSumOp>([&](linalg::PoolingNchwSumOp pool_op) {
+            return translateLinalgPoolingNchwOp(translator, &pool_op, ::sdfg::math::tensor::PoolingMode::Sum);
+        })
+        .Default([&](Operation* op) {
+            return op->emitError("Unknown operation from linalg dialect encountered: ") << op->getName();
+        });
 }
 
 LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* op) {
@@ -1066,6 +1078,112 @@ LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg
         translator.builder().add_computational_memlet(block, b_access, libnode, "B", {}, bias_tensor_type);
     }
 
+    translator.builder().add_computational_memlet(block, libnode, "Y", y_access, {}, output_tensor_type);
+
+    return success();
+}
+
+template<typename PoolOp>
+LogicalResult translateLinalgPoolingNchwOp(SDFGTranslator& translator, PoolOp* op, ::sdfg::math::tensor::PoolingMode mode) {
+    auto& sequence = translator.insertion_point();
+
+    // Pooling ops have inputs[0] = data, inputs[1] = window (fake tensor defining kernel shape)
+    auto input = op->getInputs()[0]; // X: [N, C, H, W]
+    auto window = op->getInputs()[1]; // window tensor defining kernel shape
+    auto output = op->getOutputs()[0];
+    auto result = op->getResult(0); // Y: [N, C, H_out, W_out]
+
+    auto output_container = translator.get_or_create_container(output);
+    auto result_container = translator.get_or_create_container(result);
+    translator.add_reference(output_container, result_container);
+
+    // Get tensor types
+    auto input_type = dyn_cast_or_null<RankedTensorType>(input.getType());
+    auto window_type = dyn_cast_or_null<RankedTensorType>(window.getType());
+    auto result_type = dyn_cast_or_null<RankedTensorType>(result.getType());
+    if (!input_type || !window_type || !result_type) {
+        return op->emitError("Only ranked tensor types are supported for pooling");
+    }
+    if (input_type.getRank() != 4 || result_type.getRank() != 4) {
+        return op->emitError("Only 4D (NCHW) pooling is supported");
+    }
+
+    // Get containers
+    auto in_container = translator.get_or_create_container(input);
+    auto out_container = translator.get_or_create_container(result);
+
+    // Get element type
+    auto element_type = translator.convertType(input_type.getElementType());
+    auto scalar_type = static_cast<::sdfg::types::Scalar&>(*element_type);
+
+    // Ensure input is in C order
+    {
+        auto& tensor_info_in = translator.get_or_create_tensor_info(in_container, input_type);
+        in_container = translator.store_in_c_order(in_container, tensor_info_in, scalar_type);
+    }
+
+    auto& final_info_in = translator.get_or_create_tensor_info(in_container, input_type);
+    auto& tensor_info_out = translator.get_or_create_tensor_info(out_container, result_type);
+
+    if (final_info_in.offset() != 0 || tensor_info_out.offset() != 0) {
+        return op->emitError("Only tensors with 0 offset are supported for pooling");
+    }
+
+    // Input shape [N, C, H, W]
+    std::vector<::sdfg::symbolic::Expression> shape;
+    for (auto entry : final_info_in.shape()) {
+        shape.push_back(::sdfg::symbolic::integer(entry));
+    }
+
+    // Kernel shape from window tensor (spatial dims only: window is [kH, kW])
+    std::vector<::sdfg::symbolic::Expression> kernel_shape;
+    for (int64_t i = 0; i < window_type.getRank(); ++i) {
+        kernel_shape.push_back(::sdfg::symbolic::integer(window_type.getShape()[i]));
+    }
+
+    // Strides
+    std::vector<::sdfg::symbolic::Expression> strides;
+    for (int64_t s : op->getStrides().template getValues<int64_t>()) {
+        strides.push_back(::sdfg::symbolic::integer(s));
+    }
+
+    // No padding
+    std::vector<::sdfg::symbolic::Expression> pads = {
+        ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero(), ::sdfg::symbolic::zero()
+    };
+
+    // Dilations
+    std::vector<::sdfg::symbolic::Expression> dilations;
+    for (int64_t d : op->getDilations().template getValues<int64_t>()) {
+        dilations.push_back(::sdfg::symbolic::integer(d));
+    }
+
+    // Create block and PoolingNode
+    auto& block = translator.builder().add_block(sequence);
+    auto& libnode = translator.builder().add_library_node<::sdfg::math::tensor::PoolingNode>(
+        block, ::sdfg::DebugInfo(), mode, shape, kernel_shape, strides, pads, dilations
+    );
+
+    // Build tensor types for memlets
+    auto primitive = scalar_type.primitive_type();
+
+    ::sdfg::symbolic::MultiExpression shape_in;
+    for (auto entry : final_info_in.shape()) {
+        shape_in.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor input_tensor_type(primitive, shape_in);
+
+    ::sdfg::symbolic::MultiExpression shape_out;
+    for (auto entry : tensor_info_out.shape()) {
+        shape_out.push_back(::sdfg::symbolic::integer(entry));
+    }
+    ::sdfg::types::Tensor output_tensor_type(primitive, shape_out);
+
+    // Access nodes and memlets
+    auto& x_access = translator.builder().add_access(block, in_container);
+    auto& y_access = translator.builder().add_access(block, out_container);
+
+    translator.builder().add_computational_memlet(block, x_access, libnode, "X", {}, input_tensor_type);
     translator.builder().add_computational_memlet(block, libnode, "Y", y_access, {}, output_tensor_type);
 
     return success();

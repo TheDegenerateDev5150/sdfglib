@@ -99,7 +99,9 @@ LogicalResult translateTensorOp(SDFGTranslator& translator, Operation* op) {
         .Case<tensor::ExpandShapeOp>([&](tensor::ExpandShapeOp expand_op) {
             return translateTensorExpandOp(translator, &expand_op);
         })
-        .Default([&](Operation* op) { return op->emitError("Unknown operation from tensor dialect encountered"); });
+        .Default([&](Operation* op) {
+            return op->emitError("Unknown operation from tensor dialect encountered: ") << op->getName();
+        });
 }
 
 } // namespace sdfg

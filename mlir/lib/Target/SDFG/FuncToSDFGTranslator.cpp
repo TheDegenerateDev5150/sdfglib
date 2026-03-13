@@ -85,7 +85,9 @@ LogicalResult translateFuncOp(SDFGTranslator& translator, Operation* op) {
     return llvm::TypeSwitch<Operation*, LogicalResult>(op)
         .Case<func::FuncOp>([&](func::FuncOp func_op) { return translateFuncFuncOp(translator, &func_op); })
         .Case<func::ReturnOp>([&](func::ReturnOp return_op) { return translateFuncReturnOp(translator, &return_op); })
-        .Default([&](Operation* op) { return op->emitError("Unknown operation from func dialect encountered"); });
+        .Default([&](Operation* op) {
+            return op->emitError("Unknown operation from func dialect encountered: ") << op->getName();
+        });
 }
 
 } // namespace sdfg

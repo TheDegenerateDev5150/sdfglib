@@ -36,7 +36,9 @@ LogicalResult translateCfAssertOp(SDFGTranslator& translator, cf::AssertOp* asse
 LogicalResult translateCfOp(SDFGTranslator& translator, Operation* op) {
     return llvm::TypeSwitch<Operation*, LogicalResult>(op)
         .Case<cf::AssertOp>([&](cf::AssertOp assert_op) { return translateCfAssertOp(translator, &assert_op); })
-        .Default([](Operation* op) { return op->emitOpError("Unknown operation from cf dialect encountered"); });
+        .Default([&](Operation* op) {
+            return op->emitError("Unknown operation from linalg dialect encountered: ") << op->getName();
+        });
 }
 
 } // namespace sdfg
