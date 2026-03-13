@@ -1,0 +1,64 @@
+"""
+ResNet-18 model zoo entry.
+
+Correctness tests (pytest):
+    pytest mlir/model_zoo/test_resnet18.py
+
+Performance benchmark (harness):
+    python -m model_zoo.test_resnet18 --docc --target none
+    python -m model_zoo.test_resnet18 --torch
+"""
+
+import torch
+import torchvision.models as models
+import pytest
+
+import docc.torch
+
+
+def setup():
+    """Return (eval-mode model, example_input) for ResNet-18 with random weights."""
+    model = models.resnet18(weights=None)
+    model.eval()
+    x = torch.randn(1, 3, 224, 224)
+    return model, x
+
+
+# ── Correctness tests ─────────────────────────────────────────────────────────
+
+
+def test_resnet18_compile():
+    """docc backend output matches PyTorch eager output (default compile path)."""
+    model, x = setup()
+    model_ref = models.resnet18(weights=None)
+    model_ref.load_state_dict(model.state_dict())
+
+    program = torch.compile(model, backend="docc")
+    with torch.no_grad():
+        res = program(x)
+        res_ref = model_ref(x)
+
+    assert torch.allclose(res, res_ref, rtol=1e-3, atol=1e-5)
+
+
+def test_resnet18_backend():
+    """docc backend with target='none' output matches PyTorch eager output."""
+    model, x = setup()
+    model_ref = models.resnet18(weights=None)
+    model_ref.load_state_dict(model.state_dict())
+
+    docc.torch.set_backend_options(target="none", category="server")
+    program = torch.compile(model, backend="docc")
+    with torch.no_grad():
+        res = program(x)
+        res_ref = model_ref(x)
+
+    assert torch.allclose(res, res_ref, rtol=1e-3, atol=1e-5)
+
+
+# ── Performance benchmark ─────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    from benchmarks.harness import run_benchmark
+
+    run_benchmark(setup, "resnet18")
