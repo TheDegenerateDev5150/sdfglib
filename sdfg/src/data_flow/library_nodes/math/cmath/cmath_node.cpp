@@ -249,7 +249,10 @@ void CMathNode::validate(const Function& function) const {
             }
         }
         if (!type_ok) {
-            throw InvalidSDFGException("CMathNode: Input type must be scalar");
+            throw InvalidSDFGException(
+                "CMathNode: Input type on " + std::to_string(this->element_id()) + ":" + iedge.dst_conn() +
+                " must be scalar, but was " + std::to_string(static_cast<int>(type_id))
+            );
         }
         auto& scalar_type = static_cast<const types::Scalar&>(*inferred_type);
         if (scalar_type.primitive_type() != this->primitive_type_) {
@@ -263,8 +266,21 @@ void CMathNode::validate(const Function& function) const {
     }
     for (const auto& oedge : dataflow.out_edges(*this)) {
         auto inferred_type = types::infer_type(function, oedge.base_type(), oedge.subset());
-        if (inferred_type->type_id() != types::TypeID::Scalar) {
-            throw InvalidSDFGException("CMathNode: Output type must be scalar");
+        auto type_id = inferred_type->type_id();
+        bool type_ok = false;
+        if (type_id == types::TypeID::Scalar) {
+            type_ok = true;
+        } else if (type_id == types::TypeID::Tensor) {
+            auto& tensor = dynamic_cast<types::Tensor&>(*inferred_type);
+            if (tensor.is_scalar()) {
+                type_ok = true;
+            }
+        }
+        if (!type_ok) {
+            throw InvalidSDFGException(
+                "Output: Input type in " + std::to_string(this->element_id()) + " must be scalar, but was " +
+                std::to_string(static_cast<int>(type_id))
+            );
         }
         auto& scalar_type = static_cast<const types::Scalar&>(*inferred_type);
         if (this->function_ == CMathFunction::lrint || this->function_ == CMathFunction::llrint ||

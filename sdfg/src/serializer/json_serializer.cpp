@@ -1476,6 +1476,10 @@ void register_default_serializers() {
         .register_library_node_serializer(math::tensor::LibraryNodeType_TensorCMath.value(), []() {
             return std::make_unique<math::tensor::CMathTensorNodeSerializer>();
         });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Cast.value(), []() {
+            return std::make_unique<math::tensor::CastNodeSerializer>();
+        });
 
     // Reduce
     LibraryNodeSerializerRegistry::instance()
