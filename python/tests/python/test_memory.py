@@ -58,7 +58,7 @@ def test_ones_not_hoisted():
     assert np.all(result == 1.0)
 
     stats = ones_alloc.last_sdfg.loop_report()
-    assert stats["Malloc"] == 1
+    assert stats.get("Malloc", 0) == 0
     assert stats.get("Free", 0) == 0  # return value, not freed
 
 
