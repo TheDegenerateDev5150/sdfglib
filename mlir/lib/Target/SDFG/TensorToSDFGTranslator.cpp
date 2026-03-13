@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Target/SDFG/SDFGTranslator.h"
 #include "mlir/Target/SDFG/helper.h"
 #include "sdfg/data_flow/memlet.h"
@@ -103,6 +104,35 @@ LogicalResult translateTensorExpandOp(SDFGTranslator& translator, tensor::Expand
 
     auto out_tensor_info = in_tensor_info.reshape(new_shape);
     translator.tensor_info_map().insert({out_container, out_tensor_info});
+
+    return success();
+}
+
+LogicalResult translateTensorExtractOp(SDFGTranslator& translator, tensor::ExtractOp* extract_op) {
+    Value tensor = extract_op->getTensor();
+    auto tensor_container = translator.get_or_create_container(tensor);
+    auto tensor_type = llvm::dyn_cast<TensorType>(tensor.getType());
+    auto& tensor_info = translator.get_or_create_tensor_info(tensor_container, tensor_type);
+    auto element_type = translator.convertType(tensor.getType());
+    auto sdfg_tensor = tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
+
+    OperandRange indices = extract_op->getIndices();
+    ::sdfg::data_flow::Subset subset;
+    subset.reserve(indices.size());
+    for (Value index : indices) {
+        subset.push_back(::sdfg::symbolic::symbol(translator.get_or_create_container(index)));
+    }
+
+    Value result = extract_op->getResult();
+    auto result_container = translator.get_or_create_container(result);
+
+    auto& builder = translator.builder();
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& tensor_access = builder.add_access(block, tensor_container);
+    auto& result_access = builder.add_access(block, result_container);
+    auto& tasklet = builder.add_tasklet(block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, tensor_access, tasklet, "_in", subset, *sdfg_tensor);
+    builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
 
     return success();
 }
@@ -277,6 +307,9 @@ LogicalResult translateTensorOp(SDFGTranslator& translator, Operation* op) {
         })
         .Case<tensor::ExpandShapeOp>([&](tensor::ExpandShapeOp expand_op) {
             return translateTensorExpandOp(translator, &expand_op);
+        })
+        .Case<tensor::ExtractOp>([&](tensor::ExtractOp extract_op) {
+            return translateTensorExtractOp(translator, &extract_op);
         })
         .Case<tensor::PadOp>([&](tensor::PadOp pad_op) { return translateTensorPadOp(translator, &pad_op); })
         .Default([&](Operation* op) { return op->emitError("Unknown operation from tensor dialect encountered"); });
