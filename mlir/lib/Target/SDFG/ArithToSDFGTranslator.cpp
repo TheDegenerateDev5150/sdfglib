@@ -16,6 +16,7 @@
 #include "mlir/Target/SDFG/SDFGTranslator.h"
 #include "mlir/Target/SDFG/helper.h"
 #include "sdfg/data_flow/library_nodes/load_const_node.h"
+#include "sdfg/data_flow/library_nodes/math/cmath/cmath_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/tasklet.h"
 #include "sdfg/element.h"
@@ -81,6 +82,37 @@ LogicalResult translateArithBinaryOp(SDFGTranslator& translator, Op* op) {
     } else {
         return op->emitOpError("Unsupported type(s)");
     }
+
+    return success();
+}
+
+template<typename Op, ::sdfg::math::cmath::CMathFunction function>
+LogicalResult translateArithCMathBinaryOp(SDFGTranslator& translator, Op* op) {
+    Value lhs = op->getLhs();
+    Value rhs = op->getRhs();
+    Value result = op->getResult();
+
+    if (!is_sdfg_primitive(lhs.getType()) || !is_sdfg_primitive(rhs.getType()) ||
+        !is_sdfg_primitive(result.getType())) {
+        return op->emitOpError("Only SDFG primitive types are supported");
+    }
+
+    auto& builder = translator.builder();
+    auto lhs_container = translator.get_or_create_container(lhs);
+    auto& lhs_container_type = builder.subject().type(lhs_container);
+    auto rhs_container = translator.get_or_create_container(rhs);
+    auto result_container = translator.get_or_create_container(result);
+
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& lhs_access = builder.add_access(block, lhs_container);
+    auto& rhs_access = builder.add_access(block, rhs_container);
+    auto& result_access = builder.add_access(block, result_container);
+    auto& libnode = builder.add_library_node<
+        ::sdfg::math::cmath::CMathNode>(block, ::sdfg::DebugInfo(), function, lhs_container_type.primitive_type());
+    builder.add_computational_memlet(block, lhs_access, libnode, "_in1", {}, lhs_container_type);
+    builder.add_computational_memlet(block, rhs_access, libnode, "_in2", {}, builder.subject().type(rhs_container));
+    builder
+        .add_computational_memlet(block, libnode, "_out", result_access, {}, builder.subject().type(result_container));
 
     return success();
 }
@@ -594,6 +626,28 @@ LogicalResult translateArithOp(SDFGTranslator& translator, Operation* op) {
         .Case<arith::XOrIOp>([&](arith::XOrIOp xori_op) {
             return translateArithBinaryOp<arith::XOrIOp, ::sdfg::data_flow::TaskletCode::int_xor>(translator, &xori_op);
         })
+        .Case<arith::MaximumFOp>([&](arith::MaximumFOp maximumf_op) {
+            // Not technically correct because of different handling of NaN's
+            return translateArithCMathBinaryOp<
+                arith::MaximumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &maximumf_op);
+        })
+        .Case<arith::MaxNumFOp>([&](arith::MaxNumFOp maxnumf_op) {
+            return translateArithCMathBinaryOp<
+                arith::MaxNumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &maxnumf_op);
+        })
+        .Case<arith::MinimumFOp>([&](arith::MinimumFOp minimumf_op) {
+            // Not technically correct because of different handling of NaN's
+            return translateArithCMathBinaryOp<
+                arith::MinimumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &minimumf_op);
+        })
+        .Case<arith::MinNumFOp>([&](arith::MinNumFOp minnumf_op) {
+            return translateArithCMathBinaryOp<
+                arith::MinNumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &minnumf_op);
+        })
         .Case<arith::BitcastOp>([&](arith::BitcastOp bitcast_op) {
             return translateArithCastOp<arith::BitcastOp>(translator, &bitcast_op);
         })
@@ -623,6 +677,12 @@ LogicalResult translateArithOp(SDFGTranslator& translator, Operation* op) {
         })
         .Case<arith::UIToFPOp>([&](arith::UIToFPOp uitofp_op) {
             return translateArithCastOp<arith::UIToFPOp>(translator, &uitofp_op);
+        })
+        .Case<arith::IndexCastOp>([&](arith::IndexCastOp indexcast_op) {
+            return translateArithCastOp<arith::IndexCastOp>(translator, &indexcast_op);
+        })
+        .Case<arith::IndexCastUIOp>([&](arith::IndexCastUIOp indexcastui_op) {
+            return translateArithCastOp<arith::IndexCastUIOp>(translator, &indexcastui_op);
         })
         .Case<arith::CmpFOp>([&](arith::CmpFOp cmpf_op) { return translateArithCmpFOp(translator, &cmpf_op); })
         .Case<arith::CmpIOp>([&](arith::CmpIOp cmpi_op) { return translateArithCmpIOp(translator, &cmpi_op); })
