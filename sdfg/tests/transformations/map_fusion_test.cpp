@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include "sdfg_debug_dump.h"
+
 using namespace sdfg;
 
 TEST(MapFusionTest, ProducerConsumer_1D) {
@@ -70,12 +72,16 @@ TEST(MapFusionTest, ProducerConsumer_1D) {
     builder.add_computational_memlet(block2, two_node, tasklet2, "_in2", {});
     builder.add_computational_memlet(block2, tasklet2, "_out", b_out, {symbolic::symbol("j")}, array_desc);
 
+    dump_sdfg(builder.subject(), "0-before");
+
     // Analyze and apply transformation
     analysis::AnalysisManager analysis_manager(builder.subject());
     transformations::MapFusion transformation(map1, map2);
 
     EXPECT_TRUE(transformation.can_be_applied(builder, analysis_manager));
     transformation.apply(builder, analysis_manager);
+
+    dump_sdfg(builder.subject(), "1-after");
 
     // Verify transformation results
     auto& new_sdfg = builder.subject();
@@ -95,6 +101,94 @@ TEST(MapFusionTest, ProducerConsumer_1D) {
     // Second block is the original consumer block
     auto* consumer_block = dynamic_cast<structured_control_flow::Block*>(&new_map2->root().at(1).first);
     EXPECT_TRUE(consumer_block != nullptr);
+}
+
+TEST(MapFusionTest, SimpleInputOutputOverlap) {
+    // Create two sequential maps where second map reads from first map's output
+    // Map 1: T[i] = A[i] + 1.0
+    // Map 2: B[i] = T[i] * 2.0
+    // After fusion: B[i] = (A[i] + 1.0) * 2.0
+
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    // Add containers
+    types::Scalar float_desc(types::PrimitiveType::Float);
+    types::Array array_desc(float_desc, {symbolic::symbol("N")});
+
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+
+    builder.add_container("A", array_desc, true);
+    builder.add_container("T", array_desc);
+
+    // Define first map: T[i] = A[i] + 1.0
+    auto indvar1 = symbolic::symbol("i");
+    auto& map1 = builder.add_map(
+        root,
+        indvar1,
+        symbolic::Lt(symbolic::symbol("i"), symbolic::symbol("N")),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& body1 = map1.root();
+
+    auto& block1 = builder.add_block(body1);
+    auto& a_in = builder.add_access(block1, "A");
+    auto& one_node = builder.add_constant(block1, "1.0", float_desc);
+    auto& t_out = builder.add_access(block1, "T");
+    auto& tasklet1 = builder.add_tasklet(block1, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block1, a_in, tasklet1, "_in1", {symbolic::symbol("i")}, array_desc);
+    builder.add_computational_memlet(block1, one_node, tasklet1, "_in2", {});
+    builder.add_computational_memlet(block1, tasklet1, "_out", t_out, {symbolic::symbol("i")}, array_desc);
+
+    // Define second map: B[j] = T[j] * 2.0
+    auto indvar2 = symbolic::symbol("j");
+    auto& map2 = builder.add_map(
+        root,
+        indvar2,
+        symbolic::Lt(symbolic::symbol("j"), symbolic::symbol("N")),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& body2 = map2.root();
+
+    auto& block2 = builder.add_block(body2);
+    auto& t_in = builder.add_access(block2, "T");
+    auto& two_node = builder.add_constant(block2, "2.0", float_desc);
+    auto& b_out = builder.add_access(block2, "A");
+    auto& tasklet2 = builder.add_tasklet(block2, data_flow::TaskletCode::fp_mul, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block2, t_in, tasklet2, "_in1", {symbolic::symbol("j")}, array_desc);
+    builder.add_computational_memlet(block2, two_node, tasklet2, "_in2", {});
+    builder.add_computational_memlet(block2, tasklet2, "_out", b_out, {symbolic::symbol("j")}, array_desc);
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    // Analyze and apply transformation
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    transformations::MapFusion transformation(map1, map2);
+
+    EXPECT_FALSE(transformation.can_be_applied(builder, analysis_manager));
+
+    // Verify transformation results
+    auto& new_sdfg = builder.subject();
+
+    // Both maps should still exist
+    EXPECT_EQ(new_sdfg.root().size(), 2);
+
+    auto* map1_after = dynamic_cast<structured_control_flow::Map*>(&new_sdfg.root().at(0).first);
+    EXPECT_TRUE(map1_after != nullptr);
+    EXPECT_EQ(map1_after->root().size(), 1) << "First loop should still have 1 block";
+
+    auto* map2_after = dynamic_cast<structured_control_flow::Map*>(&new_sdfg.root().at(1).first);
+    EXPECT_TRUE(map2_after != nullptr);
+    EXPECT_EQ(map2_after->root().size(), 1) << "Second loop should still have 1 block";
 }
 
 TEST(MapFusionTest, NonSequentialMaps) {
