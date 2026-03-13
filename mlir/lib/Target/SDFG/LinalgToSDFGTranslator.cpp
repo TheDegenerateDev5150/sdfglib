@@ -340,6 +340,23 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
                 builder.add_computational_memlet(sdfg_block, tasklet, "_out", result_access, subset, *sdfg_tensor);
             }
             break;
+        } else if (auto index_op = llvm::dyn_cast_or_null<linalg::IndexOp>(op)) {
+            uint64_t dim = index_op.getDim();
+            if (dim >= indvars.size()) {
+                return index_op->emitOpError("tries accessing dimension ")
+                       << dim << " but maximum dimension is " << indvars.size();
+            }
+            auto indvar_container = indvars.at(dim)->get_name();
+
+            Value result = index_op.getResult();
+            auto result_container = translator.get_or_create_container(result);
+
+            auto& sdfg_block = builder.add_block(translator.insertion_point());
+            auto& indvar_access = builder.add_access(sdfg_block, indvar_container);
+            auto& result_access = builder.add_access(sdfg_block, result_container);
+            auto& tasklet = builder.add_tasklet(sdfg_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+            builder.add_computational_memlet(sdfg_block, indvar_access, tasklet, "_in", {});
+            builder.add_computational_memlet(sdfg_block, tasklet, "_out", result_access, {});
         } else {
             if (failed(translateOp(translator, &op))) {
                 return failure();
