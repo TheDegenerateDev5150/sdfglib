@@ -8,6 +8,7 @@
 #include "analysis/py_analysis.h"
 #include "builder/py_structured_sdfg_builder.h"
 #include "control_flow/py_control_flow.h"
+#include "cutouts/py_cutout.h"
 #include "data_flow/py_cmath.h"
 #include "data_flow/py_code_node.h"
 #include "data_flow/py_data_flow_graph.h"
@@ -80,6 +81,7 @@ PYBIND11_MODULE(_sdfg, m) {
     register_analysis(m);
     register_replayer(m);
     register_transformations(m);
+    register_cutout(m);
 
     py::class_<sdfg::passes::rpc::RpcContext>(m, "RpcContext");
 
