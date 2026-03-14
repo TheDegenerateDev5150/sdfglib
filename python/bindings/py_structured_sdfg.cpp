@@ -95,6 +95,10 @@ PyStructuredSDFG PyStructuredSDFG::from_file(const std::string& file_path) {
     return PyStructuredSDFG(sdfg);
 }
 
+PyStructuredSDFG PyStructuredSDFG::from_sdfg(std::unique_ptr<sdfg::StructuredSDFG> sdfg) {
+    return PyStructuredSDFG(sdfg);
+}
+
 std::string PyStructuredSDFG::name() const { return sdfg_->name(); }
 
 const sdfg::types::IType& PyStructuredSDFG::return_type() const { return sdfg_->return_type(); }

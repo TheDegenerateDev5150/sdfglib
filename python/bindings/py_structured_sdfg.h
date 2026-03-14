@@ -21,6 +21,14 @@ public:
 
     static PyStructuredSDFG from_file(const std::string& file_path);
 
+    /**
+     * @brief Create a PyStructuredSDFG from a unique_ptr
+     *
+     * This factory method is used internally for operations like cutout
+     * that create new SDFGs.
+     */
+    static PyStructuredSDFG from_sdfg(std::unique_ptr<sdfg::StructuredSDFG> sdfg);
+
     std::string name() const;
 
     sdfg::StructuredSDFG& sdfg() { return *sdfg_; }

@@ -60,13 +60,14 @@ public:
         const std::string& value, const sdfg::types::IType& type, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
-    void begin_if(const std::string& condition, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::structured_control_flow::IfElse&
+    begin_if(const std::string& condition, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
     void begin_else(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
     void end_if();
 
-    void begin_while(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::structured_control_flow::While& begin_while(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
     void add_break(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
@@ -74,7 +75,7 @@ public:
 
     void end_while();
 
-    void begin_for(
+    sdfg::structured_control_flow::For& begin_for(
         const std::string& var,
         const std::string& start,
         const std::string& end,
