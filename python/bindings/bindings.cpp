@@ -7,7 +7,12 @@
 
 #include "analysis/py_analysis.h"
 #include "builder/py_structured_sdfg_builder.h"
+#include "control_flow/py_control_flow.h"
 #include "data_flow/py_cmath.h"
+#include "data_flow/py_code_node.h"
+#include "data_flow/py_data_flow_graph.h"
+#include "data_flow/py_data_flow_node.h"
+#include "data_flow/py_memlet.h"
 #include "data_flow/py_tasklet.h"
 #include "py_structured_sdfg.h"
 #include "sdfg/data_flow/tasklet.h"
@@ -62,7 +67,12 @@ PYBIND11_MODULE(_sdfg, m) {
 #endif
 
     register_types(m);
+    register_data_flow_node(m);
+    register_code_node(m);
     register_tasklet(m);
+    register_memlet(m);
+    register_data_flow_graph(m);
+    register_control_flow(m);
     register_cmath(m);
     register_analysis(m);
     register_replayer(m);
@@ -143,6 +153,12 @@ PYBIND11_MODULE(_sdfg, m) {
             "_ptr",
             [](PyStructuredSDFG& self) { return reinterpret_cast<uintptr_t>(&self.sdfg()); },
             "Get native pointer to StructuredSDFG for external plugin use"
+        )
+        .def_property_readonly(
+            "root",
+            [](PyStructuredSDFG& self) -> sdfg::structured_control_flow::Sequence& { return self.root(); },
+            py::return_value_policy::reference,
+            "Get the root sequence of the SDFG"
         )
         .def_property_readonly("return_type", &PyStructuredSDFG::return_type, py::return_value_policy::reference)
         .def("type", &PyStructuredSDFG::type, py::arg("name"), py::return_value_policy::reference)

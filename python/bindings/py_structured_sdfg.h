@@ -3,6 +3,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <sdfg/passes/rpc/rpc_context.h>
+#include <sdfg/structured_control_flow/sequence.h>
 #include <sdfg/structured_sdfg.h>
 
 class PyStructuredSDFGBuilder;
@@ -23,6 +24,8 @@ public:
     std::string name() const;
 
     sdfg::StructuredSDFG& sdfg() { return *sdfg_; }
+
+    sdfg::structured_control_flow::Sequence& root() { return sdfg_->root(); }
 
     const sdfg::types::IType& return_type() const;
 
