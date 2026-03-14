@@ -53,6 +53,60 @@ Expression minimum(const Expression expr, const SymbolSet& parameters, const Ass
         return SymEngine::null;
     }
 
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum(args[0], parameters, assumptions, depth + 1);
+        auto base_ub = maximum(args[0], parameters, assumptions, depth + 1);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        // Odd powers are monotonic. Even powers need interval sign reasoning.
+        if (exp_val % 2 != 0) {
+            return lb_pow;
+        }
+
+        auto zero = symbolic::zero();
+        bool interval_nonneg = symbolic::is_true(symbolic::Ge(base_lb, zero));
+        bool interval_nonpos = symbolic::is_true(symbolic::Le(base_ub, zero));
+        bool crosses_zero = symbolic::is_true(symbolic::Le(base_lb, zero)) &&
+                            symbolic::is_true(symbolic::Ge(base_ub, zero));
+
+        if (crosses_zero) {
+            return zero;
+        }
+        if (interval_nonneg || interval_nonpos) {
+            return symbolic::min(lb_pow, ub_pow);
+        }
+
+        // Cannot prove whether 0 belongs to the interval -> avoid unsound bound.
+        return SymEngine::null;
+    }
+
     // Mul
     if (SymEngine::is_a<SymEngine::Mul>(*expr)) {
         auto mul = SymEngine::rcp_static_cast<const SymEngine::Mul>(expr);
@@ -177,6 +231,45 @@ Expression maximum(const Expression expr, const SymbolSet& parameters, const Ass
             return maximum(assumptions.at(sym).upper_bound_deprecated(), parameters, assumptions, depth + 1);
         }
         return SymEngine::null;
+    }
+
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum(args[0], parameters, assumptions, depth + 1);
+        auto base_ub = maximum(args[0], parameters, assumptions, depth + 1);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        if (exp_val % 2 != 0) {
+            return ub_pow;
+        }
+
+        return symbolic::max(lb_pow, ub_pow);
     }
 
     if (SymEngine::is_a<symbolic::ZExtI64Function>(*expr)) {
@@ -381,6 +474,60 @@ Expression minimum_new(
         return SymEngine::null;
     }
 
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum_new(args[0], parameters, assumptions, depth + 1, tight);
+        auto base_ub = maximum_new(args[0], parameters, assumptions, depth + 1, tight);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        // Odd powers are monotonic. Even powers need interval sign reasoning.
+        if (exp_val % 2 != 0) {
+            return lb_pow;
+        }
+
+        auto zero = symbolic::zero();
+        bool interval_nonneg = symbolic::is_true(symbolic::Ge(base_lb, zero));
+        bool interval_nonpos = symbolic::is_true(symbolic::Le(base_ub, zero));
+        bool crosses_zero = symbolic::is_true(symbolic::Le(base_lb, zero)) &&
+                            symbolic::is_true(symbolic::Ge(base_ub, zero));
+
+        if (crosses_zero) {
+            return zero;
+        }
+        if (interval_nonneg || interval_nonpos) {
+            return symbolic::min(lb_pow, ub_pow);
+        }
+
+        // Cannot prove whether 0 belongs to the interval -> avoid unsound bound.
+        return SymEngine::null;
+    }
+
     // Mul
     if (SymEngine::is_a<SymEngine::Mul>(*expr)) {
         auto mul = SymEngine::rcp_static_cast<const SymEngine::Mul>(expr);
@@ -547,6 +694,45 @@ Expression maximum_new(
             return new_ub;
         }
         return SymEngine::null;
+    }
+
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum_new(args[0], parameters, assumptions, depth + 1, tight);
+        auto base_ub = maximum_new(args[0], parameters, assumptions, depth + 1, tight);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        if (exp_val % 2 != 0) {
+            return ub_pow;
+        }
+
+        return symbolic::max(lb_pow, ub_pow);
     }
 
     // Mul

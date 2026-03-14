@@ -18,6 +18,7 @@ set(SOURCE_FILES
     src/passes/offloading/data_transfer_minimization_pass.cpp
     src/passes/offloading/onnx_library_node_rewriter_pass.cpp
     src/passes/offloading/remove_redundant_transfers_pass.cpp
+    src/passes/offloading/rocm_library_node_rewriter_pass.cpp
     src/passes/offloading/sync_condition_propagation.cpp
     src/passes/dot_expansion_pass.cpp
     src/passes/gemm_expansion_pass.cpp
