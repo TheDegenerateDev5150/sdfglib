@@ -445,53 +445,43 @@ void PyStructuredSDFGBuilder::
     }
 }
 
-size_t PyStructuredSDFGBuilder::add_block(const sdfg::DebugInfo& debug_info) {
+Block& PyStructuredSDFGBuilder::add_block(const sdfg::DebugInfo& debug_info) {
     auto& parent = current_sequence();
-    auto& block = builder_.add_block(parent, {}, debug_info);
-    return reinterpret_cast<size_t>(&block);
+    return builder_.add_block(parent, {}, debug_info);
 }
 
-size_t PyStructuredSDFGBuilder::add_access(size_t block_ptr, const std::string& name, const sdfg::DebugInfo& debug_info) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
-    auto& access = builder_.add_access(*block, name, debug_info);
-    return reinterpret_cast<size_t>(&access);
+sdfg::data_flow::AccessNode& PyStructuredSDFGBuilder::
+    add_access(Block& block, const std::string& name, const sdfg::DebugInfo& debug_info) {
+    return builder_.add_access(block, name, debug_info);
 }
 
-size_t PyStructuredSDFGBuilder::add_constant(
-    size_t block_ptr, const std::string& value, const sdfg::types::IType& type, const sdfg::DebugInfo& debug_info
+sdfg::data_flow::ConstantNode& PyStructuredSDFGBuilder::add_constant(
+    Block& block, const std::string& value, const sdfg::types::IType& type, const sdfg::DebugInfo& debug_info
 ) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
-    auto& constant = builder_.add_constant(*block, value, type, debug_info);
-    return reinterpret_cast<size_t>(&constant);
+    return builder_.add_constant(block, value, type, debug_info);
 }
 
-size_t PyStructuredSDFGBuilder::add_tasklet(
-    size_t block_ptr,
+sdfg::data_flow::Tasklet& PyStructuredSDFGBuilder::add_tasklet(
+    Block& block,
     sdfg::data_flow::TaskletCode code,
     const std::vector<std::string>& inputs,
     const std::vector<std::string>& outputs,
     const sdfg::DebugInfo& debug_info
 ) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
     if (outputs.empty()) throw std::runtime_error("Tasklet must have at least one output");
-    auto& tasklet = builder_.add_tasklet(*block, code, outputs[0], inputs, debug_info);
-    return reinterpret_cast<size_t>(&tasklet);
+    return builder_.add_tasklet(block, code, outputs[0], inputs, debug_info);
 }
 
 void PyStructuredSDFGBuilder::add_memlet(
-    size_t block_ptr,
-    size_t src_ptr,
+    Block& block,
+    sdfg::data_flow::DataFlowNode& src,
     const std::string& src_conn,
-    size_t dst_ptr,
+    sdfg::data_flow::DataFlowNode& dst,
     const std::string& dst_conn,
     const std::string& subset,
     const sdfg::types::IType* type_arg,
     const sdfg::DebugInfo& debug_info
 ) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
-    auto* src = reinterpret_cast<sdfg::data_flow::DataFlowNode*>(src_ptr);
-    auto* dst = reinterpret_cast<sdfg::data_flow::DataFlowNode*>(dst_ptr);
-
     std::vector<SymEngine::RCP<const SymEngine::Basic>> indices;
     if (!subset.empty()) {
         std::stringstream ss(subset);
@@ -505,11 +495,11 @@ void PyStructuredSDFGBuilder::add_memlet(
     const sdfg::types::IType* type = type_arg;
 
     if (!type) {
-        if (auto* constant = dynamic_cast<sdfg::data_flow::ConstantNode*>(src)) {
+        if (auto* constant = dynamic_cast<sdfg::data_flow::ConstantNode*>(&src)) {
             type = &constant->type();
-        } else if (auto* access = dynamic_cast<sdfg::data_flow::AccessNode*>(src)) {
+        } else if (auto* access = dynamic_cast<sdfg::data_flow::AccessNode*>(&src)) {
             type = &builder_.subject().type(access->data());
-        } else if (auto* access = dynamic_cast<sdfg::data_flow::AccessNode*>(dst)) {
+        } else if (auto* access = dynamic_cast<sdfg::data_flow::AccessNode*>(&dst)) {
             type = &builder_.subject().type(access->data());
         }
     }
@@ -518,26 +508,26 @@ void PyStructuredSDFGBuilder::add_memlet(
         );
     }
 
-    if (auto* t_src = dynamic_cast<sdfg::data_flow::Tasklet*>(src)) {
-        if (auto* a_dst = dynamic_cast<sdfg::data_flow::AccessNode*>(dst)) {
-            builder_.add_computational_memlet(*block, *t_src, src_conn, *a_dst, indices, *type, debug_info);
+    if (auto* t_src = dynamic_cast<sdfg::data_flow::Tasklet*>(&src)) {
+        if (auto* a_dst = dynamic_cast<sdfg::data_flow::AccessNode*>(&dst)) {
+            builder_.add_computational_memlet(block, *t_src, src_conn, *a_dst, indices, *type, debug_info);
             return;
         }
     }
-    if (auto* l_src = dynamic_cast<sdfg::data_flow::LibraryNode*>(src)) {
-        if (auto* a_dst = dynamic_cast<sdfg::data_flow::AccessNode*>(dst)) {
-            builder_.add_computational_memlet(*block, *l_src, src_conn, *a_dst, indices, *type, debug_info);
+    if (auto* l_src = dynamic_cast<sdfg::data_flow::LibraryNode*>(&src)) {
+        if (auto* a_dst = dynamic_cast<sdfg::data_flow::AccessNode*>(&dst)) {
+            builder_.add_computational_memlet(block, *l_src, src_conn, *a_dst, indices, *type, debug_info);
             return;
         }
     }
 
-    if (auto* a_src = dynamic_cast<sdfg::data_flow::AccessNode*>(src)) {
-        if (auto* t_dst = dynamic_cast<sdfg::data_flow::Tasklet*>(dst)) {
-            builder_.add_computational_memlet(*block, *a_src, *t_dst, dst_conn, indices, *type, debug_info);
+    if (auto* a_src = dynamic_cast<sdfg::data_flow::AccessNode*>(&src)) {
+        if (auto* t_dst = dynamic_cast<sdfg::data_flow::Tasklet*>(&dst)) {
+            builder_.add_computational_memlet(block, *a_src, *t_dst, dst_conn, indices, *type, debug_info);
             return;
         }
-        if (auto* l_dst = dynamic_cast<sdfg::data_flow::LibraryNode*>(dst)) {
-            builder_.add_computational_memlet(*block, *a_src, *l_dst, dst_conn, indices, *type, debug_info);
+        if (auto* l_dst = dynamic_cast<sdfg::data_flow::LibraryNode*>(&dst)) {
+            builder_.add_computational_memlet(block, *a_src, *l_dst, dst_conn, indices, *type, debug_info);
             return;
         }
     }
@@ -546,17 +536,13 @@ void PyStructuredSDFGBuilder::add_memlet(
 }
 
 void PyStructuredSDFGBuilder::add_reference_memlet(
-    size_t block_ptr,
-    size_t src_ptr,
-    size_t dst_ptr,
+    Block& block,
+    sdfg::data_flow::AccessNode& src,
+    sdfg::data_flow::AccessNode& dst,
     const std::string& subset,
     const sdfg::types::IType* type_arg,
     const sdfg::DebugInfo& debug_info
 ) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
-    auto* src = reinterpret_cast<sdfg::data_flow::AccessNode*>(src_ptr);
-    auto* dst = reinterpret_cast<sdfg::data_flow::AccessNode*>(dst_ptr);
-
     std::vector<SymEngine::RCP<const SymEngine::Basic>> indices;
     if (!subset.empty()) {
         std::stringstream ss(subset);
@@ -570,60 +556,49 @@ void PyStructuredSDFGBuilder::add_reference_memlet(
     const sdfg::types::IType* type = type_arg;
 
     if (!type) {
-        if (auto* constant = dynamic_cast<sdfg::data_flow::ConstantNode*>(src)) {
+        if (auto* constant = dynamic_cast<sdfg::data_flow::ConstantNode*>(&src)) {
             type = &constant->type();
-        } else if (auto* access = dynamic_cast<sdfg::data_flow::AccessNode*>(src)) {
-            type = &builder_.subject().type(access->data());
-        } else if (auto* access = dynamic_cast<sdfg::data_flow::AccessNode*>(dst)) {
-            type = &builder_.subject().type(access->data());
+        } else {
+            type = &builder_.subject().type(src.data());
         }
     }
     if (!type) {
-        throw std::runtime_error("Could not determine type for memlet (neither src nor dst is AccessNode/ConstantNode)"
-        );
+        throw std::runtime_error("Could not determine type for memlet");
     }
 
-    builder_.add_reference_memlet(*block, *src, *dst, indices, *type, debug_info);
+    builder_.add_reference_memlet(block, src, dst, indices, *type, debug_info);
 }
 
-size_t PyStructuredSDFGBuilder::add_cmath(
-    size_t block_ptr,
+sdfg::data_flow::LibraryNode& PyStructuredSDFGBuilder::add_cmath(
+    Block& block,
     sdfg::math::cmath::CMathFunction func,
     sdfg::types::PrimitiveType primitive_type,
     const sdfg::DebugInfo& debug_info
 ) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
-    auto& node = builder_.add_library_node<sdfg::math::cmath::CMathNode>(*block, debug_info, func, primitive_type);
-    return reinterpret_cast<size_t>(&node);
+    return builder_.add_library_node<sdfg::math::cmath::CMathNode>(block, debug_info, func, primitive_type);
 }
 
-size_t PyStructuredSDFGBuilder::add_malloc(size_t block_ptr, const std::string& size, const sdfg::DebugInfo& debug_info) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
+sdfg::data_flow::LibraryNode& PyStructuredSDFGBuilder::
+    add_malloc(Block& block, const std::string& size, const sdfg::DebugInfo& debug_info) {
     auto size_expr = parse_and_expand(size);
-    auto& node = builder_.add_library_node<sdfg::stdlib::MallocNode>(*block, debug_info, size_expr);
-    return reinterpret_cast<size_t>(&node);
+    return builder_.add_library_node<sdfg::stdlib::MallocNode>(block, debug_info, size_expr);
 }
 
-size_t PyStructuredSDFGBuilder::
-    add_memset(size_t block_ptr, const std::string& value, const std::string& num, const sdfg::DebugInfo& debug_info) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
+sdfg::data_flow::LibraryNode& PyStructuredSDFGBuilder::
+    add_memset(Block& block, const std::string& value, const std::string& num, const sdfg::DebugInfo& debug_info) {
     auto value_expr = parse_and_expand(value);
     auto num_expr = parse_and_expand(num);
-    auto& node = builder_.add_library_node<sdfg::stdlib::MemsetNode>(*block, debug_info, value_expr, num_expr);
-    return reinterpret_cast<size_t>(&node);
+    return builder_.add_library_node<sdfg::stdlib::MemsetNode>(block, debug_info, value_expr, num_expr);
 }
 
-size_t PyStructuredSDFGBuilder::add_memcpy(size_t block_ptr, const std::string& count, const sdfg::DebugInfo& debug_info) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
+sdfg::data_flow::LibraryNode& PyStructuredSDFGBuilder::
+    add_memcpy(Block& block, const std::string& count, const sdfg::DebugInfo& debug_info) {
     auto count_expr = parse_and_expand(count);
-    auto& node = builder_.add_library_node<sdfg::stdlib::MemcpyNode>(*block, debug_info, count_expr);
-    return reinterpret_cast<size_t>(&node);
+    return builder_.add_library_node<sdfg::stdlib::MemcpyNode>(block, debug_info, count_expr);
 }
 
-size_t PyStructuredSDFGBuilder::add_free(size_t block_ptr, const sdfg::DebugInfo& debug_info) {
-    auto* block = reinterpret_cast<sdfg::structured_control_flow::Block*>(block_ptr);
-    auto& node = builder_.add_library_node<sdfg::stdlib::FreeNode>(*block, debug_info);
-    return reinterpret_cast<size_t>(&node);
+sdfg::data_flow::LibraryNode& PyStructuredSDFGBuilder::add_free(Block& block, const sdfg::DebugInfo& debug_info) {
+    return builder_.add_library_node<sdfg::stdlib::FreeNode>(block, debug_info);
 }
 
 bool PyStructuredSDFGBuilder::is_hoistable_size(const std::string& size_expr) {
@@ -639,19 +614,17 @@ bool PyStructuredSDFGBuilder::is_hoistable_size(const std::string& size_expr) {
     return true;
 }
 
-size_t PyStructuredSDFGBuilder::insert_block_at_root_start(const sdfg::DebugInfo& debug_info) {
+Block& PyStructuredSDFGBuilder::insert_block_at_root_start(const sdfg::DebugInfo& debug_info) {
     auto& root = builder_.subject().root();
 
     if (root.size() == 0) {
         // Empty root - just add a block normally
-        auto& block = builder_.add_block(root, {}, debug_info);
-        return reinterpret_cast<size_t>(&block);
+        return builder_.add_block(root, {}, debug_info);
     }
 
     // Get first child and insert before it
     auto& first_child = root.at(0).first;
-    auto& block = builder_.add_block_before(root, first_child, {}, debug_info);
-    return reinterpret_cast<size_t>(&block);
+    return builder_.add_block_before(root, first_child, {}, debug_info);
 }
 
 void PyStructuredSDFGBuilder::add_gemm(
