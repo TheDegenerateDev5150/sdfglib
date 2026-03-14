@@ -133,6 +133,11 @@ public:
     void data(const std::string data);
 
     /**
+     * An access node with incoming edges writes the container and therefore has side effects
+     */
+    [[nodiscard]] bool side_effect() const override;
+
+    /**
      * @brief Clone this access node for graph transformations
      * @param element_id New element identifier for the clone
      * @param vertex New graph vertex for the clone
@@ -203,6 +208,8 @@ public:
      * @return Type of the constant value
      */
     const types::IType& type() const;
+
+    [[nodiscard]] bool side_effect() const override { return false; }
 
     /**
      * @brief Validate the constant node

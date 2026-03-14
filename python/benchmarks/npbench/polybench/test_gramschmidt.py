@@ -55,43 +55,43 @@ def test_gramschmidt(target):
     if target == "none":
         verifier = SDFGVerification(
             verification={
-                "Free": 5,
+                "Free": 3,
                 "GEMM": 1,
-                "MAP": 9,
+                "MAP": 7,
                 "CMath": 1,
-                "SEQUENTIAL": 9,
-                "FOR": 12,
+                "SEQUENTIAL": 7,
+                "FOR": 10,
                 "Memset": 2,
-                "Malloc": 5,
+                "Malloc": 3,
             }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "Free": 5,
+                "Free": 3,
                 "HIGHWAY": 2,
                 "GEMM": 1,
-                "MAP": 9,
+                "MAP": 7,
                 "CMath": 1,
-                "SEQUENTIAL": 7,
-                "FOR": 12,
+                "SEQUENTIAL": 5,
+                "FOR": 10,
                 "Memset": 2,
-                "Malloc": 5,
+                "Malloc": 3,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "Free": 5,
+                "Free": 3,
                 "HIGHWAY": 2,
                 "GEMM": 1,
-                "MAP": 9,
-                "CPU_PARALLEL": 4,
+                "MAP": 7,
+                "CPU_PARALLEL": 3,
                 "CMath": 1,
-                "SEQUENTIAL": 3,
-                "FOR": 12,
+                "SEQUENTIAL": 2,
+                "FOR": 10,
                 "Memset": 2,
-                "Malloc": 5,
+                "Malloc": 3,
             }
         )
     elif target == "cuda":

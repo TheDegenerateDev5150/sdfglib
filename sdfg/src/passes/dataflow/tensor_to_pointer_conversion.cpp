@@ -46,9 +46,9 @@ bool TensorToPointerConversion::accept(structured_control_flow::Block& block) {
         }
 
         // Handle scalar containers (including scalar tensor memlets with empty subset)
-        if (container_type->type_id() == types::TypeID::Scalar) {
-            memlet.set_base_type(*container_type);
-            memlet.set_subset({});
+        if (tensor_type.shape().empty()) {
+            assert(memlet.subset().empty());
+            memlet.set_base_type(tensor_type.element_type());
             applied = true;
             continue;
         }

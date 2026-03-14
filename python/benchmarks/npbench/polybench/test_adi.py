@@ -77,37 +77,34 @@ def test_adi(target):
         verifier = SDFGVerification(
             verification={
                 "Free": 5,
-                "MAP": 24,
-                "SEQUENTIAL": 24,
-                "FOR": 29,
-                "Malloc": 11,
-            },
-            non_critical=True,
+                "MAP": 32,
+                "SEQUENTIAL": 32,
+                "FOR": 37,
+                "Malloc": 19,
+            }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
                 "Free": 5,
-                "HIGHWAY": 8,
-                "MAP": 24,
-                "SEQUENTIAL": 16,
-                "FOR": 29,
-                "Malloc": 11,
-            },
-            non_critical=True,
+                "HIGHWAY": 10,
+                "MAP": 32,
+                "SEQUENTIAL": 22,
+                "FOR": 37,
+                "Malloc": 19,
+            }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
                 "Free": 5,
                 "CPU_PARALLEL": 1,
-                "HIGHWAY": 8,
-                "MAP": 24,
-                "SEQUENTIAL": 15,
-                "FOR": 29,
-                "Malloc": 11,
-            },
-            non_critical=True,
+                "HIGHWAY": 10,
+                "MAP": 32,
+                "SEQUENTIAL": 21,
+                "FOR": 37,
+                "Malloc": 19,
+            }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
@@ -115,12 +112,11 @@ def test_adi(target):
                 "Free": 5,
                 "CUDA": 2,
                 "CUDAOffloading": 4,
-                "MAP": 24,
-                "SEQUENTIAL": 22,
-                "FOR": 29,
-                "Malloc": 11,
-            },
-            non_critical=True,
+                "MAP": 32,
+                "SEQUENTIAL": 30,
+                "FOR": 37,
+                "Malloc": 19,
+            }
         )
     else:  # rocm
         verifier = SDFGVerification(
@@ -132,8 +128,7 @@ def test_adi(target):
                 "SEQUENTIAL": 22,
                 "FOR": 29,
                 "Malloc": 11,
-            },
-            non_critical=True,
+            }
         )
 
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

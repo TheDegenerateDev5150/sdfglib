@@ -55,9 +55,7 @@ def test_seidel_2d(target):
             verification={"MAP": 1, "SEQUENTIAL": 1, "FOR": 4}, non_critical=True
         )
     else:  # rocm
-        verifier = SDFGVerification(
-            verification={"MAP": 1, "SEQUENTIAL": 1, "FOR": 4}, non_critical=True
-        )
+        verifier = SDFGVerification(verification={"MAP": 1, "SEQUENTIAL": 1, "FOR": 4})
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 
 

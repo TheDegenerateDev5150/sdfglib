@@ -18,7 +18,7 @@ MallocNode::MallocNode(
           LibraryNodeType_Malloc,
           {"_ret"},
           {},
-          true,
+          true, // debatable. Its a big change and we may want it as a flag
           data_flow::ImplementationType_NONE
       ),
       size_(size) {}

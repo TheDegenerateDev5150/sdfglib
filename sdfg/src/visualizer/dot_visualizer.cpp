@@ -281,6 +281,10 @@ void DotVisualizer::visualize() {
     this->stream_ << "}" << std::endl;
 }
 
+void DotVisualizer::writeToFile(const StructuredSDFG& sdfg, const std::filesystem::path& file) {
+    writeToFile(sdfg, &file);
+}
+
 void DotVisualizer::writeToFile(const StructuredSDFG& sdfg, const std::filesystem::path* file) {
     DotVisualizer viz(sdfg);
     viz.visualize();

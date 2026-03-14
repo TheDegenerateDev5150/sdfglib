@@ -6,6 +6,7 @@
 
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/codegen/language_extensions/cpp_language_extension.h"
+#include "sdfg_debug_dump.h"
 
 using namespace sdfg;
 
@@ -26,6 +27,8 @@ TEST(SymbolPromotionTest, Assign_Signed) {
     builder.add_computational_memlet(block, input_node, tasklet, "_in", {});
     builder.add_computational_memlet(block, tasklet, "_out", output_node, {});
 
+    dump_sdfg(builder.subject(), "0-before");
+
     auto sdfg = builder.move();
 
     // Apply pass
@@ -33,6 +36,8 @@ TEST(SymbolPromotionTest, Assign_Signed) {
     analysis::AnalysisManager analysis_manager(builder_opt.subject());
     passes::SymbolPromotion s2spass;
     EXPECT_TRUE(s2spass.run(builder_opt, analysis_manager));
+
+    dump_sdfg(builder_opt.subject(), "1-after");
     sdfg = builder_opt.move();
 
     // Check result
