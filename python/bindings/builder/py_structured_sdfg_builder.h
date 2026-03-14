@@ -1,8 +1,11 @@
 #pragma once
 
 #include <sdfg/builder/structured_sdfg_builder.h>
+#include <sdfg/data_flow/access_node.h>
+#include <sdfg/data_flow/library_node.h>
 #include <sdfg/data_flow/library_nodes/math/math.h>
 #include <sdfg/data_flow/tasklet.h>
+#include <sdfg/structured_control_flow/block.h>
 #include <sdfg/structured_control_flow/control_flow_node.h>
 #include <sdfg/structured_control_flow/for.h>
 #include <sdfg/structured_control_flow/if_else.h>
@@ -91,19 +94,23 @@ public:
 
     /***** Dataflow *****/
 
-    size_t add_block(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::structured_control_flow::Block& add_block(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
-    size_t add_access(size_t block_ptr, const std::string& name, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::data_flow::AccessNode& add_access(
+        sdfg::structured_control_flow::Block& block,
+        const std::string& name,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
 
-    size_t add_constant(
-        size_t block_ptr,
+    sdfg::data_flow::ConstantNode& add_constant(
+        sdfg::structured_control_flow::Block& block,
         const std::string& value,
         const sdfg::types::IType& type,
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
-    size_t add_tasklet(
-        size_t block_ptr,
+    sdfg::data_flow::Tasklet& add_tasklet(
+        sdfg::structured_control_flow::Block& block,
         sdfg::data_flow::TaskletCode code,
         const std::vector<std::string>& inputs,
         const std::vector<std::string>& outputs,
@@ -111,10 +118,10 @@ public:
     );
 
     void add_memlet(
-        size_t block_ptr,
-        size_t src_ptr,
+        sdfg::structured_control_flow::Block& block,
+        sdfg::data_flow::DataFlowNode& src,
         const std::string& src_conn,
-        size_t dst_ptr,
+        sdfg::data_flow::DataFlowNode& dst,
         const std::string& dst_conn,
         const std::string& subset = "",
         const sdfg::types::IType* type = nullptr,
@@ -122,9 +129,9 @@ public:
     );
 
     void add_reference_memlet(
-        size_t block_ptr,
-        size_t src_ptr,
-        size_t dst_ptr,
+        sdfg::structured_control_flow::Block& block,
+        sdfg::data_flow::AccessNode& src,
+        sdfg::data_flow::AccessNode& dst,
         const std::string& subset = "",
         const sdfg::types::IType* type = nullptr,
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
@@ -132,25 +139,34 @@ public:
 
     /***** Library Nodes *****/
 
-    size_t add_cmath(
-        size_t block_ptr,
+    sdfg::data_flow::LibraryNode& add_cmath(
+        sdfg::structured_control_flow::Block& block,
         sdfg::math::cmath::CMathFunction func,
         sdfg::types::PrimitiveType primitive_type,
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
-    size_t add_malloc(size_t block_ptr, const std::string& size, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::data_flow::LibraryNode& add_malloc(
+        sdfg::structured_control_flow::Block& block,
+        const std::string& size,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
 
-    size_t add_memset(
-        size_t block_ptr,
+    sdfg::data_flow::LibraryNode& add_memset(
+        sdfg::structured_control_flow::Block& block,
         const std::string& value,
         const std::string& num,
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
-    size_t add_memcpy(size_t block_ptr, const std::string& count, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::data_flow::LibraryNode& add_memcpy(
+        sdfg::structured_control_flow::Block& block,
+        const std::string& count,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
 
-    size_t add_free(size_t block_ptr, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::data_flow::LibraryNode&
+    add_free(sdfg::structured_control_flow::Block& block, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
     /**
      * @brief Check if a size expression only depends on function arguments (hoistable to function entry)
@@ -162,9 +178,9 @@ public:
     /**
      * @brief Insert a block at the very beginning of the root sequence
      * @param debug_info Optional debug info
-     * @return Pointer to the newly created block
+     * @return Reference to the newly created block
      */
-    size_t insert_block_at_root_start(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
+    sdfg::structured_control_flow::Block& insert_block_at_root_start(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
     void add_gemm(
         const std::string& A,

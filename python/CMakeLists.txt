@@ -8,7 +8,12 @@ set(PYTHON_SOURCES
     bindings/bindings.cpp
     bindings/py_structured_sdfg.cpp
     bindings/builder/py_structured_sdfg_builder.cpp
+    bindings/control_flow/py_control_flow.cpp
     bindings/data_flow/py_cmath.cpp
+    bindings/data_flow/py_code_node.cpp
+    bindings/data_flow/py_data_flow_graph.cpp
+    bindings/data_flow/py_data_flow_node.cpp
+    bindings/data_flow/py_memlet.cpp
     bindings/data_flow/py_tasklet.cpp
     bindings/targets/target_mapping.cpp
     bindings/types/py_types.cpp
