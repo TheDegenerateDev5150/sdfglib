@@ -94,7 +94,8 @@ void PyStructuredSDFGBuilder::
     builder_.add_constant_return(current_sequence(), value, type, {}, debug_info);
 }
 
-void PyStructuredSDFGBuilder::begin_if(const std::string& condition, const sdfg::DebugInfo& debug_info) {
+sdfg::structured_control_flow::IfElse& PyStructuredSDFGBuilder::
+    begin_if(const std::string& condition, const sdfg::DebugInfo& debug_info) {
     auto& parent = current_sequence();
     auto cond_expr = parse_and_expand(condition);
 
@@ -107,6 +108,8 @@ void PyStructuredSDFGBuilder::begin_if(const std::string& condition, const sdfg:
     auto& then_block = builder_.add_case(if_node, cond_bool, debug_info);
 
     scope_stack.push_back({&then_block, &if_node, 0});
+
+    return if_node;
 }
 
 void PyStructuredSDFGBuilder::begin_else(const sdfg::DebugInfo& debug_info) {
@@ -133,13 +136,15 @@ void PyStructuredSDFGBuilder::end_if() {
     scope_stack.pop_back();
 }
 
-void PyStructuredSDFGBuilder::begin_while(const sdfg::DebugInfo& debug_info) {
+sdfg::structured_control_flow::While& PyStructuredSDFGBuilder::begin_while(const sdfg::DebugInfo& debug_info) {
     auto& parent = current_sequence();
     auto& while_node = builder_.add_while(parent, {}, debug_info);
 
     auto& while_body = while_node.root();
 
     scope_stack.push_back({&while_body, &while_node, 0});
+
+    return while_node;
 }
 
 void PyStructuredSDFGBuilder::add_break(const sdfg::DebugInfo& debug_info) {
@@ -161,7 +166,7 @@ void PyStructuredSDFGBuilder::end_while() {
     scope_stack.pop_back();
 }
 
-void PyStructuredSDFGBuilder::begin_for(
+sdfg::structured_control_flow::For& PyStructuredSDFGBuilder::begin_for(
     const std::string& var,
     const std::string& start,
     const std::string& end,
@@ -195,6 +200,8 @@ void PyStructuredSDFGBuilder::begin_for(
     auto& for_node = builder_.add_for(parent, var_sym, condition, start_expr, update, {}, debug_info);
 
     scope_stack.push_back({&for_node.root(), &for_node, 0});
+
+    return for_node;
 }
 
 void PyStructuredSDFGBuilder::end_for() {

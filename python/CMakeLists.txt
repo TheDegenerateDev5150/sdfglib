@@ -16,6 +16,7 @@ set(PYTHON_SOURCES
     bindings/data_flow/py_memlet.cpp
     bindings/data_flow/py_tasklet.cpp
     bindings/targets/target_mapping.cpp
+    bindings/transformations/py_transformations.cpp
     bindings/types/py_types.cpp
 )
 

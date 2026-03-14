@@ -23,6 +23,7 @@
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/targets/cuda/plugin.h"
 #include "transformations/py_replayer.h"
+#include "transformations/py_transformations.h"
 #include "types/py_types.h"
 
 #include <sdfg/data_flow/tasklet.h>
@@ -78,6 +79,7 @@ PYBIND11_MODULE(_sdfg, m) {
     register_cmath(m);
     register_analysis(m);
     register_replayer(m);
+    register_transformations(m);
 
     py::class_<sdfg::passes::rpc::RpcContext>(m, "RpcContext");
 
@@ -251,11 +253,17 @@ PYBIND11_MODULE(_sdfg, m) {
             "begin_if",
             &PyStructuredSDFGBuilder::begin_if,
             py::arg("condition"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def("begin_else", &PyStructuredSDFGBuilder::begin_else, py::arg("debug_info") = sdfg::DebugInfo())
         .def("end_if", &PyStructuredSDFGBuilder::end_if)
-        .def("begin_while", &PyStructuredSDFGBuilder::begin_while, py::arg("debug_info") = sdfg::DebugInfo())
+        .def(
+            "begin_while",
+            &PyStructuredSDFGBuilder::begin_while,
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
+        )
         .def("add_break", &PyStructuredSDFGBuilder::add_break, py::arg("debug_info") = sdfg::DebugInfo())
         .def("add_continue", &PyStructuredSDFGBuilder::add_continue, py::arg("debug_info") = sdfg::DebugInfo())
         .def("end_while", &PyStructuredSDFGBuilder::end_while)
@@ -266,7 +274,8 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("start"),
             py::arg("end"),
             py::arg("step"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def("end_for", &PyStructuredSDFGBuilder::end_for)
         .def(
