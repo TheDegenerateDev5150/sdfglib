@@ -374,5 +374,7 @@ inline void register_analysis(py::module& m) {
         return "<TypeAnalysis>";
     });
 
-    py::class_<PyUsers>(m, "Users").def("__repr__", [](const PyUsers&) { return "<Users>"; });
+    py::class_<PyUsers>(m, "Users")
+        .def_property_readonly("_ptr", &PyUsers::ptr, "Get native pointer to Users analysis for external plugin use")
+        .def("__repr__", [](const PyUsers&) { return "<Users>"; });
 }
