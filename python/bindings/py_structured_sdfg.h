@@ -71,4 +71,10 @@ public:
     std::string metadata(const std::string& key) const;
 
     pybind11::dict loop_report() const;
+
+    std::string to_json() const;
+
+    std::string to_dot() const;
+
+    std::string to_cpp() const;
 };

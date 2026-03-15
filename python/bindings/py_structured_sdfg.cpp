@@ -605,3 +605,45 @@ pybind11::dict PyStructuredSDFG::loop_report() const {
 
     return result;
 }
+
+std::string PyStructuredSDFG::to_json() const {
+    sdfg::serializer::JSONSerializer serializer;
+    nlohmann::json j = serializer.serialize(*sdfg_);
+    return j.dump();
+}
+
+std::string PyStructuredSDFG::to_dot() const {
+    sdfg::visualizer::DotVisualizer viz(*sdfg_);
+    viz.visualize();
+    return viz.getStream().str();
+}
+
+std::string PyStructuredSDFG::to_cpp() const {
+    sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+
+    auto instrumentation_plan = sdfg::codegen::InstrumentationPlan::none(*sdfg_);
+    auto arg_capture_plan = sdfg::codegen::ArgCapturePlan::none(*sdfg_);
+
+    std::shared_ptr<sdfg::codegen::CodeSnippetFactory> snippet_factory =
+        std::make_shared<sdfg::codegen::CodeSnippetFactory>();
+
+    sdfg::codegen::CPPCodeGenerator
+        generator(*sdfg_, analysis_manager, *instrumentation_plan, *arg_capture_plan, snippet_factory);
+    generator.generate();
+
+    std::ostringstream oss;
+    // Header section
+    oss << "#pragma once" << std::endl;
+    oss << generator.includes().str() << std::endl;
+    oss << generator.classes().str() << std::endl;
+
+    // Source section
+    oss << generator.globals().str() << std::endl;
+    oss << generator.function_definition() << std::endl;
+    oss << "{" << std::endl;
+    oss << generator.main().str() << std::endl;
+    oss << "}" << std::endl;
+
+    return oss.str();
+}
