@@ -41,6 +41,10 @@ PyStructuredSDFGBuilder::PyStructuredSDFGBuilder(const std::string& name, const 
     scope_stack.push_back({&builder_.subject().root(), nullptr, -1});
 }
 
+PyStructuredSDFGBuilder::PyStructuredSDFGBuilder(PyStructuredSDFG& sdfg) : builder_(sdfg.sdfg()) {
+    scope_stack.push_back({&builder_.subject().root(), nullptr, -1});
+}
+
 PyStructuredSDFG PyStructuredSDFGBuilder::move() {
     sdfg::analysis::AnalysisManager analysis_manager(builder_.subject());
     sdfg::passes::DebugInfoPropagation debug_info_propagation_pass;

@@ -33,6 +33,7 @@ private:
 public:
     PyStructuredSDFGBuilder(const std::string& name);
     PyStructuredSDFGBuilder(const std::string& name, const sdfg::types::IType& return_type);
+    PyStructuredSDFGBuilder(PyStructuredSDFG& sdfg);
 
     sdfg::builder::StructuredSDFGBuilder& builder() { return builder_; }
 

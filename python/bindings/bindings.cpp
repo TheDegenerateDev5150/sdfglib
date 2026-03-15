@@ -206,6 +206,7 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("return_type"),
             "Create a StructuredSDFGBuilder with the given name and return type"
         )
+        .def(py::init<PyStructuredSDFG&>(), py::arg("sdfg"), "Create a StructuredSDFGBuilder to modify an existing SDFG")
         .def("move", &PyStructuredSDFGBuilder::move, "Move the built StructuredSDFG and return it")
         .def(
             "add_container",
