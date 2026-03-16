@@ -238,13 +238,143 @@ inline void register_analysis(py::module& m) {
         return "<FlopAnalysis>";
     });
 
-    py::class_<PyLoopAnalysis>(m, "LoopAnalysis").def("__repr__", [](const PyLoopAnalysis&) {
-        return "<LoopAnalysis>";
-    });
+    // LoopInfo struct binding
+    py::class_<sdfg::analysis::LoopInfo>(m, "LoopInfo")
+        .def_readonly("loopnest_index", &sdfg::analysis::LoopInfo::loopnest_index, "Index of the loop nest (-1 if none)")
+        .def_readonly("element_id", &sdfg::analysis::LoopInfo::element_id, "Element ID of the loop")
+        .def_readonly("num_loops", &sdfg::analysis::LoopInfo::num_loops, "Total number of loops in the nest")
+        .def_readonly("num_maps", &sdfg::analysis::LoopInfo::num_maps, "Number of Map nodes in the nest")
+        .def_readonly("num_fors", &sdfg::analysis::LoopInfo::num_fors, "Number of For nodes in the nest")
+        .def_readonly("num_whiles", &sdfg::analysis::LoopInfo::num_whiles, "Number of While nodes in the nest")
+        .def_readonly("max_depth", &sdfg::analysis::LoopInfo::max_depth, "Maximum depth of the loop nest")
+        .def_readonly(
+            "is_perfectly_nested",
+            &sdfg::analysis::LoopInfo::is_perfectly_nested,
+            "Whether the loop is perfectly nested"
+        )
+        .def_readonly(
+            "is_perfectly_parallel",
+            &sdfg::analysis::LoopInfo::is_perfectly_parallel,
+            "Whether the loop is perfectly parallel"
+        )
+        .def_readonly("is_elementwise", &sdfg::analysis::LoopInfo::is_elementwise, "Whether the loop is elementwise")
+        .def_readonly(
+            "has_side_effects", &sdfg::analysis::LoopInfo::has_side_effects, "Whether the loop has side effects"
+        )
+        .def("__repr__", [](const sdfg::analysis::LoopInfo& info) {
+            std::ostringstream oss;
+            oss << "<LoopInfo element_id=" << info.element_id << " num_loops=" << info.num_loops
+                << " max_depth=" << info.max_depth
+                << " is_perfectly_nested=" << (info.is_perfectly_nested ? "True" : "False") << ">";
+            return oss.str();
+        });
+
+    // LoopAnalysis binding with all methods
+    py::class_<PyLoopAnalysis>(m, "LoopAnalysis")
+        .def(
+            "loops", &PyLoopAnalysis::loops, py::return_value_policy::reference, "Get all loops in the SDFG in DFS order"
+        )
+        .def("loop_info", &PyLoopAnalysis::loop_info, py::arg("loop"), "Get loop information for a specific loop")
+        .def(
+            "find_loop_by_indvar",
+            &PyLoopAnalysis::find_loop_by_indvar,
+            py::arg("indvar"),
+            py::return_value_policy::reference,
+            "Find a loop by its induction variable name"
+        )
+        .def(
+            "parent_loop",
+            &PyLoopAnalysis::parent_loop,
+            py::arg("loop"),
+            py::return_value_policy::reference,
+            "Get the parent loop of a given loop (None if outermost)"
+        )
+        .def(
+            "outermost_loops",
+            &PyLoopAnalysis::outermost_loops,
+            py::return_value_policy::reference,
+            "Get all outermost loops (loops with no parent loop)"
+        )
+        .def(
+            "is_outermost_loop",
+            &PyLoopAnalysis::is_outermost_loop,
+            py::arg("loop"),
+            "Check if a loop is an outermost loop"
+        )
+        .def(
+            "outermost_maps",
+            &PyLoopAnalysis::outermost_maps,
+            py::return_value_policy::reference,
+            "Get all outermost Map nodes"
+        )
+        .def(
+            "children",
+            &PyLoopAnalysis::children,
+            py::arg("node"),
+            py::return_value_policy::reference,
+            "Get the immediate child loops of a given loop"
+        )
+        .def(
+            "descendants",
+            [](PyLoopAnalysis& self, sdfg::structured_control_flow::ControlFlowNode* loop) {
+                auto desc = self.descendants(loop);
+                return std::vector<sdfg::structured_control_flow::ControlFlowNode*>(desc.begin(), desc.end());
+            },
+            py::arg("loop"),
+            py::return_value_policy::reference,
+            "Get all descendant loops of a given loop"
+        )
+        .def(
+            "loop_tree_paths",
+            [](PyLoopAnalysis& self, sdfg::structured_control_flow::ControlFlowNode* loop) {
+                auto paths = self.loop_tree_paths(loop);
+                return std::vector<
+                    std::vector<sdfg::structured_control_flow::ControlFlowNode*>>(paths.begin(), paths.end());
+            },
+            py::arg("loop"),
+            py::return_value_policy::reference,
+            "Get all paths from the given loop to leaf loops in the loop tree"
+        )
+        .def_static(
+            "is_monotonic",
+            [](sdfg::structured_control_flow::StructuredLoop* loop, PyAssumptionsAnalysis& assumptions) {
+                return PyLoopAnalysis::is_monotonic(loop, assumptions.analysis());
+            },
+            py::arg("loop"),
+            py::arg("assumptions_analysis"),
+            "Check if a loop's update is monotonic"
+        )
+        .def_static(
+            "is_contiguous",
+            [](sdfg::structured_control_flow::StructuredLoop* loop, PyAssumptionsAnalysis& assumptions) {
+                return PyLoopAnalysis::is_contiguous(loop, assumptions.analysis());
+            },
+            py::arg("loop"),
+            py::arg("assumptions_analysis"),
+            "Check if a loop's update is contiguous"
+        )
+        .def_static(
+            "canonical_bound",
+            [](sdfg::structured_control_flow::StructuredLoop* loop, PyAssumptionsAnalysis& assumptions) {
+                return PyLoopAnalysis::canonical_bound(loop, assumptions.analysis());
+            },
+            py::arg("loop"),
+            py::arg("assumptions_analysis"),
+            "Get the canonical bound of a loop as a closed-form expression (empty string if not computable)"
+        )
+        .def_static(
+            "stride",
+            &PyLoopAnalysis::stride,
+            py::arg("loop"),
+            "Get the stride of a loop's update (empty string if not computable)"
+        )
+        .def("__repr__", [](const PyLoopAnalysis&) { return "<LoopAnalysis>"; });
 
     py::class_<PyTypeAnalysis>(m, "TypeAnalysis").def("__repr__", [](const PyTypeAnalysis&) {
         return "<TypeAnalysis>";
     });
 
-    py::class_<PyUsers>(m, "Users").def("__repr__", [](const PyUsers&) { return "<Users>"; });
+    py::class_<PyUsers>(m, "Users")
+        .def_property_readonly("_ptr", &PyUsers::ptr, "Get native pointer to Users analysis for external plugin use")
+        .def("__repr__", [](const PyUsers&) { return "<Users>"; });
 }

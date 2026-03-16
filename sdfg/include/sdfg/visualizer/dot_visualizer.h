@@ -37,6 +37,7 @@ public:
 
     virtual void visualize() override;
 
+    static void writeToFile(const StructuredSDFG& sdfg, const std::filesystem::path& file);
     static void writeToFile(const StructuredSDFG& sdfg, const std::filesystem::path* file = nullptr);
 };
 

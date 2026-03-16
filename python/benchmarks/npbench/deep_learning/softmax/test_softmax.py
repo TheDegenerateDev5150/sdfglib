@@ -42,34 +42,37 @@ def test_softmax(target):
     if target == "none":
         verifier = SDFGVerification(
             verification={
+                "Free": 3,
                 "CMath": 2,
-                "SEQUENTIAL": 25,
-                "FOR": 30,
-                "MAP": 25,
-                "Malloc": 5,
+                "SEQUENTIAL": 17,
+                "FOR": 22,
+                "MAP": 17,
+                "Malloc": 3,
             }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
+                "Free": 3,
                 "CMath": 2,
-                "HIGHWAY": 6,
-                "SEQUENTIAL": 19,
-                "FOR": 30,
-                "MAP": 25,
-                "Malloc": 5,
+                "HIGHWAY": 4,
+                "SEQUENTIAL": 13,
+                "FOR": 22,
+                "MAP": 17,
+                "Malloc": 3,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 6,
+                "Free": 3,
+                "HIGHWAY": 4,
                 "CMath": 2,
-                "CPU_PARALLEL": 7,
-                "SEQUENTIAL": 12,
-                "FOR": 30,
-                "MAP": 25,
-                "Malloc": 5,
+                "CPU_PARALLEL": 5,
+                "SEQUENTIAL": 8,
+                "FOR": 22,
+                "MAP": 17,
+                "Malloc": 3,
             }
         )
     elif target == "cuda":

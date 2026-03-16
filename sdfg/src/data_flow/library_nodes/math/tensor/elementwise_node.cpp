@@ -2,6 +2,8 @@
 
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
+#include "sdfg/data_flow/tasklet.h"
+#include "sdfg/types/type.h"
 
 #include "sdfg/analysis/scope_analysis.h"
 
@@ -236,6 +238,29 @@ symbolic::SymbolSet ElementWiseBinaryNode::symbols() const {
 void ElementWiseBinaryNode::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {
     for (auto& dim : shape_) {
         dim = symbolic::subs(dim, old_expression, new_expression);
+    }
+}
+
+void ElementWiseBinaryNode::create_input_memlet(
+    builder::StructuredSDFGBuilder& builder,
+    const std::string& input_conn,
+    const std::string& input_name,
+    const types::Tensor& input_type,
+    const data_flow::Subset& subset,
+    structured_control_flow::Block& code_block,
+    data_flow::CodeNode& code_node
+) {
+    if (builder.subject().exists(input_name)) {
+        auto& input_node = builder.add_access(code_block, input_name);
+        if (input_type.is_scalar()) {
+            builder.add_computational_memlet(code_block, input_node, code_node, input_conn, {}, input_type);
+        } else {
+            builder.add_computational_memlet(code_block, input_node, code_node, input_conn, subset, input_type);
+        }
+    } else {
+        types::Scalar const_type(input_type.primitive_type());
+        auto& input_node = builder.add_constant(code_block, input_name, const_type);
+        builder.add_computational_memlet(code_block, input_node, code_node, input_conn, {}, input_type);
     }
 }
 

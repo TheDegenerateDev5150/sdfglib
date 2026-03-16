@@ -6,11 +6,6 @@ from docc.python import native
 
 
 def test_softmax_simple():
-    def numpy_softmax(x, axis=None):
-        x_max = np.max(x, axis=axis, keepdims=True)
-        e_x = np.exp(x - x_max)
-        return e_x / np.sum(e_x, axis=axis, keepdims=True)
-
     @native
     def softmax_simple(
         A,
@@ -20,15 +15,11 @@ def test_softmax_simple():
     A = np.random.rand(10, 10).astype(np.float64)
     A_ = A.copy()
     res = softmax_simple(A)
-    assert np.allclose(res, numpy_softmax(A_, axis=0))
+    res_ = scipy.special.softmax(A_, axis=0)
+    assert np.allclose(res, res_)
 
 
 def test_softmax_all():
-    def numpy_softmax(x, axis=None):
-        x_max = np.max(x, axis=axis, keepdims=True)
-        e_x = np.exp(x - x_max)
-        return e_x / np.sum(e_x, axis=axis, keepdims=True)
-
     @native
     def softmax_all(
         A,
@@ -38,4 +29,5 @@ def test_softmax_all():
     A = np.random.rand(10, 10).astype(np.float64)
     A_ = A.copy()
     res = softmax_all(A)
-    assert np.allclose(res, numpy_softmax(A_))
+    res_ = scipy.special.softmax(A_)
+    assert np.allclose(res, res_)

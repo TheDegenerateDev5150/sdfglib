@@ -1,7 +1,10 @@
 #include "sdfg/passes/dataflow/dead_data_elimination.h"
 
+#include "sdfg/analysis/base_user_visitor.h"
 #include "sdfg/analysis/data_dependency_analysis.h"
+#include "sdfg/data_flow/library_nodes/stdlib/free.h"
 #include "sdfg/data_flow/library_nodes/stdlib/malloc.h"
+#include "sdfg/visitor/structured_sdfg_visitor.h"
 #include "sdfg/visualizer/dot_visualizer.h"
 
 namespace sdfg {
@@ -13,15 +16,368 @@ DeadDataElimination::DeadDataElimination(bool permissive) : Pass(), permissive_(
 
 std::string DeadDataElimination::name() { return "DeadDataElimination"; };
 
+/**
+ * Finds memory areas (heap for now) that are wholly owned by the surrounding function. Owned memory can be removed if
+ * its no longer used, writes to it can be ellided if the data is never read. This is not true for memory writes in
+ * general, as you must prove no reference to that data ever escapes our control
+ */
+class MemoryOwnershipAnalysis : public analysis::BaseUserVisitor {
+    enum class BlockerType { Escape, Overwrite };
+
+    struct FreeCluster {
+        const Block* block;
+        const data_flow::Memlet* in;
+        const data_flow::Memlet* out;
+    };
+
+    struct OwnedArea {
+        data_flow::Memlet* producer;
+        structured_control_flow::Block* producer_block;
+        symbolic::Expression allocation_size;
+        bool non_ssa = false;
+        std::vector<FreeCluster> free_clusters;
+        void remove_from(builder::StructuredSDFGBuilder& builder) const;
+    };
+
+private:
+    StructuredSDFG& sdfg_;
+    // memory that is allocated by us and therefore 'owned' until it escapes
+    std::unordered_map<std::string, OwnedArea> originally_owned_data_;
+    std::unordered_map<std::string, std::unordered_map<const Element*, BlockerType>> blockers_;
+    std::unordered_set<std::string> fully_owned_; // never escaped
+
+public:
+    MemoryOwnershipAnalysis(StructuredSDFG& sdfg);
+
+    void run(analysis::AnalysisManager& manager);
+
+    bool visit(sdfg::structured_control_flow::Block& node) override;
+
+    void useAsSymbolWrite(const symbolic::Symbol& container, const Element* user, SymbolWriteLocation loc) override;
+    void useAsSymbolRead(
+        const std::string& container,
+        const Element* user,
+        SymbolReadLocation loc,
+        int loc_index,
+        symbolic::Expression expr
+    ) override;
+    void useAsSrcNode(
+        const std::string& container,
+        const data_flow::AccessNode& node,
+        const data_flow::Memlet& edge,
+        const Block& block
+    ) override;
+    void useAsDstNode(
+        const std::string& container,
+        const data_flow::AccessNode& node,
+        const data_flow::Memlet& edge,
+        const Block& block
+    ) override;
+    void useAsReturnSrc(const std::string& container, const Return& ret) override;
+
+    const std::unordered_set<std::string>& fully_owned_areas() const { return fully_owned_; }
+
+    const OwnedArea& owned_area(const std::string& container) const { return originally_owned_data_.at(container); }
+
+private:
+    static bool excusedEscape(const Element* element, const OwnedArea& area);
+    static bool excusedOverwrite(const Element* element, const OwnedArea& area);
+};
+
+void MemoryOwnershipAnalysis::OwnedArea::remove_from(builder::StructuredSDFGBuilder& builder) const {
+    auto& malloc_write = this->producer->dst();
+    auto& malloc_node = this->producer->src();
+    builder.clear_node(
+        *this->producer_block, dynamic_cast<data_flow::AccessNode&>(malloc_write), {&malloc_write, &malloc_node}
+    );
+
+    for (auto& free_cluster : this->free_clusters) {
+        auto& memlet = *free_cluster.out;
+        builder.clear_node(*const_cast<Block*>(free_cluster.block), memlet.dst(), {&memlet.dst(), &memlet.src()});
+    }
+}
+
+MemoryOwnershipAnalysis::MemoryOwnershipAnalysis(StructuredSDFG& sdfg) : sdfg_(sdfg) {}
+
+bool MemoryOwnershipAnalysis::excusedEscape(const Element* element, const OwnedArea& area) {
+    // An escape is excused if it matches the input edge of one of the free_clusters.
+    // Reading the pointer to pass it to free() is not a real escape.
+    for (const auto& cluster : area.free_clusters) {
+        if (element == cluster.in) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MemoryOwnershipAnalysis::excusedOverwrite(const Element* element, const OwnedArea& area) {
+    // The producer (malloc output edge) is an excused overwrite — it's the initial assignment.
+    if (element == area.producer) {
+        return true;
+    }
+    // The output edge of a free cluster is an excused overwrite — free sets the pointer
+    // to NULL (a fake overwrite that doesn't represent a meaningful reassignment).
+    for (const auto& cluster : area.free_clusters) {
+        if (element == cluster.out) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+void MemoryOwnershipAnalysis::run(analysis::AnalysisManager& manager) {
+    dispatch(sdfg_.root());
+
+    for (auto& [name, area] : originally_owned_data_) {
+        if (!area.non_ssa && area.allocation_size != SymEngine::null) {
+            auto it = blockers_.find(name);
+            if (it != blockers_.end()) {
+                bool killed = false;
+                for (auto& [element, type] : it->second) {
+                    if (type == BlockerType::Escape) {
+                        if (!excusedEscape(element, area)) {
+                            killed = true;
+                            break;
+                        }
+                    } else if (type == BlockerType::Overwrite) {
+                        if (!excusedOverwrite(element, area)) {
+                            killed = true;
+                            break;
+                        }
+                    }
+                }
+                if (!killed) {
+                    fully_owned_.insert(name);
+                }
+            } else {
+                fully_owned_.insert(name);
+            }
+        }
+    }
+}
+
+
+bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Block& node) {
+    auto& dflow = node.dataflow();
+    for (auto& library_node : dflow.library_nodes()) {
+        if (library_node->code() == stdlib::LibraryNodeType_Malloc) {
+            auto* malloc_node = dynamic_cast<const stdlib::MallocNode*>(library_node);
+            auto& alloc_size = malloc_node->size();
+            auto output_conn = malloc_node->output(0);
+            auto oedges = dflow.out_edges(*malloc_node) |
+                          std::views::filter([&](const auto& e) { return e.src_conn() == output_conn; });
+            for (auto& oedge : oedges) {
+                auto* access_node = dynamic_cast<data_flow::AccessNode*>(&oedge.dst());
+                if (access_node && oedge.is_dst_write()) {
+                    auto container = access_node->data();
+                    auto it = originally_owned_data_.find(container);
+                    if (it != originally_owned_data_.end()) {
+                        auto& area = it->second;
+                        area.non_ssa = true;
+                        area.allocation_size = SymEngine::null;
+                        area.producer_block = nullptr;
+                        area.producer = nullptr;
+                        std::cerr << "Conflicting ownership of " << container << std::endl;
+                        continue;
+                    }
+                    originally_owned_data_.emplace(
+                        std::piecewise_construct,
+                        std::forward_as_tuple(container),
+                        std::forward_as_tuple(&oedge, &node, alloc_size, false)
+                    );
+                }
+            }
+        } else if (library_node->code() == stdlib::LibraryNodeType_Free) {
+            auto* free_node = dynamic_cast<const stdlib::FreeNode*>(library_node);
+            auto input = dflow.in_edge_for_connector(*free_node, free_node->input(0));
+            auto outputs = dflow.out_edges_for_connector(*free_node, free_node->output(0));
+            if (input && outputs.size() == 1) {
+                auto* in_access = dynamic_cast<const data_flow::AccessNode*>(&input->src());
+                auto* out_access = dynamic_cast<const data_flow::AccessNode*>(&outputs.at(0)->dst());
+
+                if (in_access && out_access && in_access->data() == out_access->data()) {
+                    auto& container = in_access->data();
+                    if (sdfg_.type(container).type_id() == types::TypeID::Pointer) {
+                        auto area_it = originally_owned_data_.find(container);
+                        if (area_it != originally_owned_data_.end()) { // we scan in execution order. Malloc needs to
+                                                                       // have been found before
+                            auto& area = area_it->second;
+                            area.free_clusters.emplace_back(&node, input, outputs[0]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return BaseUserVisitor::visit(node);
+}
+
+
+void MemoryOwnershipAnalysis::useAsReturnSrc(const std::string& container, const Return& ret) {
+    if (sdfg_.type(container).type_id() == types::TypeID::Pointer) {
+        blockers_[container].emplace(&ret, BlockerType::Escape);
+    }
+}
+
+void MemoryOwnershipAnalysis::
+    useAsSymbolWrite(const symbolic::Symbol& container, const Element* user, SymbolWriteLocation loc) {
+    auto name = container->get_name();
+    if (sdfg_.type(name).type_id() == types::TypeID::Pointer) {
+        blockers_[name].emplace(user, BlockerType::Overwrite);
+    }
+}
+
+void MemoryOwnershipAnalysis::useAsSymbolRead(
+    const std::string& container, const Element* user, SymbolReadLocation loc, int loc_index, symbolic::Expression expr
+) {
+    auto& type = sdfg_.type(container);
+    if (type.type_id() == types::TypeID::Pointer) {
+        blockers_[container].emplace(user, BlockerType::Escape);
+    }
+}
+
+void MemoryOwnershipAnalysis::useAsSrcNode(
+    const std::string& container, const data_flow::AccessNode& node, const data_flow::Memlet& edge, const Block& block
+) {
+    auto& type = sdfg_.type(container);
+    if (edge.is_src_pointed_to_address_leak(type) || edge.is_src_address_leak()) {
+        // pulls a reference to the owned memory area or can alias the entire pointer
+
+        blockers_[container].emplace(&edge, BlockerType::Escape); // it may not be, but this is the safest
+        // assumption. other passes can forward the original container and fold it into accesses
+    }
+}
+
+void MemoryOwnershipAnalysis::useAsDstNode(
+    const std::string& container, const data_flow::AccessNode& node, const data_flow::Memlet& edge, const Block& block
+) {
+    if (edge.is_dst_write()) { // writes to the ptr
+        auto& type = sdfg_.type(container);
+        if (type.type_id() == types::TypeID::Pointer) {
+            blockers_[container].emplace(&edge, BlockerType::Overwrite);
+        }
+    }
+}
+
+/**
+ * Does not care about other types of accesses.
+ * Presumes, that the data cannot alias and there is only one SSA-like instance of backing data.
+ * So that indirect reads and writes can be matched up with each other.
+ * Any read of the pointer or getting of an address is considered an escape for which aliasing cannot be excluded,
+ * in which case you must not rely on this analysis
+ */
+class IndirectMemoryAccessFinder : public analysis::BaseUserVisitor {
+private:
+    std::unordered_map<std::string, std::unordered_set<const data_flow::Memlet*>> indirect_reads_;
+    std::unordered_map<std::string, std::unordered_map<const data_flow::Memlet*, const Block*>> writes_to_remove_;
+    const std::unordered_set<std::string>& target_containers_;
+
+public:
+    IndirectMemoryAccessFinder(const std::unordered_set<std::string>& target_containers);
+
+    const std::unordered_map<std::string, std::unordered_set<const data_flow::Memlet*>>& indirect_reads() {
+        return indirect_reads_;
+    }
+    const std::unordered_map<std::string, std::unordered_map<const data_flow::Memlet*, const Block*>>& writes_to_remove() {
+        return writes_to_remove_;
+    }
+
+    void useAsSymbolRead(
+        const std::string& container,
+        const Element* user,
+        SymbolReadLocation loc,
+        int loc_index,
+        symbolic::Expression expr
+    ) override {}
+    void useAsSymbolWrite(const symbolic::Symbol& container, const Element* user, SymbolWriteLocation loc) override {}
+    void useAsSrcNode(
+        const std::string& container,
+        const data_flow::AccessNode& node,
+        const data_flow::Memlet& edge,
+        const Block& block
+    ) override;
+    void useAsDstNode(
+        const std::string& container,
+        const data_flow::AccessNode& node,
+        const data_flow::Memlet& edge,
+        const Block& block
+    ) override;
+    void useAsReturnSrc(const std::string& container, const Return& ret) override {}
+};
+
+IndirectMemoryAccessFinder::IndirectMemoryAccessFinder(const std::unordered_set<std::string>& target_containers)
+    : target_containers_(target_containers) {}
+
+void IndirectMemoryAccessFinder::useAsSrcNode(
+    const std::string& container, const data_flow::AccessNode& node, const data_flow::Memlet& edge, const Block& block
+) {
+    if (target_containers_.contains(container)) {
+        if (edge.is_src_pointed_to_read()) {
+            indirect_reads_[container].insert(&edge);
+        }
+    }
+}
+
+void IndirectMemoryAccessFinder::useAsDstNode(
+    const std::string& container, const data_flow::AccessNode& node, const data_flow::Memlet& edge, const Block& block
+) {
+    if (target_containers_.contains(container)) {
+        if (edge.is_dst_pointed_to_write()) {
+            writes_to_remove_[container][&edge] = &block;
+        }
+    }
+}
+
+
 bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     bool applied = false;
 
     auto& sdfg = builder.subject();
+
+    // Check for locally allocated memory that we "own" and understand (no reference to it escapes or can potentially
+    // alias)
+    MemoryOwnershipAnalysis ownership_analysis(sdfg);
+    ownership_analysis.run(analysis_manager);
+
+    std::unordered_set<std::string> dead_containers;
+
+    auto& fully_owned_areas = ownership_analysis.fully_owned_areas();
+    if (!fully_owned_areas.empty()) {
+        // We found pointered accesses, where we could prove that the pointer is unique and SSA-like, such that we may
+        // check accesses via the pointer as well
+        IndirectMemoryAccessFinder remaining_indirects(fully_owned_areas);
+        remaining_indirects.dispatch(sdfg.root());
+        for (auto& owned_area_id : fully_owned_areas) {
+            auto& all_reads = remaining_indirects.indirect_reads();
+            auto cont_reads_it = all_reads.find(owned_area_id);
+            if (cont_reads_it == all_reads.end() || cont_reads_it->second.empty()) {
+                DEBUG_PRINTLN("Removing fully owned memory " << owned_area_id << ", never used!");
+                auto writes = remaining_indirects.writes_to_remove();
+                // [owned_area] is never read, no reference to it escapes our control. So any write of it is useless
+                auto writes_it = writes.find(owned_area_id);
+                if (writes_it != writes.end()) {
+                    auto& to_remove = writes_it->second;
+                    for (auto& [edge_to_remove, w_block] : to_remove) {
+                        auto& write_node = dynamic_cast<const data_flow::AccessNode&>(edge_to_remove->dst());
+                        builder.clear_node(*const_cast<structured_control_flow::Block*>(w_block), write_node);
+                    }
+                }
+                // This is the malloc. We can remove this because we understand what malloc does. Otherwise the
+                // sideeffect flag would stop us from removing a libNode
+                auto& area = ownership_analysis.owned_area(owned_area_id);
+                area.remove_from(builder);
+                applied = true;
+            }
+        }
+    }
+
+    // slightly expensive, because for fully_owned_areas we already looked for uses. But classified differently and did
+    // not look at, whether the entire container can be removed
     auto& users = analysis_manager.get<analysis::Users>();
     auto& data_dependency_analysis = analysis_manager.get<analysis::DataDependencyAnalysis>();
 
-    // Eliminate dead code, i.e., never read
-    std::unordered_set<std::string> dead;
     for (auto& name : sdfg.containers()) {
         if (!sdfg.is_transient(name)) {
             continue;
@@ -30,8 +386,8 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
             continue;
         }
         auto num_reads = users.num_reads(name);
-        if (!num_reads && users.num_writes(name) == 0) {
-            dead.insert(name);
+        if (!num_reads && users.num_writes(name) == 0) { // no reference of [name] anywhere
+            dead_containers.insert(name);
             applied = true;
             continue;
         }
@@ -40,8 +396,8 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
             continue;
             // use analysis does not return actual reads and writes for pointers. So if [name] is a pointer,
             // num reads/writes, does not actually mean no reads exist and any removal is problematic
+            // more complex cases have been removed above already
         }
-
 
         bool completely_unused = !num_reads; // if there are reads left, we can never remove the container, but maybe
                                              // some writes
@@ -64,22 +420,11 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
                     could_eliminate_write = true;
                 } else if (auto access_node = dynamic_cast<data_flow::AccessNode*>(write->element())) {
                     auto& graph = access_node->get_parent();
+                    auto& block = dynamic_cast<structured_control_flow::Block&>(*graph.get_parent());
 
-                    auto& src = (*graph.in_edges(*access_node).begin()).src();
-                    if (auto tasklet = dynamic_cast<data_flow::Tasklet*>(&src)) {
-                        auto& block = dynamic_cast<structured_control_flow::Block&>(*graph.get_parent());
-                        builder.clear_node(block, *tasklet);
-                        applied = true;
-                        could_eliminate_write = true;
-                    } else if (auto library_node = dynamic_cast<data_flow::LibraryNode*>(&src)) {
-                        if (!library_node->side_effect() ||
-                            (permissive_ && library_node->code() == stdlib::LibraryNodeType_Malloc)) {
-                            auto& block = dynamic_cast<structured_control_flow::Block&>(*graph.get_parent());
-                            builder.clear_node(block, *library_node);
-                            applied = true;
-                            could_eliminate_write = true;
-                        }
-                    }
+                    builder.clear_node(block, *access_node);
+                    applied = true;
+                    could_eliminate_write = true;
                 }
 
                 completely_unused &= could_eliminate_write;
@@ -87,11 +432,11 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
         }
 
         if (completely_unused) { // no reads, and all remaining writes could be removed
-            dead.insert(name);
+            dead_containers.insert(name);
         }
     }
 
-    for (auto& name : dead) {
+    for (auto& name : dead_containers) {
         builder.remove_container(name);
     }
 

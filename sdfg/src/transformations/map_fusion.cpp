@@ -218,6 +218,11 @@ std::vector<std::pair<symbolic::Symbol, symbolic::Expression>> MapFusion::solve_
 bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     fusion_candidates_.clear();
 
+    // no use in fusing empty loops. Also presumed to not be empty further down
+    if (first_map_.root().size() == 0 || second_loop_.root().size() == 0) {
+        return false;
+    }
+
     // Criterion: Get parent scope and verify both loops are sequential children
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
     auto* first_parent = scope_analysis.parent_scope(&first_map_);
@@ -289,10 +294,14 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
     auto first_args = arguments_analysis.arguments(analysis_manager, first_map_);
     auto second_args = arguments_analysis.arguments(analysis_manager, second_loop_);
 
+    std::unordered_set<std::string> first_inputs;
     std::unordered_set<std::string> first_outputs;
     for (const auto& [name, arg] : first_args) {
         if (arg.is_output) {
             first_outputs.insert(name);
+        }
+        if (arg.is_input) {
+            first_inputs.insert(name);
         }
     }
 
@@ -305,6 +314,9 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
             if (arg.is_input) {
                 fusion_containers.insert(name);
             }
+        }
+        if (first_inputs.contains(name) && arg.is_output) {
+            return false;
         }
     }
     if (fusion_containers.empty()) {

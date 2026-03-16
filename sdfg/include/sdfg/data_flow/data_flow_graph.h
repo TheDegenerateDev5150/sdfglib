@@ -95,6 +95,10 @@ public:
         return memlets;
     };
 
+    const data_flow::Memlet* in_edge_for_connector(const data_flow::CodeNode& node, const std::string& conn) const;
+
+    const data_flow::Memlet* in_edge(const data_flow::AccessNode& node) const;
+
     std::vector<data_flow::Memlet*> in_edges_by_connector(const data_flow::CodeNode& node);
 
     std::vector<const data_flow::Memlet*> in_edges_by_connector(const data_flow::CodeNode& node) const;
@@ -125,6 +129,9 @@ public:
 
         return memlets;
     };
+
+    std::vector<const data_flow::Memlet*> out_edges_for_connector(const data_flow::CodeNode& node, const std::string& conn)
+        const;
 
     std::vector<data_flow::Memlet*> out_edges_by_connector(const data_flow::CodeNode& node);
 

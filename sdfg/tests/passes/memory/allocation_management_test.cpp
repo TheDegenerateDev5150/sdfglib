@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "sdfg/data_flow/library_nodes/stdlib/stdlib.h"
+#include "sdfg_debug_dump.h"
 
 using namespace sdfg;
 
@@ -76,9 +77,13 @@ TEST(AllocationManagementPassTest, Alloca_Transient) {
     auto& lib_node = builder.add_library_node<stdlib::AllocaNode>(block, DebugInfo(), symbolic::integer(1024));
     builder.add_computational_memlet(block, lib_node, "_ret", access_node, {}, opaque_desc, DebugInfo());
 
+    dump_sdfg(builder.subject(), "0-before");
+
     analysis::AnalysisManager analysis_manager(builder.subject());
     passes::AllocationManagementPass pass_;
     EXPECT_TRUE(pass_.run(builder, analysis_manager));
+
+    dump_sdfg(builder.subject(), "1-after");
 
     EXPECT_EQ(block.dataflow().nodes().size(), 0);
     EXPECT_EQ(block.dataflow().edges().size(), 0);
@@ -106,9 +111,13 @@ TEST(AllocationManagementPassTest, Free_Argument) {
     builder.add_computational_memlet(block, access_node_in, lib_node, "_ptr", {}, opaque_desc, DebugInfo());
     builder.add_computational_memlet(block, lib_node, "_ptr", access_node_out, {}, opaque_desc, DebugInfo());
 
+    dump_sdfg(builder.subject(), "0-before");
+
     analysis::AnalysisManager analysis_manager(builder.subject());
     passes::AllocationManagementPass pass_;
     EXPECT_TRUE(pass_.run(builder, analysis_manager));
+
+    dump_sdfg(builder.subject(), "1-after");
 
     EXPECT_EQ(block.dataflow().nodes().size(), 0);
     EXPECT_EQ(block.dataflow().edges().size(), 0);

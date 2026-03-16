@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstdint>
+#include <sstream>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <sstream>
 
 #include <sdfg/analysis/users.h>
 
@@ -21,4 +23,9 @@ public:
         : manager_(manager), analysis_(manager.get<sdfg::analysis::Users>()) {}
 
     sdfg::analysis::Users& analysis() { return analysis_; }
+
+    /**
+     * @brief Get native pointer for cross-module plugin interop
+     */
+    uintptr_t ptr() { return reinterpret_cast<uintptr_t>(&analysis_); }
 };
