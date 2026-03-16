@@ -156,9 +156,9 @@ bool DataTransferMinimization::accept(structured_control_flow::Sequence& sequenc
             if (read_after && copy_out->is_free()) {
                 copy_out->remove_free();
             } else if (!read_after) {
-                this->builder_.clear_node(*copy_out_block, *copy_out);
+                this->builder_.clear_code_node_legacy(*copy_out_block, *copy_out);
             }
-            this->builder_.clear_node(*copy_in_block, *copy_in);
+            this->builder_.clear_code_node_legacy(*copy_in_block, *copy_in);
 
             // Maps the device pointers if necessary
             if (copy_out_device_container != copy_in_device_container) {

@@ -33,48 +33,46 @@ def kernel(TMAX, ex, ey, hz, _fict_):
 def test_fdtd_2d(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"Malloc": 11, "MAP": 29, "SEQUENTIAL": 29, "FOR": 30}
+            verification={"Malloc": 9, "MAP": 25, "SEQUENTIAL": 25, "FOR": 26}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
                 "HIGHWAY": 13,
-                "MAP": 29,
-                "SEQUENTIAL": 16,
-                "FOR": 30,
-                "Malloc": 11,
+                "MAP": 25,
+                "SEQUENTIAL": 12,
+                "FOR": 26,
+                "Malloc": 9,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
                 "HIGHWAY": 12,
-                "CPU_PARALLEL": 15,
-                "MAP": 29,
-                "SEQUENTIAL": 2,
-                "FOR": 30,
-                "Malloc": 11,
+                "CPU_PARALLEL": 13,
+                "MAP": 25,
+                "FOR": 26,
+                "Malloc": 9,
             }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "CUDA": 25,
-                "MAP": 29,
-                "CUDAOffloading": 50,
-                "SEQUENTIAL": 4,
-                "FOR": 30,
-                "Malloc": 11,
+                "MAP": 25,
+                "CUDAOffloading": 51,
+                "FOR": 26,
+                "Malloc": 9,
             }
         )
     else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "ROCM": 29,
-                "MAP": 29,
-                "ROCMOffloading": 57,
-                "FOR": 30,
-                "Malloc": 11,
+                "ROCM": 25,
+                "MAP": 25,
+                "ROCMOffloading": 51,
+                "FOR": 26,
+                "Malloc": 9,
             }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

@@ -21,7 +21,7 @@ bool MapFusion::accept(structured_control_flow::Sequence& node) {
         auto* first = dynamic_cast<structured_control_flow::Map*>(&node.at(i).first);
         auto* second = dynamic_cast<structured_control_flow::StructuredLoop*>(&node.at(i + 1).first);
 
-        if (first && second) {
+        if (first && second && first->root().size() > 0 && second->root().size() > 0) {
             transformations::MapFusion transformation(*first, *second);
             if (transformation.can_be_applied(builder_, analysis_manager_)) {
                 transformation.apply(builder_, analysis_manager_);

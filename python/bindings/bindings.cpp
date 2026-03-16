@@ -7,15 +7,24 @@
 
 #include "analysis/py_analysis.h"
 #include "builder/py_structured_sdfg_builder.h"
+#include "control_flow/py_control_flow.h"
+#include "cutouts/py_cutout.h"
 #include "data_flow/py_cmath.h"
+#include "data_flow/py_code_node.h"
+#include "data_flow/py_data_flow_graph.h"
+#include "data_flow/py_data_flow_node.h"
+#include "data_flow/py_memlet.h"
 #include "data_flow/py_tasklet.h"
 #include "py_structured_sdfg.h"
+#include "sdfg/data_flow/data_flow_node.h"
 #include "sdfg/data_flow/tasklet.h"
 #include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_context.h"
 #include "sdfg/passes/scheduler/scheduler_registry.h"
+#include "sdfg/structured_control_flow/block.h"
 #include "sdfg/targets/cuda/plugin.h"
 #include "transformations/py_replayer.h"
+#include "transformations/py_transformations.h"
 #include "types/py_types.h"
 
 #include <sdfg/data_flow/tasklet.h>
@@ -62,10 +71,17 @@ PYBIND11_MODULE(_sdfg, m) {
 #endif
 
     register_types(m);
+    register_data_flow_node(m);
+    register_code_node(m);
     register_tasklet(m);
+    register_memlet(m);
+    register_data_flow_graph(m);
+    register_control_flow(m);
     register_cmath(m);
     register_analysis(m);
     register_replayer(m);
+    register_transformations(m);
+    register_cutout(m);
 
     py::class_<sdfg::passes::rpc::RpcContext>(m, "RpcContext");
 
@@ -144,6 +160,12 @@ PYBIND11_MODULE(_sdfg, m) {
             [](PyStructuredSDFG& self) { return reinterpret_cast<uintptr_t>(&self.sdfg()); },
             "Get native pointer to StructuredSDFG for external plugin use"
         )
+        .def_property_readonly(
+            "root",
+            [](PyStructuredSDFG& self) -> sdfg::structured_control_flow::Sequence& { return self.root(); },
+            py::return_value_policy::reference,
+            "Get the root sequence of the SDFG"
+        )
         .def_property_readonly("return_type", &PyStructuredSDFG::return_type, py::return_value_policy::reference)
         .def("type", &PyStructuredSDFG::type, py::arg("name"), py::return_value_policy::reference)
         .def("exists", &PyStructuredSDFG::exists, py::arg("name"))
@@ -173,7 +195,10 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("capture_args") = false
         )
         .def("metadata", &PyStructuredSDFG::metadata, py::arg("key"), "Get metadata value")
-        .def("loop_report", &PyStructuredSDFG::loop_report, "Get loop statistics from the SDFG");
+        .def("loop_report", &PyStructuredSDFG::loop_report, "Get loop statistics from the SDFG")
+        .def("to_json", &PyStructuredSDFG::to_json, "Serialize the SDFG to a JSON string")
+        .def("to_dot", &PyStructuredSDFG::to_dot, "Serialize the SDFG to a DOT graph string")
+        .def("to_cpp", &PyStructuredSDFG::to_cpp, "Generate C++ code from the SDFG");
 
     // Register StructuredSDFGBuilder class
     py::class_<PyStructuredSDFGBuilder>(m, "StructuredSDFGBuilder")
@@ -184,6 +209,7 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("return_type"),
             "Create a StructuredSDFGBuilder with the given name and return type"
         )
+        .def(py::init<PyStructuredSDFG&>(), py::arg("sdfg"), "Create a StructuredSDFGBuilder to modify an existing SDFG")
         .def("move", &PyStructuredSDFGBuilder::move, "Move the built StructuredSDFG and return it")
         .def(
             "add_container",
@@ -233,11 +259,17 @@ PYBIND11_MODULE(_sdfg, m) {
             "begin_if",
             &PyStructuredSDFGBuilder::begin_if,
             py::arg("condition"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def("begin_else", &PyStructuredSDFGBuilder::begin_else, py::arg("debug_info") = sdfg::DebugInfo())
         .def("end_if", &PyStructuredSDFGBuilder::end_if)
-        .def("begin_while", &PyStructuredSDFGBuilder::begin_while, py::arg("debug_info") = sdfg::DebugInfo())
+        .def(
+            "begin_while",
+            &PyStructuredSDFGBuilder::begin_while,
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
+        )
         .def("add_break", &PyStructuredSDFGBuilder::add_break, py::arg("debug_info") = sdfg::DebugInfo())
         .def("add_continue", &PyStructuredSDFGBuilder::add_continue, py::arg("debug_info") = sdfg::DebugInfo())
         .def("end_while", &PyStructuredSDFGBuilder::end_while)
@@ -248,7 +280,8 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("start"),
             py::arg("end"),
             py::arg("step"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def("end_for", &PyStructuredSDFGBuilder::end_for)
         .def(
@@ -350,66 +383,79 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("keepdims"),
             py::arg("debug_info") = sdfg::DebugInfo()
         )
-        .def("add_block", &PyStructuredSDFGBuilder::add_block, py::arg("debug_info") = sdfg::DebugInfo())
+        .def(
+            "add_block",
+            &PyStructuredSDFGBuilder::add_block,
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
+        )
         .def(
             "add_access",
             &PyStructuredSDFGBuilder::add_access,
-            py::arg("block_ptr"),
+            py::arg("block"),
             py::arg("name"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "add_constant",
             &PyStructuredSDFGBuilder::add_constant,
-            py::arg("block_ptr"),
+            py::arg("block"),
             py::arg("value"),
             py::arg("type"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "add_tasklet",
             &PyStructuredSDFGBuilder::add_tasklet,
-            py::arg("block_ptr"),
+            py::arg("block"),
             py::arg("code"),
             py::arg("inputs"),
             py::arg("outputs"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "add_cmath",
             &PyStructuredSDFGBuilder::add_cmath,
-            py::arg("block_ptr"),
+            py::arg("block"),
             py::arg("func"),
             py::arg("primitive_type"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "add_malloc",
             &PyStructuredSDFGBuilder::add_malloc,
-            py::arg("block_ptr"),
+            py::arg("block"),
             py::arg("size"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "add_memset",
             &PyStructuredSDFGBuilder::add_memset,
-            py::arg("block_ptr"),
+            py::arg("block"),
             py::arg("value"),
             py::arg("num"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "add_memcpy",
             &PyStructuredSDFGBuilder::add_memcpy,
-            py::arg("block_ptr"),
+            py::arg("block"),
             py::arg("count"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "add_free",
             &PyStructuredSDFGBuilder::add_free,
-            py::arg("block_ptr"),
-            py::arg("debug_info") = sdfg::DebugInfo()
+            py::arg("block"),
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
         )
         .def(
             "is_hoistable_size",
@@ -421,15 +467,16 @@ PYBIND11_MODULE(_sdfg, m) {
             "insert_block_at_root_start",
             &PyStructuredSDFGBuilder::insert_block_at_root_start,
             py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference,
             "Insert a block at the very beginning of the root sequence"
         )
         .def("get_sizeof", &PyStructuredSDFGBuilder::get_sizeof, py::arg("type"))
         .def(
             "add_reference_memlet",
             &PyStructuredSDFGBuilder::add_reference_memlet,
-            py::arg("block_ptr"),
-            py::arg("src_ptr"),
-            py::arg("dst_ptr"),
+            py::arg("block"),
+            py::arg("src"),
+            py::arg("dst"),
             py::arg("subset") = "",
             py::arg("type") = nullptr,
             py::arg("debug_info") = sdfg::DebugInfo()
@@ -437,10 +484,10 @@ PYBIND11_MODULE(_sdfg, m) {
         .def(
             "add_memlet",
             [](PyStructuredSDFGBuilder& self,
-               size_t block_ptr,
-               size_t src_ptr,
+               sdfg::structured_control_flow::Block& block,
+               sdfg::data_flow::DataFlowNode& src,
                std::string src_conn,
-               size_t dst_ptr,
+               sdfg::data_flow::DataFlowNode& dst,
                std::string dst_conn,
                std::string subset,
                py::object type_obj,
@@ -457,12 +504,12 @@ PYBIND11_MODULE(_sdfg, m) {
                         type = &type_obj.cast<const sdfg::types::IType&>();
                     }
                 }
-                self.add_memlet(block_ptr, src_ptr, src_conn, dst_ptr, dst_conn, subset, type, debug_info);
+                self.add_memlet(block, src, src_conn, dst, dst_conn, subset, type, debug_info);
             },
-            py::arg("block_ptr"),
-            py::arg("src_ptr"),
+            py::arg("block"),
+            py::arg("src"),
             py::arg("src_conn"),
-            py::arg("dst_ptr"),
+            py::arg("dst"),
             py::arg("dst_conn"),
             py::arg("subset") = "",
             py::arg("type") = py::none(),

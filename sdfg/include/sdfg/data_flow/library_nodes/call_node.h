@@ -39,6 +39,8 @@ public:
 
     std::unique_ptr<DataFlowNode> clone(size_t element_id, const graph::Vertex vertex, DataFlowGraph& parent)
         const override;
+
+    std::string toStr() const override;
 };
 
 class CallNodeSerializer : public serializer::LibraryNodeSerializer {

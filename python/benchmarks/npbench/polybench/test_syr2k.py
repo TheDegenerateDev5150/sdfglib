@@ -79,8 +79,7 @@ def test_syr2k(target):
                 "FOR": 8,
                 "MAP": 6,
                 "ROCMOffloading": 2,
-            },
-            non_critical=True,
+            }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

@@ -3,6 +3,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <sdfg/passes/rpc/rpc_context.h>
+#include <sdfg/structured_control_flow/sequence.h>
 #include <sdfg/structured_sdfg.h>
 
 class PyStructuredSDFGBuilder;
@@ -20,9 +21,19 @@ public:
 
     static PyStructuredSDFG from_file(const std::string& file_path);
 
+    /**
+     * @brief Create a PyStructuredSDFG from a unique_ptr
+     *
+     * This factory method is used internally for operations like cutout
+     * that create new SDFGs.
+     */
+    static PyStructuredSDFG from_sdfg(std::unique_ptr<sdfg::StructuredSDFG> sdfg);
+
     std::string name() const;
 
     sdfg::StructuredSDFG& sdfg() { return *sdfg_; }
+
+    sdfg::structured_control_flow::Sequence& root() { return sdfg_->root(); }
 
     const sdfg::types::IType& return_type() const;
 
@@ -60,4 +71,10 @@ public:
     std::string metadata(const std::string& key) const;
 
     pybind11::dict loop_report() const;
+
+    std::string to_json() const;
+
+    std::string to_dot() const;
+
+    std::string to_cpp() const;
 };

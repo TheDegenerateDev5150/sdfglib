@@ -4,8 +4,6 @@
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/types/type.h"
 
-#include "sdfg/analysis/scope_analysis.h"
-
 namespace sdfg {
 namespace math {
 namespace tensor {
@@ -40,31 +38,8 @@ bool MulNode::expand_operation(
     auto& output_node = builder.add_access(code_block, output_name);
     builder.add_computational_memlet(code_block, tasklet, "_out", output_node, subset, output_type);
 
-    if (builder.subject().exists(input_name_a)) {
-        auto& input_node_a = builder.add_access(code_block, input_name_a);
-        if (input_type_a.is_scalar()) {
-            builder.add_computational_memlet(code_block, input_node_a, tasklet, "_in1", {}, input_type_a);
-        } else {
-            builder.add_computational_memlet(code_block, input_node_a, tasklet, "_in1", subset, input_type_a);
-        }
-    } else {
-        types::Scalar const_type(input_type_a.primitive_type());
-        auto& input_node_a = builder.add_constant(code_block, input_name_a, const_type);
-        builder.add_computational_memlet(code_block, input_node_a, tasklet, "_in1", subset, input_type_a);
-    }
-
-    if (builder.subject().exists(input_name_b)) {
-        auto& input_node_b = builder.add_access(code_block, input_name_b);
-        if (input_type_b.is_scalar()) {
-            builder.add_computational_memlet(code_block, input_node_b, tasklet, "_in2", {}, input_type_b);
-        } else {
-            builder.add_computational_memlet(code_block, input_node_b, tasklet, "_in2", subset, input_type_b);
-        }
-    } else {
-        types::Scalar const_type(input_type_b.primitive_type());
-        auto& input_node_b = builder.add_constant(code_block, input_name_b, const_type);
-        builder.add_computational_memlet(code_block, input_node_b, tasklet, "_in2", subset, input_type_b);
-    }
+    create_input_memlet(builder, "_in1", input_name_a, input_type_a, subset, code_block, tasklet);
+    create_input_memlet(builder, "_in2", input_name_b, input_type_b, subset, code_block, tasklet);
 
     return true;
 }

@@ -588,6 +588,68 @@ void canonicalize_map_dims(isl_map* map, const std::string& in_prefix, const std
     }
 }
 
+namespace {
+
+// A multiplicity-aware complexity score for stride expressions.
+// Unlike atoms(), this accounts for repeated symbol use (e.g., s*s or s**2).
+size_t stride_complexity_score(const sdfg::symbolic::Expression& expr) {
+    if (SymEngine::is_a<SymEngine::Integer>(*expr)) {
+        return 0;
+    }
+    if (SymEngine::is_a<SymEngine::Symbol>(*expr)) {
+        return 1;
+    }
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() == 2 && SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            try {
+                long long exp = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+                if (exp >= 0) {
+                    return static_cast<size_t>(exp) * stride_complexity_score(args[0]);
+                }
+            } catch (const SymEngine::SymEngineException&) {
+                return 0;
+            }
+        }
+    }
+    if (SymEngine::is_a<SymEngine::Mul>(*expr)) {
+        size_t score = 0;
+        for (const auto& arg : SymEngine::rcp_static_cast<const SymEngine::Mul>(expr)->get_args()) {
+            score += stride_complexity_score(arg);
+        }
+        return score;
+    }
+    if (SymEngine::is_a<SymEngine::Add>(*expr)) {
+        size_t score = 0;
+        for (const auto& arg : SymEngine::rcp_static_cast<const SymEngine::Add>(expr)->get_args()) {
+            score = std::max(score, stride_complexity_score(arg));
+        }
+        return score;
+    }
+
+    // Generic function / composite fallback: recurse through args and add a bonus
+    // so function-bearing expressions are preferred over equally-scored plain ones.
+    size_t score = 0;
+    for (const auto& arg : expr->get_args()) {
+        score += stride_complexity_score(arg);
+    }
+    if (SymEngine::is_a<SymEngine::FunctionSymbol>(*expr)) {
+        score += 1;
+    }
+    return score;
+}
+
+bool provably_ge(const sdfg::symbolic::Expression& lhs, const sdfg::symbolic::Expression& rhs) {
+    return sdfg::symbolic::is_true(sdfg::symbolic::Ge(lhs, rhs));
+}
+
+bool provably_gt(const sdfg::symbolic::Expression& lhs, const sdfg::symbolic::Expression& rhs) {
+    return provably_ge(lhs, rhs) && !provably_ge(rhs, lhs);
+}
+
+} // namespace
+
 MultiExpression delinearize(const MultiExpression& expr, const Assumptions& assums) {
     MultiExpression delinearized;
     for (auto& dim : expr) {
@@ -618,18 +680,53 @@ MultiExpression delinearize(const MultiExpression& expr, const Assumptions& assu
         aff_coeffs.erase(symbolic::symbol("__daisy_constant__"));
 
         // Step 2: Peel-off dimensions
-        bool success = true;
         Expression remaining = symbolic::sub(dim, offset);
         std::vector<Expression> peeled_dims;
         while (!aff_coeffs.empty()) {
-            // Find the symbol with largest stride (= largest atom count)
+            // Pick the symbol with the strongest stride using:
+            // 1) provable bound dominance, 2) multiplicity-aware complexity,
+            // 3) atom-count fallback.
             Symbol new_dim = SymEngine::null;
+            Expression best_coeff = SymEngine::null;
+            Expression best_lb = SymEngine::null;
+            Expression best_ub = SymEngine::null;
+            size_t best_complexity = 0;
             size_t max_atom_count = 0;
             for (const auto& [sym, coeff] : aff_coeffs) {
+                auto lb = minimum(coeff, {}, assums);
+                auto ub = maximum(coeff, {}, assums);
+                size_t complexity = stride_complexity_score(coeff);
                 size_t atom_count = symbolic::atoms(coeff).size();
-                if (atom_count > max_atom_count || new_dim.is_null()) {
+
+                bool better = false;
+                if (new_dim.is_null()) {
+                    better = true;
+                } else {
+                    // Prefer provably larger lower bound (always positive-stride oriented).
+                    if (lb != SymEngine::null && best_lb != SymEngine::null && provably_gt(lb, best_lb)) {
+                        better = true;
+                    }
+                    // If lower bounds are tied/unknown, prefer larger upper bound.
+                    if (!better && ub != SymEngine::null && best_ub != SymEngine::null && provably_gt(ub, best_ub)) {
+                        better = true;
+                    }
+                    // Structural fallback that accounts for repeated symbols and pow.
+                    if (!better && complexity > best_complexity) {
+                        better = true;
+                    }
+                    // Final deterministic fallback.
+                    if (!better && complexity == best_complexity && atom_count > max_atom_count) {
+                        better = true;
+                    }
+                }
+
+                if (better) {
                     max_atom_count = atom_count;
+                    best_complexity = complexity;
                     new_dim = sym;
+                    best_coeff = coeff;
+                    best_lb = lb;
+                    best_ub = ub;
                 }
             }
             if (new_dim.is_null()) {
@@ -647,8 +744,11 @@ MultiExpression delinearize(const MultiExpression& expr, const Assumptions& assu
             }
 
             // Stride must be positive
-            Expression stride = aff_coeffs.at(new_dim);
-            auto stride_lb = minimum(stride, {}, assums);
+            Expression stride = best_coeff;
+            auto stride_lb = best_lb;
+            if (stride_lb == SymEngine::null) {
+                stride_lb = minimum(stride, {}, assums);
+            }
             if (stride_lb.is_null()) {
                 break;
             }
@@ -675,8 +775,11 @@ MultiExpression delinearize(const MultiExpression& expr, const Assumptions& assu
             }
 
             // remaining must be less than stride
-            auto ub_stride = maximum(stride, {}, assums);
+            auto ub_stride = (best_ub == SymEngine::null) ? maximum(stride, {}, assums) : best_ub;
             auto ub_remaining = maximum(remaining, {}, assums);
+            if (ub_stride == SymEngine::null || ub_remaining == SymEngine::null) {
+                break;
+            }
             auto cond_stride = symbolic::Ge(ub_stride, ub_remaining);
             if (!symbolic::is_true(cond_stride)) {
                 break;

@@ -35,52 +35,48 @@ def kernel(array_1, array_2, a, b, c):
 def test_compute(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"SEQUENTIAL": 14, "FOR": 14, "MAP": 14, "Malloc": 6}
+            verification={"SEQUENTIAL": 2, "FOR": 2, "MAP": 2, "Malloc": 0}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "Free": 6,
-                "HIGHWAY": 3,
-                "SEQUENTIAL": 11,
-                "FOR": 14,
-                "MAP": 14,
-                "Malloc": 6,
+                "HIGHWAY": 1,
+                "SEQUENTIAL": 1,
+                "FOR": 2,
+                "MAP": 2,
+                "Malloc": 0,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "Free": 6,
-                "HIGHWAY": 3,
-                "CPU_PARALLEL": 7,
-                "SEQUENTIAL": 4,
-                "FOR": 14,
-                "MAP": 14,
-                "Malloc": 6,
+                "HIGHWAY": 1,
+                "CPU_PARALLEL": 1,
+                "SEQUENTIAL": 0,
+                "FOR": 2,
+                "MAP": 2,
+                "Malloc": 0,
             }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "Free": 6,
-                "CUDA": 6,
-                "SEQUENTIAL": 8,
-                "FOR": 14,
-                "MAP": 14,
-                "CUDAOffloading": 12,
-                "Malloc": 6,
+                "CUDA": 2,
+                "SEQUENTIAL": 0,
+                "FOR": 2,
+                "MAP": 2,
+                "CUDAOffloading": 6,
+                "Malloc": 0,
             }
         )
     else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "Free": 6,
-                "ROCM": 14,
-                "FOR": 14,
-                "MAP": 14,
-                "ROCMOffloading": 24,
-                "Malloc": 6,
+                "ROCM": 2,
+                "FOR": 2,
+                "MAP": 2,
+                "ROCMOffloading": 6,
+                "Malloc": 0,
             }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

@@ -6,6 +6,8 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+option(DOCC_TESTS_ENABLE_DUMP "Enable dumping intermediary files of test cases" OFF)
+
 set(TEST_FILES
     analysis/arguments_analysis_test.cpp
     analysis/assumptions_analysis_test.cpp
@@ -129,6 +131,11 @@ set(TEST_FILES
 add_executable(sdfglib_test ${TEST_FILES})
 target_include_directories(sdfglib_test PRIVATE ./)
 target_link_libraries(sdfglib_test gtest_main sdfg::sdfg)
+if(DOCC_TESTS_ENABLE_DUMP)
+    target_compile_definitions(sdfglib_test PRIVATE
+        DOCC_TESTS_ENABLE_DUMP
+    )
+endif()
 if(SDFG_ENABLE_COVERAGE)
 target_compile_options(sdfglib_test PRIVATE
   -fprofile-instr-generate

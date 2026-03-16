@@ -1,5 +1,6 @@
 #include "sdfg/data_flow/access_node.h"
 
+#include <unordered_set>
 #include "sdfg/data_flow/data_flow_graph.h"
 #include "sdfg/function.h"
 
@@ -45,7 +46,9 @@ void AccessNode::validate(const Function& function) const {
 
 const std::string& AccessNode::data() const { return this->data_; };
 
-void AccessNode::data(const std::string data) { this->data_ = data; };
+void AccessNode::data(const std::string data) { this->data_ = data; }
+
+bool AccessNode::side_effect() const { return get_parent().in_degree(*this) > 0; }
 
 std::unique_ptr<DataFlowNode> AccessNode::clone(size_t element_id, const graph::Vertex vertex, DataFlowGraph& parent)
     const {
@@ -61,6 +64,28 @@ void AccessNode::replace(const symbolic::Expression old_expression, const symbol
         }
     }
 };
+
+namespace {
+bool is_special_constant(const std::string& data) {
+    static const std::unordered_set<std::string> constants = {
+        "true",
+        "false",
+        "INT8_MIN",
+        "INT8_MAX",
+        "UINT8_MAX",
+        "INT16_MIN",
+        "INT16_MAX",
+        "UINT16_MAX",
+        "INT32_MIN",
+        "INT32_MAX",
+        "UINT32_MAX",
+        "INT64_MIN",
+        "INT64_MAX",
+        "UINT64_MAX",
+    };
+    return constants.find(data) != constants.end();
+}
+} // namespace
 
 ConstantNode::ConstantNode(
     size_t element_id,
@@ -95,16 +120,15 @@ void ConstantNode::validate(const Function& function) const {
                 case types::PrimitiveType::UInt16:
                 case types::PrimitiveType::UInt32:
                 case types::PrimitiveType::UInt64: {
-                    if (this->data() == "true") {
-                        break;
-                    } else if (this->data() == "false") {
+                    auto data = this->data();
+                    if (is_special_constant(data)) {
                         break;
                     }
 
                     try {
-                        helpers::parse_number_signed(this->data());
+                        helpers::parse_number_signed(data);
                     } catch (const std::exception& e) {
-                        throw InvalidSDFGException("ConstantNode " + this->data() + " has non-integer scalar type");
+                        throw InvalidSDFGException("ConstantNode " + data + " has non-integer scalar type");
                     }
                     break;
                 }

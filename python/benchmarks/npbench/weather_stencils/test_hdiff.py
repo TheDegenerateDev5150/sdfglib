@@ -71,7 +71,7 @@ def kernel(in_field, out_field, coeff):
 def test_hdiff(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"SEQUENTIAL": 57, "FOR": 63, "MAP": 57, "Malloc": 20}
+            verification={"SEQUENTIAL": 42, "FOR": 48, "MAP": 42, "Malloc": 15}
         )
     elif target == "sequential":
         verifier = SDFGVerification(

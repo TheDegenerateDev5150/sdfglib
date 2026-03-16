@@ -88,8 +88,7 @@ def test_symm(target):
                 "HIGHWAY": 0,
                 "GEMM": 1,
                 "DOT": 0,
-            },
-            non_critical=True,
+            }
         )
     else:  # rocm
         verifier = SDFGVerification(
@@ -102,8 +101,7 @@ def test_symm(target):
                 "HIGHWAY": 0,
                 "GEMM": 1,
                 "DOT": 0,
-            },
-            non_critical=True,
+            }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 
