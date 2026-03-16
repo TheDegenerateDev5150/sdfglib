@@ -199,15 +199,14 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
             }
         }
 
-        // Check that all candidates are equal
+        // Get the maximum of all candidates
         if (candidates.empty()) {
             return generic_op->emitOpError("Could not found candidates for dimension: ") << i;
         }
         int64_t dim = candidates.at(0);
         for (int64_t candidate : candidates) {
-            if (candidate != dim) {
-                return generic_op->emitOpError("Candidate mismatch for dimension ")
-                       << i << ": " << candidate << " != " << dim;
+            if (candidate > dim) {
+                dim = candidate;
             }
         }
 
@@ -247,7 +246,7 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
         auto iterator_type_attr = llvm::dyn_cast<linalg::IteratorTypeAttr>(attr);
 
         auto indvar_container = builder.find_new_name("_i");
-        builder.add_container(indvar_container, ::sdfg::types::Scalar(::sdfg::types::PrimitiveType::Int64));
+        builder.add_container(indvar_container, ::sdfg::types::Scalar(sdfg_index_type));
         auto indvar = ::sdfg::symbolic::symbol(indvar_container);
         indvars.push_back(indvar);
         auto condition = ::sdfg::symbolic::Lt(indvar, ::sdfg::symbolic::integer(dimensions.at(i)));
@@ -342,6 +341,23 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
                 builder.add_computational_memlet(sdfg_block, tasklet, "_out", result_access, subset, *sdfg_tensor);
             }
             break;
+        } else if (auto index_op = llvm::dyn_cast_or_null<linalg::IndexOp>(op)) {
+            uint64_t dim = index_op.getDim();
+            if (dim >= indvars.size()) {
+                return index_op->emitOpError("tries accessing dimension ")
+                       << dim << " but maximum dimension is " << indvars.size();
+            }
+            auto indvar_container = indvars.at(dim)->get_name();
+
+            Value result = index_op.getResult();
+            auto result_container = translator.get_or_create_container(result);
+
+            auto& sdfg_block = builder.add_block(translator.insertion_point());
+            auto& indvar_access = builder.add_access(sdfg_block, indvar_container);
+            auto& result_access = builder.add_access(sdfg_block, result_container);
+            auto& tasklet = builder.add_tasklet(sdfg_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+            builder.add_computational_memlet(sdfg_block, indvar_access, tasklet, "_in", {});
+            builder.add_computational_memlet(sdfg_block, tasklet, "_out", result_access, {});
         } else {
             if (failed(translateOp(translator, &op))) {
                 return failure();

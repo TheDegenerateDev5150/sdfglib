@@ -29,7 +29,8 @@ bool is_sdfg_primitive(Type type) {
                 return false;
         }
     }
-    return type.isF16() || type.isBF16() || type.isF32() || type.isF64() || type.isF80() || type.isF128();
+    return type.isIndex() || type.isF16() || type.isBF16() || type.isF32() || type.isF64() || type.isF80() ||
+           type.isF128();
 }
 
 bool is_vector_of_sdfg_primitive(Type type) {
