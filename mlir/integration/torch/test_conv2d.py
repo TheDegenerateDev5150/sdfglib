@@ -242,7 +242,6 @@ def test_kernel_5x5_backend():
 # --- Padding ---
 
 
-@pytest.mark.skip("Padding not supported yet")
 def test_padding_compile():
     class PaddedConv2dNet(nn.Module):
         def __init__(self):
@@ -265,7 +264,6 @@ def test_padding_compile():
     assert torch.allclose(res, res_ref, rtol=1e-4)
 
 
-@pytest.mark.skip("Padding not supported yet")
 def test_padding_backend():
     class PaddedConv2dNet(nn.Module):
         def __init__(self):

@@ -240,62 +240,62 @@ def test_constant_pad_3d():
 
     assert torch.allclose(res, ref)
 
-@pytest.mark.skip("Unsupported by torch-mlir")
-def test_circular_pad_1d():
-    class CircularPad1dNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.pad = nn.CircularPad1d((3, 1))
-        def forward(self, x: torch.Tensor):
-            return self.pad(x)
+# @pytest.mark.skip("Unsupported by torch-mlir")
+# def test_circular_pad_1d():
+#     class CircularPad1dNet(nn.Module):
+#         def __init__(self):
+#             super().__init__()
+#             self.pad = nn.CircularPad1d((3, 1))
+#         def forward(self, x: torch.Tensor):
+#             return self.pad(x)
 
-    model = CircularPad1dNet()
-    model_ref = CircularPad1dNet()
-    example_input = torch.arange(8, dtype=torch.float).reshape(1, 2, 4)
+#     model = CircularPad1dNet()
+#     model_ref = CircularPad1dNet()
+#     example_input = torch.arange(8, dtype=torch.float).reshape(1, 2, 4)
 
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
+#     program = torch.compile(model, backend="docc")
+#     with torch.no_grad():
+#         res = program(example_input)
+#         ref = model_ref(example_input)
 
-    assert torch.allclose(res, ref)
+#     assert torch.allclose(res, ref)
 
-@pytest.mark.skip("Unsupported by torch-mlir")
-def test_circular_pad_2d():
-    class CircularPad2dNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.pad = nn.CircularPad2d((1, 1, 2, 0))
-        def forward(self, x: torch.Tensor):
-            return self.pad(x)
+# @pytest.mark.skip("Unsupported by torch-mlir")
+# def test_circular_pad_2d():
+#     class CircularPad2dNet(nn.Module):
+#         def __init__(self):
+#             super().__init__()
+#             self.pad = nn.CircularPad2d((1, 1, 2, 0))
+#         def forward(self, x: torch.Tensor):
+#             return self.pad(x)
 
-    model = CircularPad2dNet()
-    model_ref = CircularPad2dNet()
-    example_input = torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3)
+#     model = CircularPad2dNet()
+#     model_ref = CircularPad2dNet()
+#     example_input = torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3)
 
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
+#     program = torch.compile(model, backend="docc")
+#     with torch.no_grad():
+#         res = program(example_input)
+#         ref = model_ref(example_input)
 
-    assert torch.allclose(res, ref)
+#     assert torch.allclose(res, ref)
 
-@pytest.mark.skip("Unsupported by torch-mlir")
-def test_circular_pad_3d():
-    class CircularPad3dNet(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.pad = nn.CircularPad3d((3, 3, 6, 6, 1, 1))
-        def forward(self, x: torch.Tensor):
-            return self.pad(x)
+# @pytest.mark.skip("Unsupported by torch-mlir")
+# def test_circular_pad_3d():
+#     class CircularPad3dNet(nn.Module):
+#         def __init__(self):
+#             super().__init__()
+#             self.pad = nn.CircularPad3d((3, 3, 6, 6, 1, 1))
+#         def forward(self, x: torch.Tensor):
+#             return self.pad(x)
 
-    model = CircularPad3dNet()
-    model_ref = CircularPad3dNet()
-    example_input = torch.randn(16, 3, 8, 320, 480)
+#     model = CircularPad3dNet()
+#     model_ref = CircularPad3dNet()
+#     example_input = torch.randn(16, 3, 8, 320, 480)
 
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
+#     program = torch.compile(model, backend="docc")
+#     with torch.no_grad():
+#         res = program(example_input)
+#         ref = model_ref(example_input)
 
-    assert torch.allclose(res, ref)
+#     assert torch.allclose(res, ref)
