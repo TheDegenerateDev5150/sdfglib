@@ -21,6 +21,7 @@
 #include "mlir/Target/SDFG/LinalgToSDFGTranslator.h"
 #include "mlir/Target/SDFG/MathToSDFGTranslator.h"
 #include "mlir/Target/SDFG/TensorToSDFGTranslator.h"
+#include "mlir/Target/SDFG/helper.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/library_nodes/stdlib/free.h"
 #include "sdfg/data_flow/library_nodes/stdlib/malloc.h"
@@ -31,6 +32,7 @@
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/tensor.h"
+#include "sdfg/types/type.h"
 
 namespace mlir {
 namespace sdfg {
@@ -234,6 +236,8 @@ std::unique_ptr<::sdfg::types::IType> SDFGTranslator::convertType(const Type mli
         return std::make_unique<::sdfg::types::Scalar>(::sdfg::types::PrimitiveType::UInt64);
     } else if (mlir_type.isUnsignedInteger(128)) {
         return std::make_unique<::sdfg::types::Scalar>(::sdfg::types::PrimitiveType::UInt128);
+    } else if (mlir_type.isIndex()) {
+        return std::make_unique<::sdfg::types::Scalar>(sdfg_index_type);
     } else if (mlir_type.isF16()) {
         return std::make_unique<::sdfg::types::Scalar>(::sdfg::types::PrimitiveType::Half);
     } else if (mlir_type.isBF16()) {
