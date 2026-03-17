@@ -79,7 +79,7 @@ def run_single(
             capture_output=True,
             text=True,
             timeout=600,
-            cwd=os.path.dirname(os.path.abspath(__file__)) + "/../..",  # docc root
+            cwd=os.path.dirname(os.path.abspath(__file__)) + "/..",  # docc root
         )
     except subprocess.TimeoutExpired:
         return None
