@@ -3,7 +3,7 @@ from docc.python.ast_utils import get_debug_info, get_unique_id
 from docc.python.functions.scipy import SciPyHandler
 from docc.python.functions.numpy import NumPyHandler
 from docc.python.python_program import PythonProgram, native, _map_python_type
-from docc.python.target_registry import (
+from docc.compiler.target_registry import (
     register_target,
     register_target_overrides,
     unregister_target,

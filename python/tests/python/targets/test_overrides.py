@@ -21,8 +21,13 @@ def _compile(sdfg, out_dir: str, inst_mode: str, capture: bool, kwargs: Dict[str
     return sdfg._compile(out_dir, "sequential", inst_mode, capture)
 
 
+def _expand(sdfg, cat: str, kwargs: Dict[str, Any]):
+    print("hooking expand")
+    return sdfg.expand()
+
+
 register_target("special_legacy", _schedule_legacy)
-register_target_overrides("special", _schedule, _compile)
+register_target_overrides("special", _schedule, _compile, _expand)
 
 
 def test_python_target_overrides(capsys):
@@ -43,6 +48,7 @@ def test_python_target_overrides(capsys):
     captured = capsys.readouterr()
     assert "hooking scheduling new" in captured.out
     assert "hooking compile" in captured.out
+    assert "hooking expand" in captured.out
     assert "Target 'special' is not supported" not in captured.out
 
     print("Result: ", C)
