@@ -206,7 +206,8 @@ std::string CPPLanguageExtension::tasklet(const data_flow::Tasklet& tasklet) {
         case data_flow::TaskletCode::fp_oeq:
             return tasklet.inputs().at(0) + " == " + tasklet.inputs().at(1);
         case data_flow::TaskletCode::fp_one:
-            return tasklet.inputs().at(0) + " != " + tasklet.inputs().at(1);
+            return "!std::isnan(" + tasklet.inputs().at(0) + ") && !std::isnan(" + tasklet.inputs().at(1) + ") && " +
+                   tasklet.inputs().at(0) + " != " + tasklet.inputs().at(1);
         case data_flow::TaskletCode::fp_ogt:
             return tasklet.inputs().at(0) + " > " + tasklet.inputs().at(1);
         case data_flow::TaskletCode::fp_oge:

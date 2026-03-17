@@ -201,6 +201,87 @@ def test_batchnorm2d_no_affine_backend():
     _check_backend(BN2dNoAffineBackend().eval(), torch.randn(4, 64, 8, 8))
 
 
+# --- BatchNorm2d (ResNet stem shapes) ---
+
+
+def test_batchnorm2d_3ch_compile():
+    """BatchNorm2d(3) on (1, 3, 224, 224) — matches ResNet stem BN1."""
+
+    class BN2d3chCompile(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bn = nn.BatchNorm2d(3)
+
+        def forward(self, x: torch.Tensor):
+            return self.bn(x)
+
+    _check(BN2d3chCompile().eval(), torch.randn(1, 3, 224, 224))
+
+
+def test_batchnorm2d_3ch_backend():
+    class BN2d3chBackend(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bn = nn.BatchNorm2d(3)
+
+        def forward(self, x: torch.Tensor):
+            return self.bn(x)
+
+    _check_backend(BN2d3chBackend().eval(), torch.randn(1, 3, 224, 224))
+
+
+def test_batchnorm2d_64ch_large_spatial_compile():
+    """BatchNorm2d(64) on (1, 64, 112, 112) — matches ResNet stem BN2."""
+
+    class BN2d64chLargeCompile(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bn = nn.BatchNorm2d(64)
+
+        def forward(self, x: torch.Tensor):
+            return self.bn(x)
+
+    _check(BN2d64chLargeCompile().eval(), torch.randn(1, 64, 112, 112))
+
+
+def test_batchnorm2d_64ch_large_spatial_backend():
+    class BN2d64chLargeBackend(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bn = nn.BatchNorm2d(64)
+
+        def forward(self, x: torch.Tensor):
+            return self.bn(x)
+
+    _check_backend(BN2d64chLargeBackend().eval(), torch.randn(1, 64, 112, 112))
+
+
+def test_batchnorm2d_batch1_compile():
+    """BatchNorm2d with batch_size=1 (edge case for running stats)."""
+
+    class BN2dBatch1Compile(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bn = nn.BatchNorm2d(16)
+
+        def forward(self, x: torch.Tensor):
+            return self.bn(x)
+
+    _check(BN2dBatch1Compile().eval(), torch.randn(1, 16, 32, 32))
+
+
+def test_batchnorm2d_batch1_backend():
+    class BN2dBatch1Backend(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.bn = nn.BatchNorm2d(16)
+
+        def forward(self, x: torch.Tensor):
+            return self.bn(x)
+
+    _check_backend(BN2dBatch1Backend().eval(), torch.randn(1, 16, 32, 32))
+
+
 # --- BatchNorm3d ---
 
 

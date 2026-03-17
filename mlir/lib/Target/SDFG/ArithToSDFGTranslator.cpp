@@ -652,12 +652,12 @@ LogicalResult translateArithOp(SDFGTranslator& translator, Operation* op) {
             // Not technically correct because of different handling of NaN's
             return translateArithCMathBinaryOp<
                 arith::MinimumFOp,
-                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &minimumf_op);
+                ::sdfg::math::cmath::CMathFunction::fmin>(translator, &minimumf_op);
         })
         .Case<arith::MinNumFOp>([&](arith::MinNumFOp minnumf_op) {
             return translateArithCMathBinaryOp<
                 arith::MinNumFOp,
-                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &minnumf_op);
+                ::sdfg::math::cmath::CMathFunction::fmin>(translator, &minnumf_op);
         })
         .Case<arith::BitcastOp>([&](arith::BitcastOp bitcast_op) {
             return translateArithCastOp<arith::BitcastOp>(translator, &bitcast_op);
