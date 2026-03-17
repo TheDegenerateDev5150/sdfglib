@@ -40,7 +40,7 @@ AssertNode::AssertNode(
           LibraryNodeType_Assert,
           {},
           {"_arg"},
-          false,
+          true,
           data_flow::ImplementationType_NONE
       ),
       message_(message) {}
