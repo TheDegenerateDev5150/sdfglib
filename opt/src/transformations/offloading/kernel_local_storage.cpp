@@ -345,6 +345,18 @@ bool KernelLocalStorage::
         return false;
     }
 
+    // Criterion: Containers in subset expressions are not written to in the loop
+    for (auto subset : subsets) {
+        for (auto atom : symbolic::atoms(subset)) {
+            if (SymEngine::is_a<SymEngine::Symbol>(*atom)) {
+                auto symbol = SymEngine::rcp_static_cast<const SymEngine::Symbol>(atom);
+                if (!inner_body_users.writes(symbol->get_name()).empty()) {
+                    return false;
+                }
+            }
+        }
+    }
+
     // Criterion: Has a free dimension to map to and that dimension is big enough
     auto [x_dim_available, y_dim_available, z_dim_available] = available_dims(subsets, analysis_manager);
 

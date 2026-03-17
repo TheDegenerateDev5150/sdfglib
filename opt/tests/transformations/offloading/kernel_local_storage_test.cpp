@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 #include <nlohmann/json_fwd.hpp>
+#include <string>
 
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
@@ -12,7 +13,9 @@
 #include "sdfg/element.h"
 #include "sdfg/function.h"
 #include "sdfg/structured_control_flow/block.h"
+#include "sdfg/structured_control_flow/for.h"
 #include "sdfg/structured_control_flow/if_else.h"
+#include "sdfg/structured_control_flow/map.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
 #include "sdfg/transformations/loop_tiling.h"
@@ -417,4 +420,535 @@ TEST(KernelLocalStorageTest, WithOffset) {
     EXPECT_TRUE(found_in);
     EXPECT_TRUE(found_out);
     EXPECT_TRUE(found_tasklet);
+}
+
+// Helper that builds the standard two-GPU-map + inner for-loop scaffold used by the
+// negative-criterion tests.  Returns refs to the two GPU maps and the inner for-loop.
+// The for-loop body is left empty; callers add accesses as needed.
+static inline std::tuple<structured_control_flow::Map*, structured_control_flow::Map*, structured_control_flow::For*>
+build_standard_gpu_scaffold(builder::StructuredSDFGBuilder& builder) {
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var_type(types::PrimitiveType::Int32);
+    builder.add_container("i", loop_var_type);
+    builder.add_container("j", loop_var_type);
+    builder.add_container("k", loop_var_type);
+
+    // Outer CUDA-X map  (indvar i, 32 threads, condition: i <= 31)
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Le(symbolic::symbol("i"), symbolic::integer(31)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("i"), symbolic::one()),
+        cuda::ScheduleType_CUDA::create()
+    );
+
+    // Inner CUDA-Y map  (indvar j, 32 threads, condition: j <= 31)
+    auto schedule_y = cuda::ScheduleType_CUDA::create();
+    cuda::ScheduleType_CUDA::dimension(schedule_y, cuda::CUDADimension::Y);
+    auto& map_y = builder.add_map(
+        map_x.root(),
+        symbolic::symbol("j"),
+        symbolic::Le(symbolic::symbol("j"), symbolic::integer(31)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("j"), symbolic::one()),
+        schedule_y
+    );
+
+    // Sequential for-loop  k = 0 .. 7   (k < 8 → iteration count = 8)
+    auto& loop = builder.add_for(
+        map_y.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), symbolic::integer(8)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("k"), symbolic::one())
+    );
+
+    return {&map_x, &map_y, &loop};
+}
+
+// -------------------------------------------------------------------------
+// 1. Criterion: must NOT be a GPU map itself
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_TargetIsGPUMap) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    auto& block = builder.add_block(loop->root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_in, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("k")});
+    builder.add_computational_memlet(block, tasklet, "out_", access_out, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    // Passing map_y (a GPU map) as the "loop" must be rejected.
+    transformations::KernelLocalStorage kls(*map_y, symbolic::zero(), "A");
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 2. Criterion: must be nested inside a GPU schedule
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_NotInGPUScope) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+    types::Scalar loop_var_type(types::PrimitiveType::Int32);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+    builder.add_container("i", loop_var_type);
+    builder.add_container("j", loop_var_type);
+    builder.add_container("k", loop_var_type);
+
+    // For-loop placed directly in the root — no GPU ancestor at all.
+    auto& loop = builder.add_for(
+        seq,
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), symbolic::integer(8)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("k"), symbolic::one())
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_in, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("k")});
+    builder.add_computational_memlet(block, tasklet, "out_", access_out, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    transformations::KernelLocalStorage kls(loop, symbolic::zero(), "A");
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 3. Criterion: container's innermost element must NOT be a Pointer type
+//    (i.e., the effective element must be contiguous)
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_ContainerIsPointerToPointer) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    // Pointer → Pointer → Array: after peeling the outer pointer, the remaining
+    // type is still a Pointer, which fails the contiguity check.
+    types::Pointer inner_ptr(array_desc);
+    types::Pointer outer_ptr(types::StorageType::NV_Generic(), 8, "", inner_ptr);
+
+    builder.add_container("A", outer_ptr);
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    // Loop body intentionally left empty; the check fails before inspecting accesses.
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 4. Criterion: iteration count must be a known integer
+//    Using ≤ instead of <: get_iteration_count returns null for LessThan.
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_UnknownIterationCount) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var_type(types::PrimitiveType::Int32);
+    builder.add_container("i", loop_var_type);
+    builder.add_container("j", loop_var_type);
+    builder.add_container("k", loop_var_type);
+
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Le(symbolic::symbol("i"), symbolic::integer(31)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("i"), symbolic::one()),
+        cuda::ScheduleType_CUDA::create()
+    );
+    auto schedule_y = cuda::ScheduleType_CUDA::create();
+    cuda::ScheduleType_CUDA::dimension(schedule_y, cuda::CUDADimension::Y);
+    auto& map_y = builder.add_map(
+        map_x.root(),
+        symbolic::symbol("j"),
+        symbolic::Le(symbolic::symbol("j"), symbolic::integer(31)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("j"), symbolic::one()),
+        schedule_y
+    );
+
+    auto& loop = builder.add_for(
+        map_y.root(),
+        symbolic::symbol("k"),
+        symbolic::Le(symbolic::symbol("k"), symbolic::symbol("j")),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("k"), symbolic::one())
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_in, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("k")});
+    builder.add_computational_memlet(block, tasklet, "out_", access_out, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 5. Criterion: container must be read-only inside the loop
+//    (here A is also written → rejected)
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_ContainerIsWritten) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    auto& block = builder.add_block(loop->root());
+
+    // Read A[i, k] → one input connector
+    auto& access_in = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_in, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("k")});
+
+    // Write back to A[i, j] → A is both read and written → rejected.
+    auto& access_write = builder.add_access(block, "A");
+    builder
+        .add_computational_memlet(block, tasklet, "out_", access_write, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 6. Criterion: container must have at least one read inside the loop
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_ContainerNotRead) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("B", pointer_desc2);
+    builder.add_container("C", pointer_desc2);
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    auto& block = builder.add_block(loop->root());
+    // Only B and C are accessed; A is declared but never read inside the loop.
+    auto& access_B = builder.add_access(block, "B");
+    auto& access_C = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_B, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("k")});
+    builder.add_computational_memlet(block, tasklet, "out_", access_C, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 7. Criterion: exactly one read of the container (limitation)
+//    Two separate reads of A → rejected.
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_MultipleReads) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    auto& block = builder.add_block(loop->root());
+
+    // First read: A[i, k]
+    auto& access_in1 = builder.add_access(block, "A");
+    auto& tasklet1 = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_in1, tasklet1, "in_", {symbolic::symbol("i"), symbolic::symbol("k")});
+    auto& access_out1 = builder.add_access(block, "C");
+    builder
+        .add_computational_memlet(block, tasklet1, "out_", access_out1, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    // Second read: A[j, k] — creates a second read user for A.
+    auto& access_in2 = builder.add_access(block, "A");
+    auto& tasklet2 = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_in2, tasklet2, "in_", {symbolic::symbol("j"), symbolic::symbol("k")});
+    auto& access_out2 = builder.add_access(block, "C");
+    builder
+        .add_computational_memlet(block, tasklet2, "out_", access_out2, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 8. Criterion: the inner loop's induction variable must appear in the access
+//    A[i, j] does not involve k → rejected.
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_InnerIndvarNotUsed) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    auto& block = builder.add_block(loop->root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    // Access A[i, j] — neither dimension uses the inner loop variable k.
+    builder.add_computational_memlet(block, access_in, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("j")});
+    builder.add_computational_memlet(block, tasklet, "out_", access_out, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 9. Criterion: at least two GPU dimensions must be present in ancestor maps
+//    Only one GPU map (X) → indvars.size() == 1 → rejected.
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_OnlyOneGPUDimension) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+    types::Scalar loop_var_type(types::PrimitiveType::Int32);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+    builder.add_container("i", loop_var_type);
+    builder.add_container("k", loop_var_type);
+
+    // Only a single CUDA-X map — no Y or Z dimension available.
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Le(symbolic::symbol("i"), symbolic::integer(31)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("i"), symbolic::one()),
+        cuda::ScheduleType_CUDA::create()
+    );
+
+    auto& loop = builder.add_for(
+        map_x.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), symbolic::integer(8)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("k"), symbolic::one())
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_in, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("k")});
+    builder.add_computational_memlet(block, tasklet, "out_", access_out, {symbolic::symbol("i"), symbolic::symbol("k")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 10. Criterion: symbols appearing in the subset of the target container read
+//     must not be written inside the loop body.
+//     Access A[n, k] where container n is also written → rejected.
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_SubsetVariableWritten) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+    // n is an integer index used inside A's access subset and also written in the loop.
+    builder.add_container("n", types::Scalar(types::PrimitiveType::Int32));
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    auto& block = builder.add_block(loop->root());
+
+    // Read A[n, k] — n appears in the subset.
+    auto& access_A = builder.add_access(block, "A");
+    auto& tasklet_use = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder
+        .add_computational_memlet(block, access_A, tasklet_use, "in_", {symbolic::symbol("n"), symbolic::symbol("k")});
+    auto& access_C_out = builder.add_access(block, "C");
+    builder.add_computational_memlet(
+        block, tasklet_use, "out_", access_C_out, {symbolic::symbol("i"), symbolic::symbol("j")}
+    );
+
+    // Write to n inside the loop body — this violates the criterion.
+    auto& access_n_in = builder.add_access(block, "n");
+    auto& access_n_out = builder.add_access(block, "n");
+    auto& tasklet_n = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    builder.add_computational_memlet(block, access_n_in, tasklet_n, "in_", {});
+    builder.add_computational_memlet(block, tasklet_n, "out_", access_n_out, {});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 10b. Criterion: subset of the container access must not depend on a symbol
+//      that is written inside the loop (nested-loop indvar variant).
+//      A nested for-loop with indvar m is placed inside the target loop k.
+//      Accessing A[i, m] makes the read subset depend on m; since the nested
+//      for-loop writes m on each iteration, the transformation is rejected.
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_SubsetDependsOnNestedLoopIndvar) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+    builder.add_container("m", types::Scalar(types::PrimitiveType::Int32));
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    // Nested for-loop inside the target loop k: m = 0 .. 7
+    auto& inner_loop = builder.add_for(
+        loop->root(),
+        symbolic::symbol("m"),
+        symbolic::Lt(symbolic::symbol("m"), symbolic::integer(8)),
+        symbolic::zero(),
+        symbolic::add(symbolic::symbol("m"), symbolic::one())
+    );
+
+    auto& block = builder.add_block(inner_loop.root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    // A[i, m]: the subset depends on m, the nested loop's indvar.
+    // The nested for-loop writes m on every iteration, so the
+    // subset-depends-on-written-variable criterion rejects the transformation.
+    builder.add_computational_memlet(block, access_in, tasklet, "in_", {symbolic::symbol("i"), symbolic::symbol("m")});
+    builder.add_computational_memlet(block, tasklet, "out_", access_out, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
+}
+
+// -------------------------------------------------------------------------
+// 11. Criterion: at least one GPU dimension must remain free (not appear in
+//     the access subset and hence available for tiling).
+//     A[i+j, k] uses both X-indvar (i) and Y-indvar (j) in its subset,
+//     leaving no free dimension → rejected.
+// -------------------------------------------------------------------------
+TEST(KernelLocalStorageTest, CannotApply_NoFreeDimension) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Array array_desc(base_desc, symbolic::integer(8));
+    types::Pointer pointer_desc(array_desc);
+    types::Array array_desc2(base_desc, symbolic::integer(500));
+    types::Pointer pointer_desc2(array_desc2);
+
+    builder.add_container("A", pointer_desc);
+    builder.add_container("C", pointer_desc2);
+
+    auto [map_x, map_y, loop] = build_standard_gpu_scaffold(builder);
+
+    auto& block = builder.add_block(loop->root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "out_", {"in_"});
+    // Access A[i+j, k]: both the X-dimension indvar (i) and Y-dimension indvar (j)
+    // appear in the first subset element, so neither dimension is free.
+    builder.add_computational_memlet(
+        block,
+        access_in,
+        tasklet,
+        "in_",
+        {symbolic::add(symbolic::symbol("i"), symbolic::symbol("j")), symbolic::symbol("k")}
+    );
+    builder.add_computational_memlet(block, tasklet, "out_", access_out, {symbolic::symbol("i"), symbolic::symbol("j")});
+
+    std::string container = "A";
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_FALSE(kls.can_be_applied(builder, am));
 }
