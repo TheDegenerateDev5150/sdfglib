@@ -147,7 +147,12 @@ class TorchProgram(DoccProgram):
                     user = getpass.getuser()
                 output_folder = f"/tmp/{user}/DOCC/{self.name}-{stable_id}"
 
-        if os.path.exists(output_folder):
+        # Reuse already built binaries
+        docc_reuse_binaries = os.environ.get("DOCC_REUSE_BINARIES")
+
+        if not os.path.exists(output_folder) and docc_reuse_binaries:
+            docc_reuse_binaries = None
+        elif os.path.exists(output_folder) and not docc_reuse_binaries:
             shutil.rmtree(output_folder)
 
         # Populate input info from example input
@@ -170,67 +175,73 @@ class TorchProgram(DoccProgram):
             else:
                 self._input_info.append({})
 
-        debug_mode = os.environ.get("DOCC_DEBUG")
-        debug_dump = bool(debug_mode)
+        if docc_reuse_binaries:
+            lib_path = f"{output_folder}/lib__docc_{self.name}.so"
+            sdfg_path = f"{output_folder}/__docc_{self.name}.json"
+            sdfg = StructuredSDFG.from_file(sdfg_path)
+            self._sdfg = sdfg
+        else:
+            debug_mode = os.environ.get("DOCC_DEBUG")
+            debug_dump = bool(debug_mode)
 
-        # Build SDFG if not already done
-        if self._sdfg is None:
-            self._sdfg = self.to_sdfg(output_folder, debug_dump)
+            # Build SDFG if not already done
+            if self._sdfg is None:
+                self._sdfg = self.to_sdfg(output_folder, debug_dump)
 
-        sdfg = self._sdfg
+            sdfg = self._sdfg
 
-        if debug_dump:
-            sdfg.dump(output_folder, "mlir0.parsed", dump_dot=True)
+            if debug_dump:
+                sdfg.dump(output_folder, "mlir0.parsed", dump_dot=True)
 
-        sdfg.validate()
-        sdfg.expand()
+            sdfg.validate()
+            sdfg.expand()
 
-        if debug_dump:
-            sdfg.dump(output_folder, "mlir1.expanded", dump_dot=True)
-        sdfg.simplify()
-        if debug_dump:
-            sdfg.dump(output_folder, "mlir2.opt", dump_dot=True)
+            if debug_dump:
+                sdfg.dump(output_folder, "mlir1.expanded", dump_dot=True)
+            sdfg.simplify()
+            if debug_dump:
+                sdfg.dump(output_folder, "mlir2.opt", dump_dot=True)
 
-        if self.target != "none":
-            sdfg.normalize()
+            if self.target != "none":
+                sdfg.normalize()
 
-        if debug_dump or instrumentation_mode or capture_args:
-            sdfg.dump(
-                output_folder,
-                "mlir3.norm",
-                dump_dot=debug_dump,
-                dump_json=True,
-                record_for_instrumentation=True,
-            )
+            if debug_dump or instrumentation_mode or capture_args:
+                sdfg.dump(
+                    output_folder,
+                    "mlir3.norm",
+                    dump_dot=debug_dump,
+                    dump_json=True,
+                    record_for_instrumentation=True,
+                )
 
-        # Schedule if target is specified
-        if self.target != "none":
-            custom_schedule_fn = get_target_schedule_fn(self.target)
-            if custom_schedule_fn is not None:
-                custom_schedule_fn(
-                    sdfg, self.category, {"remote_tuning": self.remote_tuning}
+            # Schedule if target is specified
+            if self.target != "none":
+                custom_schedule_fn = get_target_schedule_fn(self.target)
+                if custom_schedule_fn is not None:
+                    custom_schedule_fn(
+                        sdfg, self.category, {"remote_tuning": self.remote_tuning}
+                    )
+                else:
+                    sdfg.schedule(self.target, self.category, self.remote_tuning)
+
+            self.last_sdfg = sdfg
+
+            if debug_dump:
+                sdfg.dump(output_folder, "mlir4.post_sched", dump_dot=True)
+
+            # Compile to shared library
+            custom_compile_fn = get_target_compile_fn(self.target)
+            if custom_compile_fn is not None:
+                lib_path = custom_compile_fn(
+                    sdfg, output_folder, instrumentation_mode, capture_args, {}
                 )
             else:
-                sdfg.schedule(self.target, self.category, self.remote_tuning)
-
-        self.last_sdfg = sdfg
-
-        if debug_dump:
-            sdfg.dump(output_folder, "mlir4.post_sched", dump_dot=True)
-
-        # Compile to shared library
-        custom_compile_fn = get_target_compile_fn(self.target)
-        if custom_compile_fn is not None:
-            lib_path = custom_compile_fn(
-                sdfg, output_folder, instrumentation_mode, capture_args, {}
-            )
-        else:
-            lib_path = sdfg._compile(
-                output_folder=output_folder,
-                target=self.target,
-                instrumentation_mode=instrumentation_mode,
-                capture_args=capture_args,
-            )
+                lib_path = sdfg._compile(
+                    output_folder=output_folder,
+                    target=self.target,
+                    instrumentation_mode=instrumentation_mode,
+                    capture_args=capture_args,
+                )
 
         # Build shape sources from input info
         shape_sources = []
@@ -275,11 +286,11 @@ class TorchProgram(DoccProgram):
         # fx.export_and_import expects them as positional *args.
         if isinstance(self.example_input, tuple):
             torch_mlir = fx.export_and_import(
-                self.model, *self.example_input, output_type="linalg_on_tensors"
+                self.model, *self.example_input, output_type="linalg_on_tensors", func_name=self.name
             )
         else:
             torch_mlir = fx.export_and_import(
-                self.model, self.example_input, output_type="linalg_on_tensors"
+                self.model, self.example_input, output_type="linalg_on_tensors", func_name=self.name
             )
         torch_mlir = str(torch_mlir)
 

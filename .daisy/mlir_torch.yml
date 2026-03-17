@@ -36,48 +36,105 @@ steps:
       energy: true
       env:
         DOCC_CI: regions
-    linear_none:
+
+    linear_build_none:
+      command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=none --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    linear_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=none
       energy: true
       env:
         DOCC_CI: regions
-    linear_sequential:
+        DOCC_REUSE_BINARIES: 1
+
+    linear_build_sequential:
+      command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=sequential --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    linear_run_sequential:
       command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=sequential
       energy: true
       env:
         DOCC_CI: regions
-    linear_openmp:
+        DOCC_REUSE_BINARIES: 1
+
+    linear_build_openmp:
+      command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=openmp --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    linear_run_openmp:
       command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=openmp
       energy: true
       env:
         DOCC_CI: regions
-    linear_cuda:
+        DOCC_REUSE_BINARIES: 1
+
+    linear_build_cuda:
+      command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=cuda --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    linear_run_cuda:
       command: venv/bin/python3 mlir/benchmarks/torch/linear.py --docc --target=cuda
       energy: true
       env:
         DOCC_CI: regions
+        DOCC_REUSE_BINARIES: 1
+
     matmul_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --torch
       energy: true
       env:
         DOCC_CI: regions
-    matmul_none:
+
+    matmul_build_none:
+      command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=none --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    matmul_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=none
       energy: true
       env:
         DOCC_CI: regions
-    matmul_sequential:
+        DOCC_REUSE_BINARIES: 1
+
+    matmul_build_sequential:
+      command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=sequential --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    matmul_run_sequential:
       command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=sequential
       energy: true
       env:
         DOCC_CI: regions
-    matmul_openmp:
+        DOCC_REUSE_BINARIES: 1
+
+    matmul_build_openmp:
+      command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=openmp --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    matmul_run_openmp:
       command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=openmp
       energy: true
       env:
         DOCC_CI: regions
-    matmul_cuda:
+        DOCC_REUSE_BINARIES: 1
+
+    matmul_build_cuda:
+      command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=cuda --n_runs=1
+      energy: true
+      env:
+        DOCC_CI: regions
+    matmul_run_cuda:
       command: venv/bin/python3 mlir/benchmarks/torch/matmul.py --docc --target=cuda
       energy: true
       env:
         DOCC_CI: regions
+        DOCC_REUSE_BINARIES: 1
