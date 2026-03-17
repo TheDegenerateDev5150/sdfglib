@@ -28,7 +28,6 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/pooling_node.h"
-#include "sdfg/data_flow/library_nodes/stdlib/memcpy.h"
 #include "sdfg/data_flow/tasklet.h"
 #include "sdfg/element.h"
 #include "sdfg/structured_control_flow/map.h"
@@ -41,68 +40,6 @@
 namespace mlir {
 namespace sdfg {
 
-// Count how many linalg ops use `value` as one of their output operands.
-static int count_linalg_output_uses(Value value) {
-    int count = 0;
-    for (OpOperand& use : value.getUses()) {
-        if (auto dps = dyn_cast<DestinationStyleOpInterface>(use.getOwner())) {
-            auto inits = dps.getDpsInits();
-            unsigned begin = inits.getBeginOperandIndex();
-            unsigned end = begin + static_cast<unsigned>(inits.size());
-            if (use.getOperandNumber() >= begin && use.getOperandNumber() < end) {
-                count++;
-            }
-        }
-    }
-    return count;
-}
-
-// If `output` is used as a DPS init by more than one linalg op, allocate a fresh
-// copy via malloc + memcpy and return the new container name.
-// Otherwise return the original container for `output`.
-static std::string get_or_copy_output_container(SDFGTranslator& translator, Value output) {
-    auto output_container = translator.get_or_create_container(output);
-
-    if (count_linalg_output_uses(output) <= 1) {
-        return output_container;
-    }
-
-    auto tensor_type = llvm::dyn_cast<RankedTensorType>(output.getType());
-    if (!tensor_type) {
-        return output_container;
-    }
-
-    auto& tensor_info = translator.get_or_create_tensor_info(output_container, tensor_type);
-    auto element_type = translator.convertType(tensor_type.getElementType());
-    auto& scalar_type = static_cast<::sdfg::types::Scalar&>(*element_type);
-
-    uint64_t num_elems = 1;
-    for (int64_t dim : tensor_info.shape()) {
-        num_elems *= static_cast<uint64_t>(dim);
-    }
-    auto byte_count = ::sdfg::symbolic::
-        mul(::sdfg::symbolic::integer(static_cast<int64_t>(num_elems)), ::sdfg::symbolic::size_of_type(scalar_type));
-
-    auto& builder = translator.builder();
-    std::string copy_container = builder.find_new_name(output_container + "_copy");
-    builder.add_container(copy_container, ::sdfg::types::Pointer(scalar_type));
-
-    translator.handle_malloc(copy_container, byte_count);
-
-    auto& src_type = builder.subject().type(output_container);
-    auto& dst_type = builder.subject().type(copy_container);
-    auto& block = builder.add_block(translator.insertion_point());
-    auto& src_access = builder.add_access(block, output_container);
-    auto& dst_access = builder.add_access(block, copy_container);
-    auto& memcpy_node = builder.add_library_node<::sdfg::stdlib::MemcpyNode>(block, ::sdfg::DebugInfo(), byte_count);
-    builder.add_computational_memlet(block, src_access, memcpy_node, "_src", {}, src_type);
-    builder.add_computational_memlet(block, memcpy_node, "_dst", dst_access, {}, dst_type);
-
-    translator.tensor_info_map().insert({copy_container, tensor_info});
-
-    return copy_container;
-}
-
 template<typename ElemOp, ::sdfg::data_flow::TaskletCode fp_code, ::sdfg::data_flow::TaskletCode int_code>
 LogicalResult translateLinalgElementwiseTaskletOp(SDFGTranslator& translator, ElemOp* add_op) {
     Value input1 = add_op->getInputs()[0];
@@ -113,7 +50,7 @@ LogicalResult translateLinalgElementwiseTaskletOp(SDFGTranslator& translator, El
     auto& builder = translator.builder();
     auto input1_container = translator.get_or_create_container(input1);
     auto input2_container = translator.get_or_create_container(input2);
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
@@ -159,7 +96,7 @@ LogicalResult translateLinalgElementwiseCMathOp(SDFGTranslator& translator, Elem
 
     auto& builder = translator.builder();
     auto input_container = translator.get_or_create_container(input);
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
@@ -286,7 +223,7 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
     }
     output_containers.reserve(outputs.size());
     for (auto output : outputs) {
-        output_containers.push_back(get_or_copy_output_container(translator, output));
+        output_containers.push_back(translator.get_or_copy_output_container(output));
     }
     result_containers.reserve(results.size());
     for (auto result : results) {
@@ -562,7 +499,7 @@ LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* 
     Value result = op->result();
 
     auto value_container = translator.get_or_create_container(value);
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(output_container, result_container);
@@ -607,7 +544,7 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0);
 
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(output_container, result_container);
@@ -714,7 +651,7 @@ LogicalResult translateLinalgBatchMatmulOp(SDFGTranslator& translator, linalg::B
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0);
 
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(output_container, result_container);
@@ -858,7 +795,7 @@ LogicalResult translateLinalgBroadcastOp(SDFGTranslator& translator, linalg::Bro
 
     auto& builder = translator.builder();
     auto input_container = translator.get_or_create_container(input);
-    auto init_container = get_or_copy_output_container(translator, init);
+    auto init_container = translator.get_or_copy_output_container(init);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(init_container, result_container);
@@ -906,7 +843,7 @@ LogicalResult translateLinalgDepthwiseConv2DNchwChwOp(SDFGTranslator& translator
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0); // Y: [N, C, H_out, W_out]
 
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
     translator.add_reference(output_container, result_container);
 
@@ -1051,7 +988,7 @@ LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg
         has_bias = true;
     }
 
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
     translator.add_reference(output_container, result_container);
 
@@ -1198,7 +1135,7 @@ LogicalResult translateLinalgPoolingNchwOp(SDFGTranslator& translator, PoolOp* o
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0); // Y: [N, C, H_out, W_out]
 
-    auto output_container = get_or_copy_output_container(translator, output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
     translator.add_reference(output_container, result_container);
 
