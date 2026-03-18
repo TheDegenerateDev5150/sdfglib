@@ -180,6 +180,7 @@ set(SOURCE_FILES
     src/symbolic/symbolic.cpp
     src/symbolic/utils.cpp
     src/transformations/loop_collapse.cpp
+    src/transformations/collapse_to_depth.cpp
     src/transformations/loop_distribute.cpp
     src/transformations/loop_interchange.cpp
     src/transformations/loop_skewing.cpp

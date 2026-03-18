@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sdfg/structured_control_flow/map.h"
 #include "sdfg/transformations/transformation.h"
 
 namespace sdfg {
@@ -19,7 +20,7 @@ class LoopCollapse : public Transformation {
     size_t count_;
     bool applied_ = false;
 
-    structured_control_flow::StructuredLoop* collapsed_loop_ = nullptr;
+    structured_control_flow::Map* collapsed_loop_ = nullptr;
 
 public:
     /**
@@ -68,7 +69,7 @@ public:
     /**
      * @brief Get the resulting collapsed loop after the transformation has been applied
      */
-    structured_control_flow::StructuredLoop* collapsed_loop();
+    structured_control_flow::Map* collapsed_loop();
 };
 
 } // namespace transformations

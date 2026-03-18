@@ -1,6 +1,7 @@
 #include "sdfg/passes/scheduler/cuda_scheduler.h"
 
 #include "sdfg/structured_control_flow/map.h"
+#include "sdfg/transformations/collapse_to_depth.h"
 #include "sdfg/transformations/offloading/cuda_parallelize_nested_map.h"
 #include "sdfg/transformations/offloading/cuda_transform.h"
 #include "sdfg/transformations/offloading/gpu_loop_reordering.h"
@@ -17,19 +18,24 @@ SchedulerAction CUDAScheduler::schedule(
     bool offload_unknown_sizes
 ) {
     if (auto map_node = dynamic_cast<structured_control_flow::Map*>(&loop)) {
-        // Apply OpenMP parallelization to the loop
-        cuda::CUDATransform cuda_transform(*map_node, 32, offload_unknown_sizes);
+        // Apply CUDA parallelization to the loop
+        transformations::CollapseToDepth collapse_to_depth(*map_node, 2);
+        if (collapse_to_depth.can_be_applied(builder, analysis_manager)) {
+            collapse_to_depth.apply(builder, analysis_manager);
+        }
+        auto collapsed_map = collapse_to_depth.outer_loop();
+        cuda::CUDATransform cuda_transform(*collapsed_map, 32, offload_unknown_sizes);
         if (cuda_transform.can_be_applied(builder, analysis_manager)) {
             cuda_transform.apply(builder, analysis_manager);
 
 
-            transformations::GPULoopReordering gpu_loop_reordering_pass(*map_node);
+            transformations::GPULoopReordering gpu_loop_reordering_pass(*collapsed_map);
             if (gpu_loop_reordering_pass.can_be_applied(builder, analysis_manager)) {
                 gpu_loop_reordering_pass.apply(builder, analysis_manager);
             }
 
             auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
-            auto descendants = loop_analysis.descendants(map_node);
+            auto descendants = loop_analysis.descendants(collapsed_map);
             for (auto& descendant : descendants) {
                 if (auto nested_map = dynamic_cast<structured_control_flow::Map*>(descendant)) {
                     transformations::CUDAParallelizeNestedMap nested_cuda_transform(*nested_map, 8);
