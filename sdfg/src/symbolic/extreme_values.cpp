@@ -653,7 +653,6 @@ Expression minimum_new(
 Expression maximum_new(
     const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, const size_t depth, bool tight
 ) {
-    std::cout << "maximum_new called with expr: " << expr->__str__() << ", depth: " << depth << std::endl;
     // End of recursion: fail
     if (depth > MAX_DEPTH) {
         return SymEngine::null;
@@ -666,7 +665,6 @@ Expression maximum_new(
     }
     // End of recursion: success
     if (SymEngine::is_a<SymEngine::Integer>(*expr)) {
-        std::cout << "Reached integer leaf: " << expr->__str__() << std::endl;
         return expr;
     }
     if (SymEngine::is_a<SymEngine::Symbol>(*expr)) {
@@ -680,12 +678,13 @@ Expression maximum_new(
         auto func_sym = SymEngine::rcp_static_cast<const SymEngine::FunctionSymbol>(expr);
         auto func_id = func_sym->get_name();
         if (func_id == "zext_i64") {
-            std::cout
-                << "Encountered zext_i64 in maximum calculation. Attempting to bound argument: " << expr->__str__()
-                << std::endl;
             auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(expr);
             auto max_arg = maximum_new(zext->get_args()[0], parameters, assumptions, depth + 1, tight);
-            std::cout << "Applying zext_i64 to max arg: " << max_arg->__str__() << std::endl;
+            if (max_arg == SymEngine::null) {
+                return SymEngine::null;
+            } else {
+                return symbolic::zext_i64(max_arg);
+            }
             if (max_arg == SymEngine::null) {
                 return SymEngine::null;
             } else {
@@ -700,9 +699,6 @@ Expression maximum_new(
                 return symbolic::trunc_i32(max_arg);
             }
         } else if (func_id == "idiv") {
-            std::cout
-                << "Encountered idiv in maximum calculation. Attempting to bound numerator and denominator separately."
-                << std::endl;
             auto numerator = func_sym->get_args()[0];
             auto denominator = func_sym->get_args()[1];
             if (!SymEngine::is_a<const SymEngine::Integer>(*denominator)) {
