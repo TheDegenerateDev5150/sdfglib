@@ -280,10 +280,11 @@ TEST(LoopCollapseTest, Apply_2D_Structure) {
     EXPECT_EQ(builder.subject().root().size(), 1);
     EXPECT_EQ(&builder.subject().root().at(0).first, collapsed);
 
-    // The collapsed body must contain exactly one child (the original inner block)
+    // The collapsed body must contain an empty recovery block + the original inner block
     auto& body = collapsed->root();
-    EXPECT_EQ(body.size(), 1);
+    EXPECT_EQ(body.size(), 2);
     EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&body.at(0).first) != nullptr);
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&body.at(1).first) != nullptr);
 }
 
 TEST(LoopCollapseTest, Apply_2D_IndvarTransitions) {
@@ -488,10 +489,11 @@ TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_Structure) {
     EXPECT_EQ(builder.subject().root().size(), 1);
     EXPECT_EQ(&builder.subject().root().at(0).first, collapsed);
 
-    // collapsed body: exactly one child — the surviving k map
+    // collapsed body: empty recovery block + the surviving k map
     auto& body = collapsed->root();
-    EXPECT_EQ(body.size(), 1);
-    auto* k_map = dynamic_cast<structured_control_flow::Map*>(&body.at(0).first);
+    EXPECT_EQ(body.size(), 2);
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&body.at(0).first) != nullptr);
+    auto* k_map = dynamic_cast<structured_control_flow::Map*>(&body.at(1).first);
     ASSERT_NE(k_map, nullptr) << "Inner k map must survive as direct child of collapsed loop";
 
     // k map body still contains exactly the original block
@@ -554,7 +556,7 @@ TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_CollapsedRange) {
     EXPECT_TRUE(symbolic::eq(collapsed->update(), symbolic::add(civ, symbolic::integer(1))));
 
     // The surviving k map must still have its original bound P
-    auto* k_map = dynamic_cast<structured_control_flow::Map*>(&collapsed->root().at(0).first);
+    auto* k_map = dynamic_cast<structured_control_flow::Map*>(&collapsed->root().at(1).first);
     ASSERT_NE(k_map, nullptr);
     EXPECT_TRUE(symbolic::eq(k_map->condition(), symbolic::Lt(symbolic::symbol("k"), P)))
         << "k map bound must remain < P";
@@ -589,9 +591,10 @@ TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_Structure) {
     ASSERT_NE(jk_map, nullptr) << "Collapsed jk map must be inside the outer i map";
     EXPECT_EQ(jk_map, collapsed);
 
-    // Collapsed body: the original block
-    EXPECT_EQ(collapsed->root().size(), 1);
+    // Collapsed body: empty recovery block + the original block
+    EXPECT_EQ(collapsed->root().size(), 2);
     EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&collapsed->root().at(0).first) != nullptr);
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&collapsed->root().at(1).first) != nullptr);
 }
 
 TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_IndvarTransitions) {
@@ -741,12 +744,13 @@ TEST(LoopCollapseTest, Apply_4D_CollapsePairs) {
     EXPECT_TRUE(symbolic::eq(collapsed_ij->condition(), symbolic::Lt(civ_ij, symbolic::mul(N, M))));
     EXPECT_TRUE(symbolic::eq(collapsed_ij->update(), symbolic::add(civ_ij, symbolic::integer(1))));
 
-    // collapsed_ij body has one child: the k map
-    EXPECT_EQ(collapsed_ij->root().size(), 1);
-    auto* surviving_k = dynamic_cast<structured_control_flow::Map*>(&collapsed_ij->root().at(0).first);
+    // collapsed_ij body: empty recovery block + the k map
+    EXPECT_EQ(collapsed_ij->root().size(), 2);
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&collapsed_ij->root().at(0).first) != nullptr);
+    auto* surviving_k = dynamic_cast<structured_control_flow::Map*>(&collapsed_ij->root().at(1).first);
     ASSERT_NE(surviving_k, nullptr) << "k map must survive as child of collapsed_ij";
 
-    // Indvar recovery for i, j
+    // Indvar recovery for i, j (on the empty recovery block's transition)
     {
         const auto& asgn = collapsed_ij->root().at(0).second.assignments();
         ASSERT_TRUE(asgn.count(i)) << "'i' must be assigned";
@@ -785,9 +789,9 @@ TEST(LoopCollapseTest, Apply_4D_CollapsePairs) {
     // collapsed_ij must still be the root child
     EXPECT_EQ(final_outer, collapsed_ij);
 
-    // collapsed_ij body: collapsed_kl
-    EXPECT_EQ(collapsed_ij->root().size(), 1);
-    auto* inner_map = dynamic_cast<structured_control_flow::Map*>(&collapsed_ij->root().at(0).first);
+    // collapsed_ij body: empty recovery block + collapsed_kl
+    EXPECT_EQ(collapsed_ij->root().size(), 2);
+    auto* inner_map = dynamic_cast<structured_control_flow::Map*>(&collapsed_ij->root().at(1).first);
     ASSERT_NE(inner_map, nullptr);
     EXPECT_EQ(inner_map, collapsed_kl);
 
@@ -796,11 +800,11 @@ TEST(LoopCollapseTest, Apply_4D_CollapsePairs) {
     EXPECT_TRUE(symbolic::eq(collapsed_kl->condition(), symbolic::Lt(civ_kl, symbolic::mul(P, Q))));
     EXPECT_TRUE(symbolic::eq(collapsed_kl->update(), symbolic::add(civ_kl, symbolic::integer(1))));
 
-    // collapsed_kl body: the original block
-    EXPECT_EQ(collapsed_kl->root().size(), 1);
-    EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&collapsed_kl->root().at(0).first) != nullptr);
+    // collapsed_kl body: empty recovery block + the original block
+    EXPECT_EQ(collapsed_kl->root().size(), 2);
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&collapsed_kl->root().at(1).first) != nullptr);
 
-    // Indvar recovery for k, l
+    // Indvar recovery for k, l (on the empty recovery block's transition)
     {
         const auto& asgn = collapsed_kl->root().at(0).second.assignments();
         ASSERT_TRUE(asgn.count(k)) << "'k' must be assigned";
@@ -886,10 +890,10 @@ TEST(LoopCollapseTest, Apply_2D_WithComputation) {
     auto* collapsed = t.collapsed_loop();
     ASSERT_NE(collapsed, nullptr);
 
-    // Structure: root → collapsed → block
+    // Structure: root → collapsed → [empty recovery block, block]
     EXPECT_EQ(builder.subject().root().size(), 1);
-    EXPECT_EQ(collapsed->root().size(), 1);
-    auto* body_block = dynamic_cast<structured_control_flow::Block*>(&collapsed->root().at(0).first);
+    EXPECT_EQ(collapsed->root().size(), 2);
+    auto* body_block = dynamic_cast<structured_control_flow::Block*>(&collapsed->root().at(1).first);
     ASSERT_NE(body_block, nullptr);
 
     // Transition assignments
@@ -1014,14 +1018,11 @@ TEST(LoopCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
     auto civ_ij = collapsed_ij->indvar();
 
     // --- Second collapse: (k, l) ---
-    auto* surviving_k = dynamic_cast<structured_control_flow::Map*>(&collapsed_ij->root().at(0).first);
+    auto* surviving_k = dynamic_cast<structured_control_flow::Map*>(&collapsed_ij->root().at(1).first);
     ASSERT_NE(surviving_k, nullptr);
-    // Navigate to k map: collapsed_ij body → k map (which is the first child's first child is the k map, but
-    // after collapse of (i,j) the k map is the sole child of collapsed_ij's body's first element, which itself
-    // contains the l map)
-    // Actually: collapsed_ij body has 1 child = k map
-    // k map body has 1 child = l map
-    // l map body has 1 child = block
+    // collapsed_ij body: [empty recovery block, k map]
+    // k map body: l map
+    // l map body: block
     // We need the k map to collapse (k, l):
 
     transformations::LoopCollapse t2(*surviving_k, 2);
@@ -1032,12 +1033,12 @@ TEST(LoopCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
     ASSERT_NE(collapsed_kl, nullptr);
     auto civ_kl = collapsed_kl->indvar();
 
-    // Final structure: root → collapsed_ij → collapsed_kl → block
+    // Final structure: root → collapsed_ij → [empty, collapsed_kl → [empty, block]]
     EXPECT_EQ(builder.subject().root().size(), 1);
-    EXPECT_EQ(collapsed_ij->root().size(), 1);
-    EXPECT_EQ(collapsed_kl->root().size(), 1);
+    EXPECT_EQ(collapsed_ij->root().size(), 2);
+    EXPECT_EQ(collapsed_kl->root().size(), 2);
 
-    auto* final_block = dynamic_cast<structured_control_flow::Block*>(&collapsed_kl->root().at(0).first);
+    auto* final_block = dynamic_cast<structured_control_flow::Block*>(&collapsed_kl->root().at(1).first);
     ASSERT_NE(final_block, nullptr) << "Innermost element must be the original block";
 
     // Verify collapsed_ij transition assignments are still correct

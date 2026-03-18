@@ -131,12 +131,16 @@ void LoopCollapse::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
         loop_.debug_info()
     );
 
-    // Step 6: Move the body of the innermost map into the collapsed map
+    // Step 6: Add an empty block for indvar recovery before the original contents
+    builder.add_block(collapsed_map.root());
+
+    // Step 7: Move the body of the innermost map into the collapsed map
     auto* innermost = maps.back();
     builder.move_children(innermost->root(), collapsed_map.root());
 
-    // Step 7: Add indvar recovery assignments to the transition of the first
-    // body element of the collapsed map.
+    // Step 8: Add indvar recovery assignments to the transition of the empty
+    // block so that all induction variables are defined before the original
+    // loop contents.
     //
     // For maps [0..n-1] with bounds [B0, B1, ..., B_{n-1}]:
     //   indvar_0     = civ / (B1 * B2 * ... * B_{n-1})
@@ -170,7 +174,7 @@ void LoopCollapse::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
         first_transition.assignments()[indvars[k]] = value;
     }
 
-    // Step 8: Remove the original nest
+    // Step 9: Remove the original nest
     // The index shifted by 1 because we inserted a map before
     transition.assignments().clear();
     builder.remove_child(*parent, parent->index(loop_));

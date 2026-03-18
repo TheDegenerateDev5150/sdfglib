@@ -24,10 +24,14 @@ SchedulerAction CUDAScheduler::schedule(
             collapse_to_depth.apply(builder, analysis_manager);
         }
         auto collapsed_map = collapse_to_depth.outer_loop();
+        std::cout << "Collapsed map: " << collapsed_map->indvar()->__str__() << std::endl;
         cuda::CUDATransform cuda_transform(*collapsed_map, 32, offload_unknown_sizes);
         if (cuda_transform.can_be_applied(builder, analysis_manager)) {
+            std::cout << "Applying CUDA transform to map with indvar: " << collapsed_map->indvar()->__str__()
+                      << std::endl;
             cuda_transform.apply(builder, analysis_manager);
-
+            std::cout << "Applied CUDA transform to map with indvar: " << collapsed_map->indvar()->__str__()
+                      << std::endl;
 
             transformations::GPULoopReordering gpu_loop_reordering_pass(*collapsed_map);
             if (gpu_loop_reordering_pass.can_be_applied(builder, analysis_manager)) {
