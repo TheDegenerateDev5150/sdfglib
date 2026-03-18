@@ -12,15 +12,38 @@
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/symbolic/symbolic.h"
 
+#include "sdfg/data_flow/library_node.h"
 #include "sdfg/optimization_report/pass_report_consumer.h"
 #include "sdfg/types/utils.h"
+#include "sdfg/visitor/immutable_structured_sdfg_visitor.h"
 #include "symengine/symengine_rcp.h"
 
 namespace sdfg {
 namespace transformations {
 
+class SideEffectFinder : public visitor::ImmutableStructuredSDFGVisitor {
+private:
+    structured_control_flow::Map& map_;
+
+public:
+    SideEffectFinder(StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::Map& map)
+        : visitor::ImmutableStructuredSDFGVisitor(sdfg, analysis_manager), map_(map) {}
+
+    bool visit() override { return visit_internal(map_.root()); }
+
+    bool accept(structured_control_flow::Block& node) override {
+        for (const auto& lib_node : node.dataflow().library_nodes()) {
+            if (lib_node->side_effect()) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
 OffloadTransform::OffloadTransform(structured_control_flow::Map& map, bool allow_dynamic_sizes)
     : map_(map), allow_dynamic_sizes_(allow_dynamic_sizes) {}
+
 
 bool OffloadTransform::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& sdfg = builder.subject();
@@ -76,6 +99,14 @@ bool OffloadTransform::can_be_applied(builder::StructuredSDFGBuilder& builder, a
     if (!arguments_analysis.argument_size_known(analysis_manager, this->map_, allow_dynamic_sizes_)) {
         if (report_) report_->transform_impossible(this, "args not understood");
         DEBUG_PRINTLN("Cannot apply transform: argument sizes not known");
+        return false;
+    }
+
+    // Criterion: Map cannot contain function calls with side effects (e.g. library nodes that write to memory)
+    SideEffectFinder side_effect_finder(sdfg, analysis_manager, this->map_);
+    if (side_effect_finder.visit()) {
+        if (report_) report_->transform_impossible(this, "side effects");
+        DEBUG_PRINTLN("Cannot apply transform: map contains library nodes with side effects");
         return false;
     }
 

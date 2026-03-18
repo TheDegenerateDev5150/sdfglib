@@ -50,7 +50,7 @@ LogicalResult translateLinalgElementwiseTaskletOp(SDFGTranslator& translator, El
     auto& builder = translator.builder();
     auto input1_container = translator.get_or_create_container(input1);
     auto input2_container = translator.get_or_create_container(input2);
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
@@ -96,7 +96,7 @@ LogicalResult translateLinalgElementwiseCMathOp(SDFGTranslator& translator, Elem
 
     auto& builder = translator.builder();
     auto input_container = translator.get_or_create_container(input);
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
@@ -223,7 +223,7 @@ LogicalResult translateLinalgGenericOp(SDFGTranslator& translator, linalg::Gener
     }
     output_containers.reserve(outputs.size());
     for (auto output : outputs) {
-        output_containers.push_back(translator.get_or_create_container(output));
+        output_containers.push_back(translator.get_or_copy_output_container(output));
     }
     result_containers.reserve(results.size());
     for (auto result : results) {
@@ -499,7 +499,7 @@ LogicalResult translateLinalgFillOp(SDFGTranslator& translator, linalg::FillOp* 
     Value result = op->result();
 
     auto value_container = translator.get_or_create_container(value);
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(output_container, result_container);
@@ -544,7 +544,7 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0);
 
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(output_container, result_container);
@@ -651,7 +651,7 @@ LogicalResult translateLinalgBatchMatmulOp(SDFGTranslator& translator, linalg::B
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0);
 
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(output_container, result_container);
@@ -795,7 +795,7 @@ LogicalResult translateLinalgBroadcastOp(SDFGTranslator& translator, linalg::Bro
 
     auto& builder = translator.builder();
     auto input_container = translator.get_or_create_container(input);
-    auto init_container = translator.get_or_create_container(init);
+    auto init_container = translator.get_or_copy_output_container(init);
     auto result_container = translator.get_or_create_container(result);
 
     translator.add_reference(init_container, result_container);
@@ -843,7 +843,7 @@ LogicalResult translateLinalgDepthwiseConv2DNchwChwOp(SDFGTranslator& translator
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0); // Y: [N, C, H_out, W_out]
 
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
     translator.add_reference(output_container, result_container);
 
@@ -988,7 +988,7 @@ LogicalResult translateLinalgConv2DNchwFchwOp(SDFGTranslator& translator, linalg
         has_bias = true;
     }
 
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
     translator.add_reference(output_container, result_container);
 
@@ -1135,7 +1135,7 @@ LogicalResult translateLinalgPoolingNchwOp(SDFGTranslator& translator, PoolOp* o
     auto output = op->getOutputs()[0];
     auto result = op->getResult(0); // Y: [N, C, H_out, W_out]
 
-    auto output_container = translator.get_or_create_container(output);
+    auto output_container = translator.get_or_copy_output_container(output);
     auto result_container = translator.get_or_create_container(result);
     translator.add_reference(output_container, result_container);
 
