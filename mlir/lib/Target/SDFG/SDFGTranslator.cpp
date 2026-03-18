@@ -25,6 +25,7 @@
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/library_nodes/stdlib/free.h"
 #include "sdfg/data_flow/library_nodes/stdlib/malloc.h"
+#include "sdfg/data_flow/library_nodes/stdlib/memcpy.h"
 #include "sdfg/element.h"
 #include "sdfg/serializer/json_serializer.h"
 #include "sdfg/structured_control_flow/map.h"
@@ -33,6 +34,8 @@
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/tensor.h"
 #include "sdfg/types/type.h"
+
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 
 namespace mlir {
 namespace sdfg {
@@ -344,6 +347,68 @@ void SDFGTranslator::handle_frees(std::string return_container) {
         this->builder_.add_computational_memlet(block, ptr_in, libnode, "_ptr", {}, container_type);
         this->builder_.add_computational_memlet(block, libnode, "_ptr", ptr_out, {}, container_type);
     }
+}
+
+// Count how many linalg ops use `value` as one of their output operands.
+static int count_linalg_output_uses(Value value) {
+    int count = 0;
+    for (OpOperand& use : value.getUses()) {
+        if (auto dps = dyn_cast<DestinationStyleOpInterface>(use.getOwner())) {
+            auto inits = dps.getDpsInits();
+            unsigned begin = inits.getBeginOperandIndex();
+            unsigned end = begin + static_cast<unsigned>(inits.size());
+            if (use.getOperandNumber() >= begin && use.getOperandNumber() < end) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+std::string SDFGTranslator::get_or_copy_output_container(Value output) {
+    auto output_container = this->get_or_create_container(output);
+
+    if (count_linalg_output_uses(output) <= 1) {
+        return output_container;
+    }
+
+    auto tensor_type = llvm::dyn_cast<RankedTensorType>(output.getType());
+    if (!tensor_type) {
+        return output_container;
+    }
+
+    auto& tensor_info = this->get_or_create_tensor_info(output_container, tensor_type);
+    auto element_type = this->convertType(tensor_type.getElementType());
+    auto& scalar_type = static_cast<::sdfg::types::Scalar&>(*element_type);
+
+    uint64_t num_elems = 1;
+    for (int64_t dim : tensor_info.shape()) {
+        num_elems *= static_cast<uint64_t>(dim);
+    }
+    auto byte_count = ::sdfg::symbolic::
+        mul(::sdfg::symbolic::integer(static_cast<int64_t>(num_elems)), ::sdfg::symbolic::size_of_type(scalar_type));
+
+    std::string copy_container = builder_.find_new_name(output_container + "_copy");
+    builder_.add_container(copy_container, ::sdfg::types::Pointer(scalar_type));
+
+    this->handle_malloc(copy_container, byte_count);
+
+    // Skip memcpy if the output is defined by tensor.empty (uninitialized data)
+    if (!output.getDefiningOp() || !llvm::isa<tensor::EmptyOp>(output.getDefiningOp())) {
+        auto& src_type = builder_.subject().type(output_container);
+        auto& dst_type = builder_.subject().type(copy_container);
+        auto& block = builder_.add_block(this->insertion_point());
+        auto& src_access = builder_.add_access(block, output_container);
+        auto& dst_access = builder_.add_access(block, copy_container);
+        auto& memcpy_node =
+            builder_.add_library_node<::sdfg::stdlib::MemcpyNode>(block, ::sdfg::DebugInfo(), byte_count);
+        builder_.add_computational_memlet(block, src_access, memcpy_node, "_src", {}, src_type);
+        builder_.add_computational_memlet(block, memcpy_node, "_dst", dst_access, {}, dst_type);
+    }
+
+    this->tensor_info_map_.insert({copy_container, tensor_info});
+
+    return copy_container;
 }
 
 LogicalResult translateOp(SDFGTranslator& translator, Operation* op) {

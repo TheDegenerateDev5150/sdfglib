@@ -81,3 +81,28 @@ steps:
       energy: true
       env:
         DOCC_CI: regions
+    resnet18_torch:
+      command: venv/bin/python3 mlir/model_zoo/resnet18.py --torch
+      energy: true
+      env:
+        DOCC_CI: regions
+    resnet18_none:
+      command: venv/bin/python3 mlir/model_zoo/resnet18.py --docc --target=none
+      energy: true
+      env:
+        DOCC_CI: regions
+    resnet18_sequential:
+      command: venv/bin/python3 mlir/model_zoo/resnet18.py --docc --target=sequential
+      energy: true
+      env:
+        DOCC_CI: regions
+    resnet18_openmp:
+      command: venv/bin/python3 mlir/model_zoo/resnet18.py --docc --target=openmp
+      energy: true
+      env:
+        DOCC_CI: regions
+    resnet18_cuda:
+      command: venv/bin/python3 mlir/model_zoo/resnet18.py --docc --target=cuda
+      energy: true
+      env:
+        DOCC_CI: regions

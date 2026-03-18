@@ -106,6 +106,11 @@ public:
     void handle_malloc(std::string container, const ::sdfg::symbolic::Expression size);
     void handle_frees(std::string return_container = "");
 
+    /// If `output` is used as a DPS init by more than one linalg op, allocate a fresh
+    /// copy via malloc + memcpy and return the new container name.
+    /// Otherwise return the original container for `output`.
+    std::string get_or_copy_output_container(Value output);
+
     std::string store_in_c_order(
         const std::string& container, const TensorInfo& tensor_info, const ::sdfg::types::Scalar& element_type
     );
