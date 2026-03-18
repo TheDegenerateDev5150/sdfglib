@@ -104,6 +104,7 @@ set(TEST_FILES
     symbolic/symbolic_test.cpp
     symbolic/sets_test.cpp
     symbolic/utils_test.cpp
+    transformations/loop_collapse_test.cpp
     transformations/loop_distribute_test.cpp
     transformations/loop_interchange_test.cpp
     transformations/loop_skewing_test.cpp

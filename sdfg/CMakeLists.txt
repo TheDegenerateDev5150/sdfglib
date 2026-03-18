@@ -179,6 +179,7 @@ set(SOURCE_FILES
     src/symbolic/sets.cpp
     src/symbolic/symbolic.cpp
     src/symbolic/utils.cpp
+    src/transformations/loop_collapse.cpp
     src/transformations/loop_distribute.cpp
     src/transformations/loop_interchange.cpp
     src/transformations/loop_skewing.cpp
