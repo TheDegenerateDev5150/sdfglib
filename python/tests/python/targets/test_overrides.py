@@ -26,11 +26,10 @@ def _expand(sdfg, cat: str, kwargs: Dict[str, Any]):
     return sdfg.expand()
 
 
-register_target("special_legacy", _schedule_legacy)
-register_target_overrides("special", _schedule, _compile, _expand)
-
-
 def test_python_target_overrides(capsys):
+    register_target("special_legacy", _schedule_legacy)
+    register_target_overrides("special", _schedule, _compile, _expand)
+
     @native(target="special", category="server")
     def matmul_etsoc(A, B, C):
         C = A @ B
@@ -56,6 +55,9 @@ def test_python_target_overrides(capsys):
 
 
 def test_python_target_legacy_override(capsys):
+    register_target("special_legacy", _schedule_legacy)
+    register_target_overrides("special", _schedule, _compile, _expand)
+
     @native(target="special_legacy", category="server")
     def matmul_etsoc(A, B, C):
         C = A @ B

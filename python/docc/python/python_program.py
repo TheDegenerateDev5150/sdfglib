@@ -99,10 +99,6 @@ def _map_python_type(dtype):
     return dtype
 
 
-def _is_debug_dump() -> bool:
-    return bool(os.environ.get("DOCC_DEBUG"))
-
-
 class PythonProgram(DoccProgram):
 
     def __init__(

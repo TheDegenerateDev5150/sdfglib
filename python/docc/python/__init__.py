@@ -7,6 +7,7 @@ from docc.compiler.target_registry import (
     register_target,
     register_target_overrides,
     unregister_target,
+    reset_target_registry,
 )
 
 # Backward compatibility alias - ExpressionVisitor is now merged into ASTParser

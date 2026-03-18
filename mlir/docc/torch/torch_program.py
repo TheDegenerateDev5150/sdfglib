@@ -7,6 +7,7 @@ from typing import Any, Optional
 from docc.compiler import CompiledSDFG, DoccProgram
 from docc.sdfg import StructuredSDFG
 from docc.mlir import MLIRModule
+from docc.compiler.target_registry import reset_target_registry
 
 
 class TorchProgram(DoccProgram):
@@ -19,6 +20,7 @@ class TorchProgram(DoccProgram):
         remote_tuning: bool = False,
         instrumentation_mode: Optional[str] = None,
         capture_args: Optional[bool] = None,
+        force_rebuild: bool = False,
         name: Optional[str] = None,
     ):
         # Determine name from model
@@ -48,6 +50,7 @@ class TorchProgram(DoccProgram):
         self._compiled: Optional[CompiledSDFG] = None
         self._input_info: list = []  # [(shape, dtype), ...] for each input
         self._output_info: list = []  # [(shape, dtype), ...] for each output
+        self.force_rebuild = force_rebuild
 
     def __call__(self, *args: Any) -> Any:
         import torch
@@ -104,8 +107,11 @@ class TorchProgram(DoccProgram):
         # Generate cache key
         cache_key = self._get_cache_key(self.example_input)
 
-        if original_output_folder is None and cache_key in self.cache:
-            return self.cache[cache_key]
+        cached_available = cache_key in self.cache
+
+        if original_output_folder and cached_available:
+            if not self.force_rebuild:
+                return self.cache[cache_key]
 
         # Determine output folder
         if output_folder is None:
@@ -340,12 +346,14 @@ def compile_torch(
     example_input,
     target: str = "none",
     category: str = "server",
+    force_rebuild: bool = False,
 ) -> CompiledSDFG:
     return TorchProgram(
         model,
         example_input=example_input,
         target=target,
         category=category,
+        force_rebuild=force_rebuild,
     )
 
 
@@ -358,6 +366,12 @@ _backend_options = {
     "target": "none",
     "category": "server",
 }
+
+
+def reset_backend_options():
+    _backend_options["target"] = "none"
+    _backend_options["category"] = "server"
+    reset_target_registry()
 
 
 def set_backend_options(target: str = "none", category: str = "server"):

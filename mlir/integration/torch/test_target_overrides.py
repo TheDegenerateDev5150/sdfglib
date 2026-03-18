@@ -7,8 +7,6 @@ import docc.torch
 from docc.torch import register_target_overrides, register_target
 from typing import Callable, Optional, Dict, Any
 
-docc.torch.set_backend_options(target="special", category="server")
-
 
 def _schedule(sdfg, cat: str, kwargs: Dict[str, any]):
     print("hooking scheduling")
@@ -25,10 +23,9 @@ def _expand(sdfg, cat: str, kwargs: Dict[str, Any]):
     return sdfg.expand()
 
 
-register_target_overrides("special", _schedule, _compile, _expand)
-
-
 def test_inference(capsys):
+    register_target_overrides("special", _schedule, _compile, _expand)
+
     class LinearNet(nn.Module):
         def __init__(self, in_features=4, out_features=2):
             super().__init__()
@@ -43,9 +40,10 @@ def test_inference(capsys):
     model_ref.eval()
     model_ref.load_state_dict(model.state_dict())
 
-    program = torch.compile(model, backend="docc")
-
     example_input = torch.randn(2, 4)
+    program = docc.torch.compile_torch(
+        model, example_input, "special", "server", force_rebuild=True
+    )  # Requires building it from scratch to see all the hooks
 
     # Force dynamo (inference) backend
     with torch.no_grad():

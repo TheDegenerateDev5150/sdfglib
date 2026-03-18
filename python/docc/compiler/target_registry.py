@@ -69,3 +69,10 @@ def get_target_compile_fn(name: str) -> Optional[TargetCompileFn]:
 def get_target_expand_fn(name: str) -> Optional[TargetExpandFn]:
     """Get a registered target expand function, or None if not found."""
     return _target_expand_registry.get(name)
+
+
+def reset_target_registry() -> None:
+    """Clear all global state of the registry"""
+    _target_expand_registry.clear()
+    _target_schedule_registry.clear()
+    _target_compile_registry.clear()
