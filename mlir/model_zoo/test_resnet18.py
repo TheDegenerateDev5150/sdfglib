@@ -34,7 +34,7 @@ def test_resnet18_compile():
     model, x = setup()
     model_ref = copy.deepcopy(model)
 
-    program = torch.compile(model, backend="docc")
+    program = docc.torch.compile_torch(model, x)
     with torch.no_grad():
         res = program(x)
         res_ref = model_ref(x)
