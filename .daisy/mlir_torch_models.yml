@@ -47,8 +47,7 @@ steps:
     bn_conv_bn_relu_maxpool_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/bn_conv_bn_relu_maxpool.py --torch
       energy: true
-      env:
-        DOCC_CI: regions
+      measurements: 3
     bn_conv_bn_relu_maxpool_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/bn_conv_bn_relu_maxpool.py --docc --target=none
       energy: true
@@ -79,8 +78,7 @@ steps:
     # resnet18_torch:
     #   command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --torch
     #   energy: true
-    #   env:
-    #     DOCC_CI: regions
+    #   measurements: 3
     # resnet18_run_none:
     #   command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --docc --target=none
     #   energy: true

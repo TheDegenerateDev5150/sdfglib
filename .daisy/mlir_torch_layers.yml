@@ -67,8 +67,7 @@ steps:
     batchnorm_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/batchnorm.py --torch
       energy: true
-      env:
-        DOCC_CI: regions
+      measurements: 3
     batchnorm_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/batchnorm.py --docc --target=none
       energy: true
@@ -99,8 +98,7 @@ steps:
     # conv2d_torch:
     #   command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --torch
     #   energy: true
-    #   env:
-    #     DOCC_CI: regions
+    #   measurements: 3
     # conv2d_run_none:
     #   command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --docc --target=none
     #   energy: true
@@ -131,8 +129,7 @@ steps:
     linear_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/linear.py --torch
       energy: true
-      env:
-        DOCC_CI: regions
+      measurements: 3
     linear_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/linear.py --docc --target=none
       energy: true
@@ -163,8 +160,7 @@ steps:
     matmul_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/matmul.py --torch
       energy: true
-      env:
-        DOCC_CI: regions
+      measurements: 3
     matmul_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/matmul.py --docc --target=none
       energy: true
@@ -195,8 +191,7 @@ steps:
     pooling_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/pooling.py --torch
       energy: true
-      env:
-        DOCC_CI: regions
+      measurements: 3
     pooling_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/pooling.py --docc --target=none
       energy: true
@@ -227,8 +222,7 @@ steps:
     relu_torch:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/relu.py --torch
       energy: true
-      env:
-        DOCC_CI: regions
+      measurements: 3
     relu_run_none:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/relu.py --docc --target=none
       energy: true
