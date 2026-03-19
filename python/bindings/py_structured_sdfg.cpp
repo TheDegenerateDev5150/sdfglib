@@ -480,7 +480,11 @@ std::string PyStructuredSDFG::compile(
         std::string name = lib_path.stem().string();
         std::string object_file = build_path.string() + "/" + name + ".o";
         std::stringstream cmd;
-        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3  -march=native -mtune=native -funroll-loops";
+#if defined(__APPLE__)
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -Xpreprocessor -fopenmp -march=native -mtune=native -funroll-loops";
+#else
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
+#endif
         if (!package_path_str.empty()) {
             cmd << " -L" << package_lib_path_str;
             cmd << " -I" << package_include_path_str;
@@ -511,7 +515,11 @@ std::string PyStructuredSDFG::compile(
     // Compile
     {
         std::stringstream cmd;
-        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -march=native -mtune=native -funroll-loops";
+#if defined(__APPLE__)
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -Xpreprocessor -fopenmp -march=native -mtune=native -funroll-loops";
+#else
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
+#endif
         if (!package_path_str.empty()) {
             cmd << " -L" << package_lib_path_str;
             cmd << " -I" << package_include_path_str;
