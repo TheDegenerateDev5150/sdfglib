@@ -322,7 +322,10 @@ LogicalResult translateArithConstantOp(SDFGTranslator& translator, arith::Consta
     if (val_type->type_id() == ::sdfg::types::TypeID::Scalar) {
         std::string val = llvm::TypeSwitch<TypedAttr, std::string>(constant_op->getValue())
                               .Case<FloatAttr>([](FloatAttr attr) {
-                                  return std::to_string(attr.getValue().convertToDouble());
+                                  double v = attr.getValue().convertToDouble();
+                                  if (std::isinf(v)) return v < 0 ? std::string("-INFINITY") : std::string("INFINITY");
+                                  if (std::isnan(v)) return std::string("NAN");
+                                  return std::to_string(v);
                               })
                               .Case<IntegerAttr>([](IntegerAttr attr) { return std::to_string(attr.getInt()); })
                               .Case<DenseIntElementsAttr>([](DenseIntElementsAttr attr) {
@@ -338,9 +341,17 @@ LogicalResult translateArithConstantOp(SDFGTranslator& translator, arith::Consta
                                   assert(attr.getNumElements() == 1);
                                   auto value = *attr.begin();
                                   if (attr.getElementType().isF32()) {
-                                      return std::to_string(value.convertToFloat());
+                                      float v = value.convertToFloat();
+                                      if (std::isinf(v))
+                                          return v < 0 ? std::string("-INFINITY") : std::string("INFINITY");
+                                      if (std::isnan(v)) return std::string("NAN");
+                                      return std::to_string(v);
                                   } else if (attr.getElementType().isF64()) {
-                                      return std::to_string(value.convertToDouble());
+                                      double v = value.convertToDouble();
+                                      if (std::isinf(v))
+                                          return v < 0 ? std::string("-INFINITY") : std::string("INFINITY");
+                                      if (std::isnan(v)) return std::string("NAN");
+                                      return std::to_string(v);
                                   } else {
                                       return std::string();
                                   }
@@ -641,12 +652,12 @@ LogicalResult translateArithOp(SDFGTranslator& translator, Operation* op) {
             // Not technically correct because of different handling of NaN's
             return translateArithCMathBinaryOp<
                 arith::MinimumFOp,
-                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &minimumf_op);
+                ::sdfg::math::cmath::CMathFunction::fmin>(translator, &minimumf_op);
         })
         .Case<arith::MinNumFOp>([&](arith::MinNumFOp minnumf_op) {
             return translateArithCMathBinaryOp<
                 arith::MinNumFOp,
-                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &minnumf_op);
+                ::sdfg::math::cmath::CMathFunction::fmin>(translator, &minnumf_op);
         })
         .Case<arith::BitcastOp>([&](arith::BitcastOp bitcast_op) {
             return translateArithCastOp<arith::BitcastOp>(translator, &bitcast_op);
