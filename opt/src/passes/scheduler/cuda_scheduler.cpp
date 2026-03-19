@@ -1,5 +1,7 @@
 #include "sdfg/passes/scheduler/cuda_scheduler.h"
 
+#include "sdfg/passes/scheduler/loop_scheduler.h"
+#include "sdfg/passes/symbolic/symbol_propagation.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/transformations/collapse_to_depth.h"
 #include "sdfg/transformations/offloading/cuda_parallelize_nested_map.h"
@@ -19,10 +21,13 @@ SchedulerAction CUDAScheduler::schedule(
 ) {
     if (auto map_node = dynamic_cast<structured_control_flow::Map*>(&loop)) {
         // Apply CUDA parallelization to the loop
+        bool applied_collapse = false;
         transformations::CollapseToDepth collapse_to_depth(*map_node, 2);
-        if (collapse_to_depth.can_be_applied(builder, analysis_manager)) {
-            collapse_to_depth.apply(builder, analysis_manager);
-        }
+        // if (collapse_to_depth.can_be_applied(builder, analysis_manager)) {
+        //     collapse_to_depth.apply(builder, analysis_manager);
+        //     analysis_manager.invalidate_all();
+        //     applied_collapse = true;
+        // }
         auto collapsed_map = collapse_to_depth.outer_loop();
         std::cout << "Collapsed map: " << collapsed_map->indvar()->__str__() << std::endl;
         cuda::CUDATransform cuda_transform(*collapsed_map, 32, offload_unknown_sizes);
@@ -52,7 +57,7 @@ SchedulerAction CUDAScheduler::schedule(
 
             analysis_manager.invalidate_all();
             auto& loop_analysis2 = analysis_manager.get<analysis::LoopAnalysis>();
-            for (auto& descendant : loop_analysis2.descendants(map_node)) {
+            for (auto& descendant : loop_analysis2.descendants(collapsed_map)) {
                 if (auto target_loop = dynamic_cast<structured_control_flow::StructuredLoop*>(descendant)) {
                     transformations::GPUTiling gpu_tiling_transform(*target_loop, 8);
                     if (gpu_tiling_transform.can_be_applied(builder, analysis_manager)) {
@@ -62,6 +67,9 @@ SchedulerAction CUDAScheduler::schedule(
             }
 
             analysis_manager.invalidate_all();
+            return NEXT;
+        }
+        if (applied_collapse) {
             return NEXT;
         }
     }

@@ -18,6 +18,7 @@ SchedulerAction OMPScheduler::schedule(
         transformations::CollapseToDepth collapse_to_depth(*map_node, 1);
         if (collapse_to_depth.can_be_applied(builder, analysis_manager)) {
             collapse_to_depth.apply(builder, analysis_manager);
+            analysis_manager.invalidate_all();
         }
         auto collapsed_map = collapse_to_depth.outer_loop();
         transformations::OMPTransform omp_transform(*collapsed_map);

@@ -18,10 +18,13 @@ SchedulerAction ROCMScheduler::schedule(
     bool offload_unknown_sizes
 ) {
     if (auto map_node = dynamic_cast<structured_control_flow::Map*>(&loop)) {
+        bool applied_collapse = false;
         transformations::CollapseToDepth collapse_to_depth(*map_node, 2);
-        if (collapse_to_depth.can_be_applied(builder, analysis_manager)) {
-            collapse_to_depth.apply(builder, analysis_manager);
-        }
+        // if (collapse_to_depth.can_be_applied(builder, analysis_manager)) {
+        //     collapse_to_depth.apply(builder, analysis_manager);
+        //     analysis_manager.invalidate_all();
+        //     applied_collapse = true;
+        // }
         auto collapsed_map = collapse_to_depth.outer_loop();
         // Apply ROCM parallelization to the loop
         rocm::ROCMTransform rocm_transform(*collapsed_map, 64, offload_unknown_sizes); // 64 is ROCM default wavefront
@@ -59,6 +62,9 @@ SchedulerAction ROCMScheduler::schedule(
             }
 
             analysis_manager.invalidate_all();
+            return NEXT;
+        }
+        if (applied_collapse) {
             return NEXT;
         }
     }
