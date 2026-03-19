@@ -262,7 +262,7 @@ void PyStructuredSDFG::simplify() {
     dataflow_simplification.run(builder_opt, analysis_manager);
 
     // Fuse maps
-    auto map_fusion = sdfg::passes::Pipeline::map_fusion();
+    auto map_fusion = sdfg::passes::normalization::map_fusion();
     map_fusion.run(builder_opt, analysis_manager);
 }
 
@@ -313,7 +313,7 @@ void PyStructuredSDFG::normalize() {
     sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
 
     // Fuse maps
-    auto map_fusion = sdfg::passes::Pipeline::map_fusion();
+    auto map_fusion = sdfg::passes::normalization::map_fusion();
     map_fusion.run(builder, analysis_manager);
 
     // Distribute and permute
