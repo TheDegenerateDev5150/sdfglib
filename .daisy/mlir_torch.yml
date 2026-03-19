@@ -25,8 +25,8 @@ steps:
     pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
     pip install numpy scipy
 
-    pip install --no-build-isolation -v -e python/
-    pip install --no-build-isolation -v -e mlir/
+    pip install --no-build-isolation -e python/
+    pip install --no-build-isolation -e mlir/
 
     pip install torch-mlir torchvision --extra-index-url https://download.pytorch.org/whl/cpu -f https://github.com/llvm/torch-mlir-release/releases/expanded_assets/dev-wheels
 
