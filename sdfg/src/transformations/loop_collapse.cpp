@@ -211,7 +211,7 @@ LoopCollapse LoopCollapse::from_json(builder::StructuredSDFGBuilder& builder, co
 
 structured_control_flow::Map* LoopCollapse::collapsed_loop() {
     if (!applied_) {
-        throw InvalidSDFGException("Accessing collapsed loop before transformation has been applied.");
+        return &loop_;
     }
 
     return collapsed_loop_;

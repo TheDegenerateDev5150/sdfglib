@@ -142,7 +142,7 @@ CollapseToDepth CollapseToDepth::from_json(builder::StructuredSDFGBuilder& build
 
 structured_control_flow::Map* CollapseToDepth::outer_loop() {
     if (!applied_) {
-        throw InvalidSDFGException("Accessing collapsed loop before transformation has been applied.");
+        return &loop_;
     }
     return outer_loop_;
 }
