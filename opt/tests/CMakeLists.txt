@@ -28,9 +28,19 @@ set(TEST_FILES
     targets/omp/codegen/omp_map_dispatcher_test.cpp
     targets/omp/schedule_test.cpp
     targets/highway/codegen/highway_map_dispatcher_test.cpp
+    transformations/collapse_to_depth_test.cpp
     transformations/highway_transform_test.cpp
     transformations/omp_transform_test.cpp
     transformations/polly_transform_test.cpp
+    transformations/loop_collapse_test.cpp
+    transformations/loop_distribute_test.cpp
+    transformations/loop_interchange_test.cpp
+    transformations/loop_skewing_test.cpp
+    transformations/loop_tiling_test.cpp
+    transformations/map_fusion_test.cpp
+    transformations/tile_fusion_test.cpp
+    transformations/out_local_storage_test.cpp
+    transformations/recorder_test.cpp
     test.cpp
 )
 

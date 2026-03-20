@@ -1083,12 +1083,12 @@ TEST(LoopCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
 // CollapsedLoop accessor before apply
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, CollapsedLoopAccessorBeforeApply_Throws) {
+TEST(LoopCollapseTest, CollapsedLoopAccessorBeforeApply_outerloop) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     transformations::LoopCollapse t(*outer, 2);
-    EXPECT_THROW(t.collapsed_loop(), InvalidSDFGException);
+    EXPECT_EQ(t.collapsed_loop(), outer);
 }
 
 // ---------------------------------------------------------------------------

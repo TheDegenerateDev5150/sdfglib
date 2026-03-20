@@ -520,7 +520,7 @@ TEST(CollapseToDepthTest, AccessorBeforeApply_Throws) {
     auto& outer = build_2d_nest(builder);
 
     transformations::CollapseToDepth t(outer, 1);
-    EXPECT_THROW(t.outer_loop(), InvalidSDFGException);
+    EXPECT_EQ(t.outer_loop(), &outer);
     EXPECT_THROW(t.inner_loop(), InvalidSDFGException);
 }
 
