@@ -1,4 +1,4 @@
-#include "sdfg/transformations/loop_collapse.h"
+#include "sdfg/transformations/map_collapse.h"
 
 #include <gtest/gtest.h>
 
@@ -57,16 +57,16 @@ build_2d_map_nest(builder::StructuredSDFGBuilder& builder) {
 // CanBeApplied — positive cases
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, CanBeApplied_2D) {
+TEST(MapCollapseTest, CanBeApplied_2D) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     EXPECT_TRUE(t.can_be_applied(builder, am));
 }
 
-TEST(LoopCollapseTest, CanBeApplied_3D) {
+TEST(MapCollapseTest, CanBeApplied_3D) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto& root = builder.subject().root();
 
@@ -112,7 +112,7 @@ TEST(LoopCollapseTest, CanBeApplied_3D) {
     builder.add_block(inner.root());
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(outer, 3);
+    transformations::MapCollapse t(outer, 3);
     EXPECT_TRUE(t.can_be_applied(builder, am));
 }
 
@@ -120,27 +120,27 @@ TEST(LoopCollapseTest, CanBeApplied_3D) {
 // CanBeApplied — negative cases
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, CannotApply_CountTooSmall) {
+TEST(MapCollapseTest, CannotApply_CountTooSmall) {
     // count < 2 must be rejected
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 1);
+    transformations::MapCollapse t(*outer, 1);
     EXPECT_FALSE(t.can_be_applied(builder, am));
 }
 
-TEST(LoopCollapseTest, CannotApply_NotEnoughNesting) {
+TEST(MapCollapseTest, CannotApply_NotEnoughNesting) {
     // count=3 but the nest is only 2 deep
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 3);
+    transformations::MapCollapse t(*outer, 3);
     EXPECT_FALSE(t.can_be_applied(builder, am));
 }
 
-TEST(LoopCollapseTest, CannotApply_NotPerfectlyNested) {
+TEST(MapCollapseTest, CannotApply_NotPerfectlyNested) {
     // The outer map body contains two children: an extra block + the inner map.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto& root = builder.subject().root();
@@ -177,11 +177,11 @@ TEST(LoopCollapseTest, CannotApply_NotPerfectlyNested) {
     builder.add_block(inner.root());
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(outer, 2);
+    transformations::MapCollapse t(outer, 2);
     EXPECT_FALSE(t.can_be_applied(builder, am));
 }
 
-TEST(LoopCollapseTest, CannotApply_InnerBoundDependsOnOuterIndvar) {
+TEST(MapCollapseTest, CannotApply_InnerBoundDependsOnOuterIndvar) {
     // inner map goes from 0 to i, so its bound references the outer indvar
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto& root = builder.subject().root();
@@ -215,11 +215,11 @@ TEST(LoopCollapseTest, CannotApply_InnerBoundDependsOnOuterIndvar) {
     builder.add_block(inner.root());
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(outer, 2);
+    transformations::MapCollapse t(outer, 2);
     EXPECT_FALSE(t.can_be_applied(builder, am));
 }
 
-TEST(LoopCollapseTest, CannotApply_NonEmptyTransitionToInnerMap) {
+TEST(MapCollapseTest, CannotApply_NonEmptyTransitionToInnerMap) {
     // The transition attached to the inner map (inside outer.root()) carries an
     // assignment, violating the "empty transitions in holding sequence" criterion.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
@@ -256,7 +256,7 @@ TEST(LoopCollapseTest, CannotApply_NonEmptyTransitionToInnerMap) {
     builder.add_block(inner.root());
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(outer, 2);
+    transformations::MapCollapse t(outer, 2);
     EXPECT_FALSE(t.can_be_applied(builder, am));
 }
 
@@ -264,12 +264,12 @@ TEST(LoopCollapseTest, CannotApply_NonEmptyTransitionToInnerMap) {
 // Apply — structural checks
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, Apply_2D_Structure) {
+TEST(MapCollapseTest, Apply_2D_Structure) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -287,7 +287,7 @@ TEST(LoopCollapseTest, Apply_2D_Structure) {
     EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&body.at(1).first) != nullptr);
 }
 
-TEST(LoopCollapseTest, Apply_2D_IndvarTransitions) {
+TEST(MapCollapseTest, Apply_2D_IndvarTransitions) {
     // Check that the transition to the first body element regenerates i and j
     // from the new collapsed induction variable civ:
     //   i = civ / M
@@ -296,7 +296,7 @@ TEST(LoopCollapseTest, Apply_2D_IndvarTransitions) {
     auto [outer, inner] = build_2d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -322,13 +322,13 @@ TEST(LoopCollapseTest, Apply_2D_IndvarTransitions) {
     EXPECT_TRUE(symbolic::eq(assignments.at(j), symbolic::mod(civ, M))) << "Expected j = civ % M";
 }
 
-TEST(LoopCollapseTest, Apply_2D_CollapsedRange) {
+TEST(MapCollapseTest, Apply_2D_CollapsedRange) {
     // Collapsed loop range must be [0, N*M) with step 1.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -345,7 +345,7 @@ TEST(LoopCollapseTest, Apply_2D_CollapsedRange) {
     EXPECT_TRUE(symbolic::eq(collapsed->update(), symbolic::add(civ, symbolic::integer(1))));
 }
 
-TEST(LoopCollapseTest, Apply_3D_IndvarTransitions) {
+TEST(MapCollapseTest, Apply_3D_IndvarTransitions) {
     // For a 3-level nest (i, j, k) over [0,N) x [0,M) x [0,P):
     //   i = civ / (M*P)
     //   j = (civ / P) % M
@@ -395,7 +395,7 @@ TEST(LoopCollapseTest, Apply_3D_IndvarTransitions) {
     builder.add_block(inner.root());
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(outer, 3);
+    transformations::MapCollapse t(outer, 3);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -472,13 +472,13 @@ build_3d_map_nest(builder::StructuredSDFGBuilder& builder) {
     return {&outer, &middle, &inner};
 }
 
-TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_Structure) {
+TEST(MapCollapseTest, Apply_3D_CollapseOuter2_Structure) {
     // Collapse only the outer two maps (i, j) — k must survive as an inner map.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, middle, inner] = build_3d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -501,7 +501,7 @@ TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_Structure) {
     EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&k_map->root().at(0).first) != nullptr);
 }
 
-TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_IndvarTransitions) {
+TEST(MapCollapseTest, Apply_3D_CollapseOuter2_IndvarTransitions) {
     // After collapsing (i, j) with civ:
     //   transition into first body element: i = civ / M, j = civ % M
     //   k is NOT touched by this transition (it keeps its own map loop)
@@ -509,7 +509,7 @@ TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_IndvarTransitions) {
     auto [outer, middle, inner] = build_3d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -532,13 +532,13 @@ TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_IndvarTransitions) {
     EXPECT_TRUE(symbolic::eq(assignments.at(j), symbolic::mod(civ, M))) << "Expected j = civ % M";
 }
 
-TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_CollapsedRange) {
+TEST(MapCollapseTest, Apply_3D_CollapseOuter2_CollapsedRange) {
     // Collapsed loop runs [0, N*M); k map is unchanged with bound P.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, middle, inner] = build_3d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -566,14 +566,14 @@ TEST(LoopCollapseTest, Apply_3D_CollapseOuter2_CollapsedRange) {
 // 3D nest — partial 2D collapse of middle two loops (j,k) leaving i intact
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_Structure) {
+TEST(MapCollapseTest, Apply_3D_CollapseMiddle2_Structure) {
     // Collapse only the middle pair (j, k) starting from the middle map.
     // After: outer i map → collapsed jk map → original block.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, middle, inner] = build_3d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*middle, 2);
+    transformations::MapCollapse t(*middle, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -597,7 +597,7 @@ TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_Structure) {
     EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&collapsed->root().at(1).first) != nullptr);
 }
 
-TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_IndvarTransitions) {
+TEST(MapCollapseTest, Apply_3D_CollapseMiddle2_IndvarTransitions) {
     // After collapsing (j, k) with civ:
     //   transition into first body element: j = civ / P, k = civ % P
     //   i is NOT touched
@@ -605,7 +605,7 @@ TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_IndvarTransitions) {
     auto [outer, middle, inner] = build_3d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*middle, 2);
+    transformations::MapCollapse t(*middle, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -628,13 +628,13 @@ TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_IndvarTransitions) {
     EXPECT_TRUE(symbolic::eq(assignments.at(k), symbolic::mod(civ, P))) << "Expected k = civ % P";
 }
 
-TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_CollapsedRange) {
+TEST(MapCollapseTest, Apply_3D_CollapseMiddle2_CollapsedRange) {
     // Collapsed jk loop runs [0, M*P); outer i loop is unchanged with bound N.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, middle, inner] = build_3d_map_nest(builder);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(*middle, 2);
+    transformations::MapCollapse t(*middle, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -662,7 +662,7 @@ TEST(LoopCollapseTest, Apply_3D_CollapseMiddle2_CollapsedRange) {
 // 4D nest — two sequential collapse(2): first on i (collapses i,j), then on k (collapses k,l)
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, Apply_4D_CollapsePairs) {
+TEST(MapCollapseTest, Apply_4D_CollapsePairs) {
     // Build 4-level nest: i in [0,N), j in [0,M), k in [0,P), l in [0,Q)
     // Step 1: collapse(2) on i → collapsed_ij in [0, N*M), body = k → l → block
     // Step 2: collapse(2) on k → collapsed_kl in [0, P*Q), body = block
@@ -726,7 +726,7 @@ TEST(LoopCollapseTest, Apply_4D_CollapsePairs) {
     analysis::AnalysisManager am(builder.subject());
 
     // --- First collapse: (i, j) ---
-    transformations::LoopCollapse t1(map_i, 2);
+    transformations::MapCollapse t1(map_i, 2);
     ASSERT_TRUE(t1.can_be_applied(builder, am));
     t1.apply(builder, am);
 
@@ -772,7 +772,7 @@ TEST(LoopCollapseTest, Apply_4D_CollapsePairs) {
     EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&surviving_l->root().at(0).first) != nullptr);
 
     // --- Second collapse: (k, l) ---
-    transformations::LoopCollapse t2(*surviving_k, 2);
+    transformations::MapCollapse t2(*surviving_k, 2);
     ASSERT_TRUE(t2.can_be_applied(builder, am));
     t2.apply(builder, am);
 
@@ -833,7 +833,7 @@ TEST(LoopCollapseTest, Apply_4D_CollapsePairs) {
 // Computation preservation — single collapse
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, Apply_2D_WithComputation) {
+TEST(MapCollapseTest, Apply_2D_WithComputation) {
     // Build: A[i*M + j] = A[i*M + j]  (assign tasklet) inside a 2D map nest
     // After collapse: the block with its tasklet and memlets must survive intact,
     // and the transition must define i = civ / M, j = civ % M.
@@ -883,7 +883,7 @@ TEST(LoopCollapseTest, Apply_2D_WithComputation) {
     builder.add_computational_memlet(block, tasklet, "_out", A_out, {index_expr}, ptr_desc);
 
     analysis::AnalysisManager am(builder.subject());
-    transformations::LoopCollapse t(outer, 2);
+    transformations::MapCollapse t(outer, 2);
     ASSERT_TRUE(t.can_be_applied(builder, am));
     t.apply(builder, am);
 
@@ -929,7 +929,7 @@ TEST(LoopCollapseTest, Apply_2D_WithComputation) {
 // Computation preservation — double collapse (4D)
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
+TEST(MapCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
     // Build 4-level nest: A[i*M*P*Q + j*P*Q + k*Q + l] = A[...] (assign)
     // Collapse(2) on i then collapse(2) on k.
     // Verify that after both collapses the block, tasklet, and memlet subsets
@@ -1009,7 +1009,7 @@ TEST(LoopCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
     analysis::AnalysisManager am(builder.subject());
 
     // --- First collapse: (i, j) ---
-    transformations::LoopCollapse t1(map_i, 2);
+    transformations::MapCollapse t1(map_i, 2);
     ASSERT_TRUE(t1.can_be_applied(builder, am));
     t1.apply(builder, am);
 
@@ -1025,7 +1025,7 @@ TEST(LoopCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
     // l map body: block
     // We need the k map to collapse (k, l):
 
-    transformations::LoopCollapse t2(*surviving_k, 2);
+    transformations::MapCollapse t2(*surviving_k, 2);
     ASSERT_TRUE(t2.can_be_applied(builder, am));
     t2.apply(builder, am);
 
@@ -1083,11 +1083,11 @@ TEST(LoopCollapseTest, Apply_4D_WithComputation_CollapsePairs) {
 // CollapsedLoop accessor before apply
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, CollapsedLoopAccessorBeforeApply_outerloop) {
+TEST(MapCollapseTest, CollapsedLoopAccessorBeforeApply_outerloop) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
-    transformations::LoopCollapse t(*outer, 2);
+    transformations::MapCollapse t(*outer, 2);
     EXPECT_EQ(t.collapsed_loop(), outer);
 }
 
@@ -1095,19 +1095,19 @@ TEST(LoopCollapseTest, CollapsedLoopAccessorBeforeApply_outerloop) {
 // Serialization
 // ---------------------------------------------------------------------------
 
-TEST(LoopCollapseTest, Serialization) {
+TEST(MapCollapseTest, Serialization) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     size_t loop_id = outer->element_id();
     size_t count = 2;
 
-    transformations::LoopCollapse t(*outer, count);
+    transformations::MapCollapse t(*outer, count);
 
     nlohmann::json j;
     EXPECT_NO_THROW(t.to_json(j));
 
-    EXPECT_EQ(j["transformation_type"], "LoopCollapse");
+    EXPECT_EQ(j["transformation_type"], "MapCollapse");
     EXPECT_TRUE(j.contains("subgraph"));
     EXPECT_TRUE(j.contains("parameters"));
     EXPECT_EQ(j["subgraph"]["0"]["element_id"], loop_id);
@@ -1115,19 +1115,19 @@ TEST(LoopCollapseTest, Serialization) {
     EXPECT_EQ(j["parameters"]["count"], count);
 }
 
-TEST(LoopCollapseTest, Deserialization) {
+TEST(MapCollapseTest, Deserialization) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, inner] = build_2d_map_nest(builder);
 
     size_t loop_id = outer->element_id();
 
     nlohmann::json j;
-    j["transformation_type"] = "LoopCollapse";
+    j["transformation_type"] = "MapCollapse";
     j["subgraph"] = {{"0", {{"element_id", loop_id}, {"type", "map"}}}};
     j["parameters"] = {{"count", 2}};
 
     EXPECT_NO_THROW({
-        auto deserialized = transformations::LoopCollapse::from_json(builder, j);
-        EXPECT_EQ(deserialized.name(), "LoopCollapse");
+        auto deserialized = transformations::MapCollapse::from_json(builder, j);
+        EXPECT_EQ(deserialized.name(), "MapCollapse");
     });
 }

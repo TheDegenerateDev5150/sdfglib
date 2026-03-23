@@ -1,7 +1,7 @@
 #include "sdfg/transformations/collapse_to_depth.h"
 
 #include "sdfg/structured_control_flow/map.h"
-#include "sdfg/transformations/loop_collapse.h"
+#include "sdfg/transformations/map_collapse.h"
 
 namespace sdfg {
 namespace transformations {
@@ -48,7 +48,7 @@ bool CollapseToDepth::can_be_applied(builder::StructuredSDFGBuilder& builder, an
     }
 
     if (target_loops_ == 1) {
-        LoopCollapse t(loop_, depth);
+        MapCollapse t(loop_, depth);
         return t.can_be_applied(builder, analysis_manager);
     }
 
@@ -62,7 +62,7 @@ bool CollapseToDepth::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         for (size_t i = 0; i < outer_count; ++i) {
             inner_start = dynamic_cast<structured_control_flow::Map*>(&inner_start->root().at(0).first);
         }
-        LoopCollapse t_inner(*inner_start, inner_count);
+        MapCollapse t_inner(*inner_start, inner_count);
         if (!t_inner.can_be_applied(builder, analysis_manager)) {
             return false;
         }
@@ -70,7 +70,7 @@ bool CollapseToDepth::can_be_applied(builder::StructuredSDFGBuilder& builder, an
 
     // Check outer half
     if (outer_count >= 2) {
-        LoopCollapse t_outer(loop_, outer_count);
+        MapCollapse t_outer(loop_, outer_count);
         if (!t_outer.can_be_applied(builder, analysis_manager)) {
             return false;
         }
@@ -83,7 +83,7 @@ void CollapseToDepth::apply(builder::StructuredSDFGBuilder& builder, analysis::A
     size_t depth = perfectly_nested_map_depth(loop_);
 
     if (target_loops_ == 1) {
-        LoopCollapse t(loop_, depth);
+        MapCollapse t(loop_, depth);
         t.apply(builder, analysis_manager);
         outer_loop_ = t.collapsed_loop();
         inner_loop_ = nullptr;
@@ -98,7 +98,7 @@ void CollapseToDepth::apply(builder::StructuredSDFGBuilder& builder, analysis::A
             for (size_t i = 0; i < outer_count; ++i) {
                 inner_start = dynamic_cast<structured_control_flow::Map*>(&inner_start->root().at(0).first);
             }
-            LoopCollapse t_inner(*inner_start, inner_count);
+            MapCollapse t_inner(*inner_start, inner_count);
             t_inner.apply(builder, analysis_manager);
             inner_loop_ = t_inner.collapsed_loop();
         } else {
@@ -112,7 +112,7 @@ void CollapseToDepth::apply(builder::StructuredSDFGBuilder& builder, analysis::A
 
         // Collapse outer half
         if (outer_count >= 2) {
-            LoopCollapse t_outer(loop_, outer_count);
+            MapCollapse t_outer(loop_, outer_count);
             t_outer.apply(builder, analysis_manager);
             outer_loop_ = t_outer.collapsed_loop();
         } else {

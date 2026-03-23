@@ -195,7 +195,7 @@ TEST(CollapseToDepthTest, CannotApply_SingleMap_Target1) {
 }
 
 TEST(CollapseToDepthTest, CannotApply_InnerBoundDependsOnOuterIndvar) {
-    // Inner bound depends on outer indvar → LoopCollapse rejects it
+    // Inner bound depends on outer indvar → MapCollapse rejects it
     builder::StructuredSDFGBuilder builder("test", FunctionType_CPU);
     auto& root = builder.subject().root();
     types::Scalar sym(types::PrimitiveType::UInt64);

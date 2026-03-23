@@ -69,7 +69,7 @@ set(SOURCE_FILES
     src/transformations/omp_transform.cpp
     src/transformations/offloading/offload_transform.cpp
     src/transformations/polly_transform.cpp
-    src/transformations/loop_collapse.cpp
+    src/transformations/map_collapse.cpp
     src/transformations/loop_distribute.cpp
     src/transformations/loop_interchange.cpp
     src/transformations/loop_skewing.cpp

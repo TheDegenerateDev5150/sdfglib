@@ -17,7 +17,7 @@ namespace transformations {
  *   half, each collapsed separately.  For an odd number of maps the outer
  *   half includes the middle loop.
  *
- * @note Delegates to LoopCollapse for each individual collapse step.
+ * @note Delegates to MapCollapse for each individual collapse step.
  */
 class CollapseToDepth : public Transformation {
     structured_control_flow::Map& loop_;

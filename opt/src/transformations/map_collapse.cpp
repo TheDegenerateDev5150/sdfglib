@@ -1,4 +1,4 @@
-#include "sdfg/transformations/loop_collapse.h"
+#include "sdfg/transformations/map_collapse.h"
 
 #include "sdfg/analysis/assumptions_analysis.h"
 #include "sdfg/analysis/loop_analysis.h"
@@ -11,11 +11,11 @@
 namespace sdfg {
 namespace transformations {
 
-LoopCollapse::LoopCollapse(structured_control_flow::Map& loop, size_t count) : loop_(loop), count_(count) {}
+MapCollapse::MapCollapse(structured_control_flow::Map& loop, size_t count) : loop_(loop), count_(count) {}
 
-std::string LoopCollapse::name() const { return "LoopCollapse"; }
+std::string MapCollapse::name() const { return "MapCollapse"; }
 
-bool LoopCollapse::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+bool MapCollapse::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     // Criterion: count must be at least 2
     if (count_ < 2) {
         return false;
@@ -80,7 +80,7 @@ bool LoopCollapse::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
     return true;
 }
 
-void LoopCollapse::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+void MapCollapse::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& sdfg = builder.subject();
     auto& assumptions_analysis = analysis_manager.get<analysis::AssumptionsAnalysis>();
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
@@ -184,12 +184,12 @@ void LoopCollapse::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     collapsed_loop_ = &collapsed_map;
 }
 
-void LoopCollapse::to_json(nlohmann::json& j) const {
+void MapCollapse::to_json(nlohmann::json& j) const {
     std::string loop_type;
     if (dynamic_cast<const structured_control_flow::Map*>(&loop_)) {
         loop_type = "map";
     } else {
-        throw InvalidSDFGException("Unsupported loop type for serialization of loop: " + loop_.indvar()->get_name());
+        throw InvalidSDFGException("Unsupported loop type for serialization of map: " + loop_.indvar()->get_name());
     }
 
     j["transformation_type"] = this->name();
@@ -197,7 +197,7 @@ void LoopCollapse::to_json(nlohmann::json& j) const {
     j["parameters"] = {{"count", count_}};
 }
 
-LoopCollapse LoopCollapse::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
+MapCollapse MapCollapse::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
     auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
     size_t count = desc["parameters"]["count"].get<size_t>();
     auto element = builder.find_element_by_id(loop_id);
@@ -206,10 +206,10 @@ LoopCollapse LoopCollapse::from_json(builder::StructuredSDFGBuilder& builder, co
     }
     auto loop = dynamic_cast<structured_control_flow::Map*>(element);
 
-    return LoopCollapse(*loop, count);
+    return MapCollapse(*loop, count);
 }
 
-structured_control_flow::Map* LoopCollapse::collapsed_loop() {
+structured_control_flow::Map* MapCollapse::collapsed_loop() {
     if (!applied_) {
         return &loop_;
     }
