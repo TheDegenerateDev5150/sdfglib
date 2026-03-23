@@ -17,8 +17,6 @@ class Conv2dNet(nn.Module):
 
 # batch=32, in_channels=64, out_channels=128, kernel=3, height=56, width=56
 def setup():
-    torch.set_num_threads(48)
-    torch.set_num_interop_threads(48)
     model = Conv2dNet(64, 128, kernel_size=3)
     x = torch.randn(32, 64, 56, 56)
     return model, x
