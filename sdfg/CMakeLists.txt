@@ -1,10 +1,5 @@
 include(GNUInstallDirs)
 
-if(NOT DEFINED PARENT_PROJECT_INSTALL_PREFIX)
-    set(PARENT_PROJECT_INSTALL_PREFIX "" CACHE STRING
-           "Path prefix (trailing /!) for installing sdfglib artifacts. For example 'lib/docc-0.1.6/'" )
-endif()
-
 # Enable packaging of symengine
 set(_CMAKE_INSTALL_DEFAULT_COMPONENT_NAME ${CMAKE_INSTALL_DEFAULT_COMPONENT_NAME})
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME sdfglib-development)
@@ -19,12 +14,6 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME ${_CMAKE_INSTALL_DEFAULT_COMPONENT_NAME
 # NLohmann json
 find_package(nlohmann_json REQUIRED)
 
-# Boost
-set(Boost_USE_STATIC_LIBS OFF)
-set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_RUNTIME OFF)
-find_package(Boost REQUIRED COMPONENTS graph)
-
 
 # Find the ISL library
 find_package(PkgConfig REQUIRED)
@@ -34,6 +23,7 @@ set(SOURCE_FILES
     src/analysis/analysis.cpp
     src/analysis/arguments_analysis.cpp
     src/analysis/assumptions_analysis.cpp
+    src/analysis/base_user_visitor.cpp
     src/analysis/control_flow_analysis.cpp
     src/analysis/data_dependency_analysis.cpp
     src/analysis/escape_analysis.cpp
@@ -49,7 +39,6 @@ set(SOURCE_FILES
     src/builder/function_builder.cpp
     src/builder/sdfg_builder.cpp
     src/builder/structured_sdfg_builder.cpp
-    src/codegen/utils.cpp
     src/codegen/code_snippet_factory.cpp
     src/codegen/instrumentation/arg_capture_plan.cpp
     src/codegen/instrumentation/instrumentation_info.cpp
@@ -57,6 +46,8 @@ set(SOURCE_FILES
     src/codegen/language_extensions/c_language_extension.cpp
     src/codegen/language_extensions/cpp_language_extension.cpp
     src/codegen/language_extensions/cuda_language_extension.cpp
+    src/codegen/language_extensions/rocm_language_extension.cpp
+    src/codegen/utils.cpp
     src/codegen/code_generators/c_code_generator.cpp
     src/codegen/code_generators/c_style_base_code_generator.cpp
     src/codegen/code_generators/cpp_code_generator.cpp
@@ -84,6 +75,7 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/barrier_local_node.cpp
     src/data_flow/library_nodes/call_node.cpp
     src/data_flow/library_nodes/invoke_node.cpp
+    src/data_flow/library_nodes/load_const_node.cpp
     src/data_flow/library_nodes/metadata_node.cpp
     src/data_flow/library_nodes/math/math_node.cpp
     src/data_flow/library_nodes/math/blas/blas_node.cpp
@@ -95,10 +87,13 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/math/tensor/reduce_node.cpp
     src/data_flow/library_nodes/math/tensor/broadcast_node.cpp
     src/data_flow/library_nodes/math/tensor/conv_node.cpp
+    src/data_flow/library_nodes/math/tensor/pooling_node.cpp
+    src/data_flow/library_nodes/math/tensor/matmul_node.cpp
     src/data_flow/library_nodes/math/tensor/transpose_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/abs_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/add_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/cast_node.cpp
+    src/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/minimum_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/maximum_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/div_node.cpp
@@ -115,6 +110,7 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/math/tensor/elementwise_ops/sqrt_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/sub_node.cpp
     src/data_flow/library_nodes/math/tensor/elementwise_ops/tanh_node.cpp
+    src/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.cpp
     src/data_flow/library_nodes/math/tensor/reduce_ops/sum_node.cpp
     src/data_flow/library_nodes/math/tensor/reduce_ops/mean_node.cpp
     src/data_flow/library_nodes/math/tensor/reduce_ops/std_node.cpp
@@ -122,6 +118,7 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/math/tensor/reduce_ops/min_node.cpp
     src/data_flow/library_nodes/math/tensor/reduce_ops/softmax_node.cpp
     src/data_flow/library_nodes/stdlib/alloca.cpp
+    src/data_flow/library_nodes/stdlib/assert.cpp
     src/data_flow/library_nodes/stdlib/calloc.cpp
     src/data_flow/library_nodes/stdlib/free.cpp
     src/data_flow/library_nodes/stdlib/malloc.cpp
@@ -145,8 +142,8 @@ set(SOURCE_FILES
     src/passes/dataflow/reference_propagation.cpp
     src/passes/dataflow/byte_reference_elimination.cpp
     src/passes/dataflow/memlet_linearization.cpp
+    src/passes/dataflow/tensor_to_pointer_conversion.cpp
     src/passes/memory/allocation_management.cpp
-    src/passes/memory/insert_frees.cpp
     src/passes/schedules/expansion_pass.cpp
     src/passes/symbolic/symbol_evolution.cpp
     src/passes/symbolic/symbol_propagation.cpp
@@ -182,19 +179,12 @@ set(SOURCE_FILES
     src/symbolic/sets.cpp
     src/symbolic/symbolic.cpp
     src/symbolic/utils.cpp
-    src/transformations/loop_distribute.cpp
-    src/transformations/loop_interchange.cpp
-    src/transformations/loop_skewing.cpp
-    src/transformations/loop_tiling.cpp
-    src/transformations/out_local_storage.cpp
-    src/transformations/recorder.cpp
-    src/transformations/replayer.cpp
-    src/transformations/utils.cpp
     src/types/array.cpp
     src/types/function.cpp
     src/types/pointer.cpp
     src/types/scalar.cpp
     src/types/structure.cpp
+    src/types/tensor.cpp
     src/types/utils.cpp
     src/visitor/immutable_structured_sdfg_visitor.cpp
     src/visitor/structured_sdfg_visitor.cpp
@@ -212,6 +202,7 @@ add_library(sdfglib
 )
 add_library(sdfg::sdfg ALIAS sdfglib)
 add_library(sdfglib::sdfglib ALIAS sdfglib)
+add_library(docc::core ALIAS sdfglib)
 target_include_directories(sdfglib
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -241,7 +232,15 @@ if(SDFG_ENABLE_COVERAGE)
   )
 endif()
 
-target_link_libraries(sdfglib PUBLIC nlohmann_json::nlohmann_json ${Boost_LIBRARIES} PkgConfig::ISL symengine)
+
+target_link_libraries(sdfglib PUBLIC
+    nlohmann_json::nlohmann_json
+    $<BUILD_INTERFACE:Boost::graph>
+    $<BUILD_INTERFACE:Boost::boost>
+    PkgConfig::ISL
+    symengine
+    sdfg::arg_capture_io
+)
 set_target_properties(sdfglib PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
@@ -257,23 +256,6 @@ install(TARGETS sdfglib
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(DIRECTORY include/sdfg DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} COMPONENT sdfglib-development)
-
-set(CPACK_DEB_SDFGLIB_RUNTIME_PACKAGE_DEPENDS
-    libgmp10
-    libgmpxx4ldbl
-    libisl23
-    libzstd1
-    libzip4t64
-    ziptool
-    zipcmp
-    zipmerge
-    libboost-graph1.83.0
-    libboost-regex1.83.0
-    libboost-atomic1.83.0
-    libboost-iostreams1.83.0
-    libboost-filesystem1.83.0
-    CACHE INTERNAL "SDFG runtime dependencies"
-)
 
 ## CMAKE CONFIGURATION
 

@@ -1,6 +1,10 @@
 #include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
 
+#include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
+#include "sdfg/symbolic/assumptions.h"
+#include "sdfg/symbolic/conjunctive_normal_form.h"
+#include "sdfg/symbolic/series.h"
 
 namespace sdfg {
 namespace passes {
@@ -14,15 +18,41 @@ bool DeadCFGElimination::is_dead(const structured_control_flow::ControlFlowNode&
         return (if_else_stmt->size() == 0);
     } else if (auto while_stmt = dynamic_cast<const structured_control_flow::While*>(&node)) {
         return is_dead(while_stmt->root());
-    } else if (dynamic_cast<const structured_control_flow::For*>(&node)) {
-        return false;
+    } else if (auto sloop = dynamic_cast<const structured_control_flow::StructuredLoop*>(&node)) {
+        if (sloop->root().size() != 0) {
+            return false;
+        }
+        // TODO: Check use of indvar later
+        return permissive_;
     }
 
     return false;
 };
 
+bool DeadCFGElimination::is_trivial(structured_control_flow::Map* loop) {
+    // Check if stride is 1
+    if (!analysis::LoopAnalysis::is_contiguous(loop, symbolic::Assumptions())) {
+        return false;
+    }
+
+    auto bound = analysis::LoopAnalysis::canonical_bound(loop, symbolic::Assumptions());
+    if (bound.is_null()) {
+        return false;
+    }
+    auto init = loop->init();
+
+    // Check if bound - init == 1
+    auto trip_count = symbolic::sub(bound, init);
+    return symbolic::eq(trip_count, symbolic::one());
+}
+
 DeadCFGElimination::DeadCFGElimination()
-    : Pass() {
+    : Pass(), permissive_(false) {
+
+      };
+
+DeadCFGElimination::DeadCFGElimination(bool permissive)
+    : Pass(), permissive_(permissive) {
 
       };
 
@@ -91,6 +121,23 @@ bool DeadCFGElimination::run_pass(builder::StructuredSDFGBuilder& builder, analy
                     auto branch = if_else_stmt->at(0);
                     if (symbolic::is_true(branch.second)) {
                         builder.move_children(branch.first, *sequence_stmt, i + 1);
+                        builder.remove_child(*sequence_stmt, i);
+                        applied = true;
+                        continue;
+                    }
+                }
+
+                // Trivial structured loop (bound - init == 1 and stride == 1)
+                if (auto sloop = dynamic_cast<structured_control_flow::Map*>(&child.first)) {
+                    if (is_trivial(sloop)) {
+                        auto indvar = sloop->indvar();
+                        auto init = sloop->init();
+                        sloop->root().replace(indvar, init);
+
+                        // Move children from loop body to parent sequence
+                        builder.move_children(sloop->root(), *sequence_stmt, i + 1);
+
+                        // Remove the loop
                         builder.remove_child(*sequence_stmt, i);
                         applied = true;
                         continue;

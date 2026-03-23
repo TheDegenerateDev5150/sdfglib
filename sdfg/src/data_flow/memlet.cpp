@@ -74,21 +74,49 @@ void Memlet::validate(const Function& function) const {
                 );
             }
 
-            // // Return if library node
-            // if (dynamic_cast<const LibraryNode*>(code_node)) {
-            //     return;
-            // }
-
-            // // Criterion: edge must be contiguous memory
-            // auto& inferred_type = types::infer_type(function, *this->base_type_, this->subset_);
-
-            // // Criterion: Inferred type must be a scalar
-            // if (inferred_type.type_id() != types::TypeID::Scalar) {
-            //     throw InvalidSDFGException(
-            //         "Memlet: Computation memlets resolve to scalar type. Base type: " + this->base_type_->print() +
-            //         " Subset Dim: " + std::to_string(this->subset_.size())
-            //     );
-            // }
+            // If tensor, check that the type is consistenly defined
+            if (this->base_type_->type_id() == types::TypeID::Tensor) {
+                auto& tensor_type = dynamic_cast<const types::Tensor&>(*this->base_type_);
+                if (tensor_type.is_scalar()) {
+                    if (auto const_node = dynamic_cast<const data_flow::ConstantNode*>(data_node)) {
+                        if (const_node->type().type_id() != types::TypeID::Scalar) {
+                            throw InvalidSDFGException(
+                                "Memlet: Scalar tensors must reference scalar buffers. Base type: " +
+                                this->base_type_->print() + " Buffer type: " + const_node->type().print()
+                            );
+                        }
+                    } else {
+                        auto& buffer_type = function.type(data_node->data());
+                        if (buffer_type.type_id() != types::TypeID::Scalar) {
+                            throw InvalidSDFGException(
+                                "Memlet: Scalar tensors must reference scalar buffers. Base type: " +
+                                this->base_type_->print() + " Buffer type: " + buffer_type.print()
+                            );
+                        }
+                    }
+                } else {
+                    auto& buffer_type = function.type(data_node->data());
+                    if (buffer_type.type_id() != types::TypeID::Pointer) {
+                        throw InvalidSDFGException(
+                            "Memlet: Non-scalar tensors must reference pointer buffers. Base type: " +
+                            this->base_type_->print() + " Buffer type: " + buffer_type.print()
+                        );
+                    }
+                    if (this->subset_.size() > tensor_type.shape().size()) {
+                        throw InvalidSDFGException(
+                            "Memlet: Subset dimensions must match base type dimensions. Base type: " +
+                            this->base_type_->print() + " Subset Dim: " + std::to_string(this->subset_.size())
+                        );
+                    }
+                    if (tensor_type.shape().size() != tensor_type.strides().size()) {
+                        throw InvalidSDFGException(
+                            "Memlet: Tensor types must have the same number of shape and stride dimensions. Base "
+                            "type: " +
+                            this->base_type_->print()
+                        );
+                    }
+                }
+            }
             break;
         }
         case MemletType::Reference: {
@@ -256,6 +284,144 @@ MemletType Memlet::type() const {
     }
 }
 
+bool Memlet::is_src_read() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") { // anything else is not an access node on the input
+        auto t = type();
+        if (t == Computational) {
+            return true;
+        }
+        if (t == Dereference_Dst || t == Dereference_Src) {
+            return true;
+        }
+        if (t == Reference && !subset_.empty() && base_type_ && base_type_->type_id() == types::TypeID::Pointer) {
+            return true; // we hide the read of src for pointer types
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_direct_read() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") { // anything else is not an access node on the input
+        auto t = type();
+        if (t == Computational && base_type_ && (base_type_->type_id() != types::TypeID::Pointer || subset_.empty())) {
+            return true;
+        }
+        if (t == Dereference_Dst) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_pointed_to_read() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") {
+        auto t = type();
+        if (t == Dereference_Src) {
+            return true;
+        }
+        if (t == Computational && base_type_->type_id() == types::TypeID::Pointer && !subset_.empty()) {
+            return true; // implicitly reads src, because we are crazy
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_address_leak() const {
+    if (src_conn_ == "void" || src_conn_ == "deref") {
+        auto t = type();
+        if (t == Reference) {
+            if (subset_.empty()) {
+                return true;
+            }
+            if (!subset_.empty() && base_type_ && base_type_->type_id() != types::TypeID::Pointer) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_src_pointed_to_address_leak(const types::IType& src_type) const {
+    if (src_conn_ == "void" || src_conn_ == "deref") {
+        auto t = type();
+        if (src_type.type_id() == types::TypeID::Pointer) { // even if we use it as integer
+            if (t == Computational && base_type_ && base_type_->type_id() != types::TypeID::Pointer) { // reinterpret as
+                                                                                                       // not pointer,
+                                                                                                       // but the
+                                                                                                       // pointer is
+                                                                                                       // still read
+                return true;
+            }
+            if (t == Dereference_Dst) {
+                return true;
+            }
+        }
+        if (base_type_ && base_type_->type_id() == types::TypeID::Pointer) { // read as pointer, so more hidden things
+                                                                             // possible
+            if (t == Reference && !subset_.empty()) { // = address calc of ptr + subsets
+                return true;
+            }
+            if (t == Dereference_Dst) { // straight reads the contents of the ptr
+                return true;
+            }
+            if (t == Computational && subset().empty()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_dst_write() const {
+    if (dst_conn_ == "void" || dst_conn_ == "deref" || dst_conn_ == "ref") { // everyting else is not an access node at
+                                                                             // dst
+        auto t = type();
+        if (t == Reference) {
+            return true;
+        }
+        if (t == Computational) { // we already checked that dst is access node. So subset & type must be for that
+            if (base_type_ && (base_type_->type_id() != types::TypeID::Pointer || subset_.empty())) {
+                return true; // we either write to dst contents or if its a pointer, not to sth. indirect
+            }
+        }
+        if (t == Dereference_Src) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_dst_read() const {
+    if (dst_conn_ == "void" || dst_conn_ == "deref" || dst_conn_ == "ref") {
+        // everyting else is not an access node at dst
+        auto t = type();
+        if (t == Dereference_Dst) {
+            return true;
+        }
+        if (t == Computational) { // we already checked that dst is access node. So subset & type must be for that
+            if (base_type_ && base_type_->type_id() == types::TypeID::Pointer && !subset_.empty()) {
+                return true; // we use dst only as base address for the actual write
+            }
+        }
+    }
+    return false;
+}
+
+bool Memlet::is_dst_pointed_to_write() const {
+    if (dst_conn_ == "void" || dst_conn_ == "deref" || dst_conn_ == "ref") {
+        auto t = type();
+        if (t == Dereference_Dst) {
+            return true;
+        }
+        if (t == Computational) { // we already checked that dst is access node. So subset & type must be for that
+            if (!subset_.empty() && base_type_ && base_type_->type_id() == types::TypeID::Pointer) {
+                return true; // we use dst only as base address for the actual write
+            }
+        }
+    }
+    return false;
+}
+
 const DataFlowNode& Memlet::src() const { return this->src_; };
 
 DataFlowNode& Memlet::src() { return this->src_; };
@@ -276,7 +442,7 @@ const types::IType& Memlet::base_type() const { return *this->base_type_; };
 
 void Memlet::set_base_type(const types::IType& base_type) { this->base_type_ = base_type.clone(); };
 
-const types::IType& Memlet::result_type(const Function& function) const {
+std::unique_ptr<types::IType> Memlet::result_type(const Function& function) const {
     return types::infer_type(function, *this->base_type_, this->subset_);
 };
 

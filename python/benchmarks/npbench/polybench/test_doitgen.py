@@ -23,7 +23,9 @@ def kernel(NR, NQ, NP, A, C4):
     A[:] = np.reshape(np.reshape(A, (NR, NQ, 1, NP)) @ C4, (NR, NQ, NP))
 
 
-@pytest.mark.skip("np.reshape not yet supported")
+@pytest.mark.skip(
+    reason="Broadcast on non-contiguous arrays is currently not supported"
+)
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda"])
 def test_doitgen(target):
     if target == "none":
@@ -65,13 +67,26 @@ def test_doitgen(target):
                 "DOT": 0,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "FOR": 0,
                 "MAP": 0,
                 "SEQUENTIAL": 0,
                 "CUDA": 0,
+                "CPU_PARALLEL": 0,
+                "HIGHWAY": 0,
+                "GEMM": 0,
+                "DOT": 0,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "FOR": 0,
+                "MAP": 0,
+                "SEQUENTIAL": 0,
+                "ROCM": 0,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 0,

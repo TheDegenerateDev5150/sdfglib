@@ -110,6 +110,15 @@ public:
     DataFlowNode& operator=(const DataFlowNode&) = delete;
 
     /**
+     * @brief Check if this node has side effects
+     * Side effect on dflow nodes is broad. It just means it cannot be removed just because there are no more direct
+     * consumers in the dataflow But underneath, a accessNode-write is considered as having a side effect for this
+     * purpose. Closer inspection of access nodes could show those side effects as being irrelevant if never read and
+     * fully owned
+     */
+    [[nodiscard]] virtual bool side_effect() const = 0;
+
+    /**
      * @brief Get the graph vertex for this node
      * @return The Boost graph vertex representing this node
      */

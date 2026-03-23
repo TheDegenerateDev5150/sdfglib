@@ -12,15 +12,38 @@
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/symbolic/symbolic.h"
 
+#include "sdfg/data_flow/library_node.h"
 #include "sdfg/optimization_report/pass_report_consumer.h"
 #include "sdfg/types/utils.h"
+#include "sdfg/visitor/immutable_structured_sdfg_visitor.h"
 #include "symengine/symengine_rcp.h"
 
 namespace sdfg {
 namespace transformations {
 
+class SideEffectFinder : public visitor::ImmutableStructuredSDFGVisitor {
+private:
+    structured_control_flow::Map& map_;
+
+public:
+    SideEffectFinder(StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::Map& map)
+        : visitor::ImmutableStructuredSDFGVisitor(sdfg, analysis_manager), map_(map) {}
+
+    bool visit() override { return visit_internal(map_.root()); }
+
+    bool accept(structured_control_flow::Block& node) override {
+        for (const auto& lib_node : node.dataflow().library_nodes()) {
+            if (lib_node->side_effect()) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
 OffloadTransform::OffloadTransform(structured_control_flow::Map& map, bool allow_dynamic_sizes)
     : map_(map), allow_dynamic_sizes_(allow_dynamic_sizes) {}
+
 
 bool OffloadTransform::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& sdfg = builder.subject();
@@ -79,6 +102,14 @@ bool OffloadTransform::can_be_applied(builder::StructuredSDFGBuilder& builder, a
         return false;
     }
 
+    // Criterion: Map cannot contain function calls with side effects (e.g. library nodes that write to memory)
+    SideEffectFinder side_effect_finder(sdfg, analysis_manager, this->map_);
+    if (side_effect_finder.visit()) {
+        if (report_) report_->transform_impossible(this, "side effects");
+        DEBUG_PRINTLN("Cannot apply transform: map contains library nodes with side effects");
+        return false;
+    }
+
     if (report_) report_->transform_possible(this);
     return true;
 }
@@ -99,32 +130,34 @@ void OffloadTransform::apply(builder::StructuredSDFGBuilder& builder, analysis::
     auto& mem_access_ranges = analysis_manager.get<analysis::MemAccessRanges>();
     auto& argument_sizes = arguments_analysis.argument_sizes(analysis_manager, this->map_, allow_dynamic_sizes_);
 
-    // Allocate arguments and locals
-    allocate_locals_on_device_stack(builder, analysis_manager, locals);
-    handle_device_setup_and_teardown(builder, arguments, argument_sizes);
-
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
     auto parent_scope = static_cast<structured_control_flow::Sequence*>(scope_analysis.parent_scope(&this->map_));
+
+    std::string container_prefix = copy_prefix() + std::to_string(parent_scope->element_id()) + "_";
+
+    // Allocate arguments and locals
+    allocate_locals_on_device_stack(builder, analysis_manager, locals);
+    handle_device_setup_and_teardown(builder, arguments, argument_sizes, container_prefix);
 
     // Copy-in arguments to device memory & allocation
     for (auto& [argument, meta] : arguments) {
         if (!meta.is_ptr) {
             continue;
         }
-        auto argument_device = copy_prefix() + argument;
+        auto argument_device = container_prefix + argument;
         auto& new_block = builder.add_block_before(*parent_scope, this->map_, {}, this->map_.debug_info());
         auto& size = argument_sizes.at(argument);
         copy_to_device_with_allocation(builder, argument, argument_device, size, SymEngine::null, new_block);
     }
 
-    update_map_containers(arguments);
+    update_map_containers(arguments, container_prefix);
 
     // Copy-out arguments to host memory & free
     for (auto& [argument, meta] : arguments) {
         if (!meta.is_ptr) {
             continue;
         }
-        auto argument_device = copy_prefix() + argument;
+        auto argument_device = container_prefix + argument;
         auto& new_block = builder.add_block_after(*parent_scope, this->map_, {}, this->map_.debug_info());
         auto& size = argument_sizes.at(argument);
         if (meta.is_output) {
@@ -141,14 +174,15 @@ void OffloadTransform::handle_device_setup_and_teardown(
     builder::StructuredSDFGBuilder& builder,
 
     const std::map<std::string, analysis::RegionArgument>& arguments,
-    const std::unordered_map<std::string, symbolic::Expression>& argument_sizes
+    const std::unordered_map<std::string, symbolic::Expression>& argument_sizes,
+    std::string prefix
 ) {
     // Add managed buffers for pointer arguments
     for (auto& [argument, meta] : arguments) {
-        if (!meta.is_ptr || builder.subject().exists(copy_prefix() + argument)) {
+        if (!meta.is_ptr || builder.subject().exists(prefix + argument)) {
             continue;
         }
-        auto argument_device = copy_prefix() + argument;
+        auto argument_device = prefix + argument;
 
         auto arg_size = argument_sizes.at(argument);
 
@@ -156,10 +190,11 @@ void OffloadTransform::handle_device_setup_and_teardown(
     }
 }
 
-void OffloadTransform::update_map_containers(const std::map<std::string, analysis::RegionArgument>& arguments) {
+void OffloadTransform::
+    update_map_containers(const std::map<std::string, analysis::RegionArgument>& arguments, std::string prefix) {
     for (auto& [argument, meta] : arguments) {
         if (meta.is_ptr) {
-            auto argument_device = copy_prefix() + argument;
+            auto argument_device = prefix + argument;
             this->map_.replace(symbolic::symbol(argument), symbolic::symbol(argument_device));
         }
     }

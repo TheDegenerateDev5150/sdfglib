@@ -2,7 +2,6 @@
 
 #include <filesystem>
 #include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -21,6 +20,9 @@ private:
     std::string server_;
     std::string endpoint_;
     std::unordered_map<std::string, std::string> headers_;
+
+protected:
+    void set_server(std::string server) { server_ = std::move(server); }
 
 public:
     SimpleRpcContext(std::string server, std::string endpoint, std::unordered_map<std::string, std::string> headers = {})
@@ -47,21 +49,20 @@ struct SimpleRpcContextBuilder {
 
     SimpleRpcContextBuilder& from_docc_config();
 
-    std::unique_ptr<SimpleRpcContext> build(bool print = true) const;
+    std::shared_ptr<SimpleRpcContext> build(bool print = true) const;
 };
 
-
-inline std::unique_ptr<RpcContext> build_rpc_context_local() {
+inline std::shared_ptr<RpcContext> build_rpc_context_local() {
     SimpleRpcContextBuilder b;
     return b.initialize_local_default().build();
 }
 
-inline std::unique_ptr<RpcContext> build_rpc_context_from_file(std::filesystem::path config_file) {
+inline std::shared_ptr<RpcContext> build_rpc_context_from_file(std::filesystem::path config_file) {
     SimpleRpcContextBuilder b;
     return b.from_file(std::move(config_file)).build();
 }
 
-inline std::unique_ptr<RpcContext> build_rpc_context_auto() {
+inline std::shared_ptr<RpcContext> build_rpc_context_auto() {
     SimpleRpcContextBuilder b;
     return b.initialize_local_default().from_env().from_header_env().build();
 }

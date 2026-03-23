@@ -7,9 +7,16 @@ find_package(nlohmann_json REQUIRED)
 set(PYTHON_SOURCES
     bindings/bindings.cpp
     bindings/py_structured_sdfg.cpp
-    bindings/py_structured_sdfg_builder.cpp
+    bindings/builder/py_structured_sdfg_builder.cpp
+    bindings/control_flow/py_control_flow.cpp
     bindings/data_flow/py_cmath.cpp
+    bindings/data_flow/py_code_node.cpp
+    bindings/data_flow/py_data_flow_graph.cpp
+    bindings/data_flow/py_data_flow_node.cpp
+    bindings/data_flow/py_memlet.cpp
     bindings/data_flow/py_tasklet.cpp
+    bindings/targets/target_mapping.cpp
+    bindings/transformations/py_transformations.cpp
     bindings/types/py_types.cpp
 )
 
@@ -19,22 +26,16 @@ set_target_properties(sdfg-py PROPERTIES
     CXX_STANDARD_REQUIRED ON
     OUTPUT_NAME "_sdfg"
 )
+target_include_directories(sdfg-py
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/bindings>
+)
 
 target_link_libraries(sdfg-py PRIVATE sdfg::sdfg sdfg::opt sdfg::rpc nlohmann_json::nlohmann_json ${CMAKE_DL_LIBS})
 
+if(TARGET docc::target::et)
+    target_link_libraries(sdfg-py PRIVATE docc::target::et)
+endif()
+
 # Install artifacts for the Python wheel
-install(TARGETS sdfg-py DESTINATION docc/sdfg)
-
-install(FILES
-    $<TARGET_FILE:daisy_rtl>
-    $<TARGET_FILE:arg_capture_io>
-    DESTINATION docc
-)
-
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../rtl/include/"
-    DESTINATION docc/include
-)
-
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../arg-capture-io/include/"
-    DESTINATION docc/include
-)
+install(TARGETS sdfg-py DESTINATION docc/sdfg COMPONENT docc_python)

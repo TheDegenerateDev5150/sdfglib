@@ -6,6 +6,7 @@
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/element.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg_debug_dump.h"
 
 using namespace sdfg;
 
@@ -483,7 +484,72 @@ TEST(StructuredSDFGBuilderTest, ClearNode_AccessNode_Used) {
     builder.add_computational_memlet(block, out_node, tasklet2, "_in", {});
     builder.add_computational_memlet(block, tasklet2, "_out", out_node2, {});
 
+    dump_sdfg(builder.subject(), "0-before");
+
     builder.clear_node(block, out_node);
+
+    dump_sdfg(builder.subject(), "1-after");
+
     EXPECT_EQ(block.dataflow().nodes().size(), 3);
     EXPECT_EQ(block.dataflow().edges().size(), 2);
+}
+
+TEST(StructuredSDFGBuilderTest, ClearNode_AccessNode_Unused_Diamond) {
+    builder::StructuredSDFGBuilder builder("sdfg_1", FunctionType_CPU);
+
+    types::Scalar desc(types::PrimitiveType::Int64);
+    builder.add_container("N", desc);
+    builder.add_container("tmp1", desc);
+    builder.add_container("tmp2", desc);
+
+    auto& root = builder.subject().root();
+    EXPECT_EQ(root.element_id(), 0);
+
+    auto& block = builder.add_block(root, control_flow::Assignments{{symbolic::symbol("N"), SymEngine::integer(10)}});
+
+    auto& in_node = builder.add_access(block, "N");
+    auto& out_node = builder.add_access(block, "tmp1");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::int_add, "_out", {"a", "b"});
+    builder.add_computational_memlet(block, in_node, tasklet, "a", {});
+    builder.add_computational_memlet(block, in_node, tasklet, "b", {});
+    builder.add_computational_memlet(block, tasklet, "_out", out_node, {});
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    builder.clear_node(block, out_node);
+
+    dump_sdfg(builder.subject(), "1-after");
+    EXPECT_EQ(block.dataflow().nodes().size(), 0);
+    EXPECT_EQ(block.dataflow().edges().size(), 0);
+}
+
+TEST(StructuredSDFGBuilderTest, ClearNode_Dont_Remove_Write_Nodes) {
+    builder::StructuredSDFGBuilder builder("sdfg_1", FunctionType_CPU);
+
+    types::Scalar desc(types::PrimitiveType::Int64);
+    types::Pointer desc_ptr(desc);
+    builder.add_container("ptr", desc_ptr, true);
+    builder.add_container("tmp1", desc);
+    builder.add_container("N", desc, true);
+
+
+    auto& root = builder.subject().root();
+    EXPECT_EQ(root.element_id(), 0);
+
+    auto& block = builder.add_block(root);
+
+    auto& in_node = builder.add_access(block, "N");
+    auto& out_ptr_node = builder.add_access(block, "ptr");
+    builder.add_dereference_memlet(block, in_node, out_ptr_node, false, desc_ptr);
+
+    auto& out_node = builder.add_access(block, "tmp1");
+    builder.add_dereference_memlet(block, out_ptr_node, out_node, true, desc_ptr);
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    builder.clear_node(block, out_node);
+
+    dump_sdfg(builder.subject(), "1-after");
+    EXPECT_EQ(block.dataflow().nodes().size(), 2);
+    EXPECT_EQ(block.dataflow().edges().size(), 1);
 }

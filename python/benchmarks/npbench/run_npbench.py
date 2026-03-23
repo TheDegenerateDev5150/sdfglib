@@ -41,6 +41,7 @@ def run_benchmark_with_target(
     size="S",
     n_runs=10,
     use_numpy=False,
+    remote_tuning=False,
 ):
     """Run a single benchmark with a specific target and collect stats."""
 
@@ -56,11 +57,21 @@ def run_benchmark_with_target(
         # Create args object to pass to run_benchmark
         if use_numpy:
             args = SimpleNamespace(
-                size=size, docc=False, numpy=True, target="none", n_runs=n_runs
+                size=size,
+                docc=False,
+                numpy=True,
+                target="none",
+                n_runs=n_runs,
+                remote_tuning=False,
             )
         else:
             args = SimpleNamespace(
-                size=size, docc=True, numpy=False, target=target, n_runs=n_runs
+                size=size,
+                docc=True,
+                numpy=False,
+                target=target,
+                n_runs=n_runs,
+                remote_tuning=remote_tuning,
             )
 
         # Capture the output from run_benchmark (silence stdout and stderr)
@@ -278,8 +289,8 @@ def main():
         "--targets",
         type=str,
         nargs="+",
-        default=["none", "sequential", "openmp", "cuda", "numpy"],
-        help="Targets to run (default: none sequential openmp cuda numpy). Use 'numpy' for numpy baseline.",
+        default=["none", "sequential", "openmp", "cuda", "rocm", "numpy"],
+        help="Targets to run (default: none sequential openmp cuda rocm numpy). Use 'numpy' for numpy baseline.",
     )
     parser.add_argument(
         "--size",
@@ -287,13 +298,22 @@ def main():
         default="S",
         help="Size parameter for benchmarks (default: S)",
     )
+    parser.add_argument(
+        "--remote-tuning",
+        action="store_true",
+        default=False,
+        help="Enable remote tuning via RPC (default: False)",
+    )
     args = parser.parse_args()
 
     n_runs = args.n_runs
     size = args.size
     targets = args.targets
+    remote_tuning = args.remote_tuning
 
-    print(f"Configuration: n_runs={n_runs}, targets={targets}, size={size}")
+    print(
+        f"Configuration: n_runs={n_runs}, targets={targets}, size={size}, remote_tuning={remote_tuning}"
+    )
 
     # Discover all benchmarks
     print("Discovering benchmarks...")
@@ -355,6 +375,7 @@ def main():
                 size=size,
                 n_runs=n_runs,
                 use_numpy=is_numpy,
+                remote_tuning=remote_tuning,
             )
 
             all_results.append(result)

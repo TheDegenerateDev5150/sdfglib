@@ -5,7 +5,7 @@
 
 #include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/structured_control_flow/for.h"
-#include "sdfg/targets/cuda/cuda.h"
+#include "sdfg/targets/gpu/gpu_schedule_type.h"
 
 namespace sdfg {
 namespace transformations {
@@ -26,12 +26,12 @@ bool GPULoopReordering::
         return false;
     }
 
-    // Criterion: first loop must be a CUDA map
+    // Criterion: first loop must be a GPU map
     auto first_loop = dynamic_cast<structured_control_flow::Map*>(nested_loops.at(0));
     if (!first_loop) {
         return false;
     }
-    if (first_loop->schedule_type().value() != cuda::ScheduleType_CUDA::value()) {
+    if (!gpu::is_gpu_schedule(first_loop->schedule_type())) {
         return false;
     }
 

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <sdfg/transformations/rpc_node_transform.h>
+#include <sdfg/util/utils_curl.h>
 
 
 #include "sdfg/analysis/loop_analysis.h"
@@ -20,7 +21,7 @@ using namespace sdfg;
 
 class RPCNodeTransformTest : public ::testing::Test {
 protected:
-    std::unique_ptr<passes::rpc::RpcContext> ctx_;
+    std::shared_ptr<passes::rpc::RpcContext> ctx_;
 
     std::unique_ptr<builder::StructuredSDFGBuilder> builder_;
     nlohmann::json desc_;
@@ -144,22 +145,23 @@ TEST_F(RPCNodeTransformTest, Matmul_FMA) {
     auto loop_nest_tree = test_loop_analysis.loop_tree();
 
     EXPECT_EQ(test_loop_analysis.find_loop_by_indvar("k"), loop_nest_tree[test_loop_analysis.find_loop_by_indvar("j")]);
-    EXPECT_EQ(test_loop_analysis.find_loop_by_indvar("j_tile0"), loop_nest_tree[test_loop_analysis.find_loop_by_indvar("k")]);
+    EXPECT_EQ(
+        test_loop_analysis.find_loop_by_indvar("j_tile0"), loop_nest_tree[test_loop_analysis.find_loop_by_indvar("k")]
+    );
 
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("k_tile0"), nullptr);
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("j_tile0"), nullptr);
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("i_tile0"), nullptr);
 
     EXPECT_EQ(
-        test_loop_analysis.find_loop_by_indvar("k_tile0"), loop_nest_tree[test_loop_analysis.find_loop_by_indvar("j_tile0")]
+        test_loop_analysis.find_loop_by_indvar("k_tile0"),
+        loop_nest_tree[test_loop_analysis.find_loop_by_indvar("j_tile0")]
     );
     EXPECT_EQ(
-        test_loop_analysis.find_loop_by_indvar("i"),
-        loop_nest_tree[test_loop_analysis.find_loop_by_indvar("k_tile0")]
+        test_loop_analysis.find_loop_by_indvar("i"), loop_nest_tree[test_loop_analysis.find_loop_by_indvar("k_tile0")]
     );
     EXPECT_EQ(
-        test_loop_analysis.find_loop_by_indvar("i_tile0"),
-        loop_nest_tree[test_loop_analysis.find_loop_by_indvar("i")]
+        test_loop_analysis.find_loop_by_indvar("i_tile0"), loop_nest_tree[test_loop_analysis.find_loop_by_indvar("i")]
     );
 };
 
@@ -179,9 +181,9 @@ TEST_F(RPCNodeTransformTest, Double_Matmul) {
 
     // Transfer tuning replayer
 
-    sdfg::analysis::AnalysisManager analysis_manager(builder.subject());
-    auto& loop_analysis = analysis_manager.get<sdfg::analysis::LoopAnalysis>();
-    auto outer_loops = loop_analysis.outermost_loops();
+        sdfg::analysis::AnalysisManager analysis_manager(builder.subject());
+        auto& loop_analysis = analysis_manager.get<sdfg::analysis::LoopAnalysis>();
+        auto outer_loops = loop_analysis.outermost_loops();
     EXPECT_EQ(outer_loops.size(), 2);
 
     auto outer_loop = static_cast<structured_control_flow::StructuredLoop*>(outer_loops[0]);
@@ -197,5 +199,63 @@ TEST_F(RPCNodeTransformTest, Double_Matmul) {
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("k_tile0"), nullptr);
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("j_tile0"), nullptr);
     EXPECT_NE(test_loop_analysis.find_loop_by_indvar("i_tile0"), nullptr);
+}
 
+TEST_F(RPCNodeTransformTest, HandleUnauthenticatedError) {
+    // Test that 401 authentication errors are properly caught and handled
+    // This ensures the error handling added for authentication is preserved
+
+    HttpResult result;
+    result.curl_code = CURLE_OK;
+    result.http_status = 401;
+    result.body = R"({"error": "Unauthorized"})";
+    result.error_message = "[ERROR] RPC optimization query authentication issue: 401, body: " + result.body;
+
+    sdfg::analysis::AnalysisManager analysis_manager(builder_->subject());
+    auto& loop_analysis = analysis_manager.get<sdfg::analysis::LoopAnalysis>();
+    auto outer_loops = loop_analysis.outermost_loops();
+    EXPECT_EQ(outer_loops.size(), 1);
+    auto outer_loop = static_cast<structured_control_flow::StructuredLoop*>(outer_loops[0]);
+
+    sdfg::transformations::RPCNodeTransform transform(*outer_loop, "sequential", "server", *ctx_, true);
+
+    // Test parse_rpc_response handles 401 errors
+    auto response = transform.parse_rpc_response(result);
+
+    // Should return error string, not RpcOptResponse
+    ASSERT_TRUE(std::holds_alternative<std::string>(response));
+
+    // Verify error message contains authentication info
+    std::string error = std::get<std::string>(response);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("authentication"), std::string::npos);
+}
+
+TEST_F(RPCNodeTransformTest, HandleOtherHttpErrors) {
+    // Test that other HTTP errors (like 500) are also caught
+
+    HttpResult result;
+    result.curl_code = CURLE_OK;
+    result.http_status = 500;
+    result.body = R"({"error": "Internal Server Error"})";
+    result.error_message = "HTTP error: 500, body: " + result.body;
+
+     sdfg::analysis::AnalysisManager analysis_manager(builder_->subject());
+    auto& loop_analysis = analysis_manager.get<sdfg::analysis::LoopAnalysis>();
+    auto outer_loops = loop_analysis.outermost_loops();
+    EXPECT_EQ(outer_loops.size(), 1);
+    auto outer_loop = static_cast<structured_control_flow::StructuredLoop*>(outer_loops[0]);
+
+    sdfg::transformations::RPCNodeTransform transform(*outer_loop, "sequential", "server", *ctx_, true);
+
+    // Test parse_rpc_response handles HTTP errors
+    auto response = transform.parse_rpc_response(result);
+
+    // Should return error string, not RpcOptResponse
+    ASSERT_TRUE(std::holds_alternative<std::string>(response));
+
+    // Verify error message is propagated
+    std::string error = std::get<std::string>(response);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("HTTP error: 500"), std::string::npos);
 }

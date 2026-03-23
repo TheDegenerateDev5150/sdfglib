@@ -35,55 +35,56 @@ def kernel(alpha, A, B):
         "sequential",
         "openmp",
         # "cuda"
+        # "rocm"
     ],
 )
 def test_trmm(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 4,
-                "MAP": 2,
-                "SEQUENTIAL": 2,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 1,
-                "DOT": 0,
-            }
+            verification={"MAP": 4, "Malloc": 1, "GEMM": 1, "SEQUENTIAL": 4, "FOR": 6}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "FOR": 4,
-                "MAP": 2,
-                "SEQUENTIAL": 1,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 1,
+                "HIGHWAY": 2,
+                "MAP": 4,
+                "Malloc": 1,
                 "GEMM": 1,
-                "DOT": 0,
+                "SEQUENTIAL": 2,
+                "FOR": 6,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "FOR": 4,
-                "MAP": 2,
-                "SEQUENTIAL": 0,
-                "CUDA": 0,
-                "CPU_PARALLEL": 1,
-                "HIGHWAY": 1,
+                "HIGHWAY": 2,
+                "CPU_PARALLEL": 2,
+                "MAP": 4,
+                "Malloc": 1,
                 "GEMM": 1,
-                "DOT": 0,
+                "FOR": 6,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "FOR": 4,
                 "MAP": 2,
                 "SEQUENTIAL": 0,
                 "CUDA": 2,
+                "CPU_PARALLEL": 0,
+                "HIGHWAY": 0,
+                "GEMM": 1,
+                "DOT": 0,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "FOR": 4,
+                "MAP": 2,
+                "SEQUENTIAL": 0,
+                "ROCM": 2,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 1,

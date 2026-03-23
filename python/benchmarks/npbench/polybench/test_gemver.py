@@ -37,42 +37,41 @@ def kernel(alpha, beta, A, u1, v1, u2, v2, w, x, y, z):
 def test_gemver(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 2,
-                "MAP": 1,
-                "SEQUENTIAL": 1,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
-                "GEMM": 4,
-                "DOT": 0,
-            }
+            verification={"SEQUENTIAL": 3, "FOR": 3, "MAP": 3, "Malloc": 3, "GEMM": 4}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
-            verification={
-                "FOR": 2,
-                "MAP": 1,
-                "SEQUENTIAL": 0,
-                "CUDA": 0,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 1,
-                "GEMM": 4,
-                "DOT": 0,
-            }
+            verification={"HIGHWAY": 3, "FOR": 3, "MAP": 3, "Malloc": 3, "GEMM": 4}
         )
     elif target == "openmp":
         verifier = SDFGVerification(
-            verification={"CPU_PARALLEL": 1, "MAP": 1, "Malloc": 2, "FOR": 2, "GEMM": 4}
+            verification={
+                "CPU_PARALLEL": 3,
+                "FOR": 3,
+                "MAP": 3,
+                "Malloc": 3,
+                "GEMM": 4,
+            }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 1,
-                "MAP": 1,
-                "CUDAOffloading": 4,
-                "Malloc": 2,
-                "FOR": 2,
+                "CUDA": 3,
+                "FOR": 3,
+                "MAP": 3,
+                "CUDAOffloading": 14,
+                "Malloc": 3,
+                "GEMM": 4,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "ROCM": 3,
+                "FOR": 3,
+                "MAP": 3,
+                "ROCMOffloading": 14,
+                "Malloc": 3,
                 "GEMM": 4,
             }
         )

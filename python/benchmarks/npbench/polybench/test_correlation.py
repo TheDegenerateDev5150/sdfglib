@@ -31,7 +31,7 @@ def kernel(M, float_n, data):
     return corr
 
 
-@pytest.mark.skip("Array masking not yet supported")
+@pytest.mark.skip(reason="sdfg does not validate")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda"])
 def test_correlation(target):
     if target == "none":
@@ -73,7 +73,7 @@ def test_correlation(target):
                 "Malloc": 7,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "GEMM": 1,
@@ -84,6 +84,20 @@ def test_correlation(target):
                 "FOR": 27,
                 "MAP": 23,
                 "CUDAOffloading": 52,
+                "Malloc": 7,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "GEMM": 1,
+                "CMath": 2,
+                "ROCM": 21,
+                "SEQUENTIAL": 2,
+                "Memset": 1,
+                "FOR": 27,
+                "MAP": 23,
+                "ROCMOffloading": 52,
                 "Malloc": 7,
             }
         )

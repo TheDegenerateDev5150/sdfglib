@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <nlohmann/json_fwd.hpp>
 #include <sstream>
 
 #include <dlfcn.h>
@@ -18,16 +20,20 @@
 #include <sdfg/codegen/loop_report.h>
 #include <sdfg/passes/dataflow/constant_propagation.h>
 #include <sdfg/passes/dataflow/dead_data_elimination.h>
+#include <sdfg/passes/dataflow/tensor_to_pointer_conversion.h>
 #include <sdfg/passes/dot_expansion_pass.h>
 #include <sdfg/passes/gemm_expansion_pass.h>
 #include <sdfg/passes/normalization/normalization.h>
 #include <sdfg/passes/offloading/cuda_library_node_rewriter_pass.h>
+#include <sdfg/passes/offloading/onnx_library_node_rewriter_pass.h>
 #include <sdfg/passes/opt_pipeline.h>
 #include <sdfg/passes/pipeline.h>
 #include <sdfg/passes/scheduler/cuda_scheduler.h>
 #include <sdfg/passes/scheduler/highway_scheduler.h>
+#include <sdfg/passes/scheduler/loop_scheduling_pass.h>
 #include <sdfg/passes/scheduler/omp_scheduler.h>
 #include <sdfg/passes/scheduler/polly_scheduler.h>
+#include <sdfg/passes/scheduler/scheduler_registry.h>
 #include <sdfg/passes/structured_control_flow/common_assignment_elimination.h>
 #include <sdfg/passes/structured_control_flow/condition_elimination.h>
 #include <sdfg/passes/structured_control_flow/for2map.h>
@@ -40,8 +46,27 @@
 #include <sdfg/passes/symbolic/type_minimization.h>
 #include <sdfg/serializer/json_serializer.h>
 
+#include <sdfg/helpers/helpers.h>
+#include <sdfg/visualizer/dot_visualizer.h>
+
+#include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_context.h"
-#include "sdfg/passes/rpc/rpc_loop_opt.h"
+#include "sdfg/passes/rpc/rpc_scheduler.h"
+#include "sdfg/passes/targets/target_mapping_pass.h"
+#include "targets/target_mapping.h"
+
+#ifdef DOCC_HAS_TARGET_ET
+#include <docc/target/et/target.h>
+#endif
+
+// Platform-specific compiler selection
+#if defined(__APPLE__)
+#define DOCC_CXX_COMPILER "clang++"
+#elif defined(__linux__)
+#define DOCC_CXX_COMPILER "clang-19"
+#else
+#error "Unsupported platform"
+#endif
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -67,6 +92,10 @@ PyStructuredSDFG PyStructuredSDFG::from_file(const std::string& file_path) {
     sdfg::serializer::JSONSerializer serializer;
     auto sdfg = serializer.deserialize(j);
 
+    return PyStructuredSDFG(sdfg);
+}
+
+PyStructuredSDFG PyStructuredSDFG::from_sdfg(std::unique_ptr<sdfg::StructuredSDFG> sdfg) {
     return PyStructuredSDFG(sdfg);
 }
 
@@ -104,6 +133,9 @@ void PyStructuredSDFG::expand() {
 
     sdfg::passes::Pipeline libnode_expansion = sdfg::passes::Pipeline::expansion();
     libnode_expansion.run(builder_opt, analysis_manager);
+
+    sdfg::passes::TensorToPointerConversionPass tensor_to_pointer_conversion_pass;
+    tensor_to_pointer_conversion_pass.run(builder_opt, analysis_manager);
 }
 
 void PyStructuredSDFG::simplify() {
@@ -228,45 +260,71 @@ void PyStructuredSDFG::simplify() {
     dde.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
     dataflow_simplification.run(builder_opt, analysis_manager);
+
+    // Fuse maps
+    auto map_fusion = sdfg::passes::normalization::map_fusion();
+    map_fusion.run(builder_opt, analysis_manager);
 }
 
-void PyStructuredSDFG::dump(const std::string& path) {
+void PyStructuredSDFG::dump(
+    const std::string& path, const std::string& type, bool dump_dot, bool dump_json, bool record_for_instrumentation
+) {
     fs::path build_path(path);
     if (!fs::exists(build_path)) {
         fs::create_directories(build_path);
     }
 
     // Add metadata to SDFG
-    fs::path sdfg_file = build_path / (sdfg_->name() + ".json");
-    fs::path features_file = build_path / (sdfg_->name() + ".npz");
-    fs::path arg_captures_path = build_path / "arg_captures";
-    sdfg_->add_metadata("sdfg_file", sdfg_file.string());
-    sdfg_->add_metadata("arg_capture_path", arg_captures_path.string());
-    sdfg_->add_metadata("features_file", features_file.string());
-    sdfg_->add_metadata("opt_report_file", (build_path / (sdfg_->name() + ".opt_report.json")).string());
+    auto typeSuffix = type.empty() ? "" : ("." + type);
+    auto suffixedName = sdfg_->name() + typeSuffix;
 
-    // Dump json
-    sdfg::serializer::JSONSerializer serializer;
-    nlohmann::json j = serializer.serialize(*this->sdfg_);
+    if (dump_json) {
+        fs::path sdfg_file = build_path / (suffixedName + ".json");
 
-    std::ofstream ofs(sdfg_file);
-    if (!ofs.is_open()) {
-        throw std::runtime_error("Failed to open file: " + sdfg_file.string());
+        // Dump json
+        sdfg::serializer::JSONSerializer serializer;
+        nlohmann::json j = serializer.serialize(*this->sdfg_);
+
+        std::ofstream ofs(sdfg_file);
+        if (!ofs.is_open()) {
+            throw std::runtime_error("Failed to open file: " + sdfg_file.string());
+        }
+        ofs << j.dump(2);
+        ofs.close();
+
+        if (record_for_instrumentation) {
+            fs::path features_file = build_path / (suffixedName + ".npz");
+            fs::path arg_captures_path = build_path / "arg_captures";
+            sdfg_->add_metadata("sdfg_file", sdfg_file.string());
+            sdfg_->add_metadata("arg_capture_path", arg_captures_path.string());
+            sdfg_->add_metadata("features_file", features_file.string());
+            sdfg_->add_metadata("opt_report_file", (build_path / (suffixedName + ".opt_report.json")).string());
+        }
     }
-    ofs << j.dump(2);
-    ofs.close();
+
+    if (dump_dot) {
+        auto dot_file = build_path / (suffixedName + ".dot");
+        sdfg::visualizer::DotVisualizer::writeToFile(*sdfg_, &dot_file);
+    }
 }
 
 void PyStructuredSDFG::normalize() {
     sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
     sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
 
+    // Fuse maps
+    auto map_fusion = sdfg::passes::normalization::map_fusion();
+    map_fusion.run(builder, analysis_manager);
+
+    // Distribute and permute
     auto pipeline = sdfg::passes::normalization::loop_normalization();
     pipeline.run(builder, analysis_manager);
+
+    // Fuse maps
+    map_fusion.run(builder, analysis_manager);
 }
 
-void PyStructuredSDFG::
-    schedule(const std::string& target, const std::string& category, sdfg::passes::rpc::RpcContext* remote_ctx) {
+void PyStructuredSDFG::schedule(const std::string& target, const std::string& category, bool remote_tuning) {
     if (target == "none") {
         return;
     }
@@ -274,19 +332,20 @@ void PyStructuredSDFG::
     sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
     sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
 
+    docc::plugins::TargetOptions topts = {.target = target, .category = category, .transfer_tuning = remote_tuning};
+    docc::plugins::apply_lib_node_target_mapping(builder, analysis_manager, topts);
+
+    std::vector<std::string> schedulers;
+
+    if (remote_tuning) {
+        std::shared_ptr<sdfg::passes::rpc::RpcContext> context =
+            sdfg::passes::rpc::DaisytunerRpcContext::from_docc_config();
+        sdfg::passes::rpc::register_rpc_loop_opt(context, target, category);
+        schedulers.push_back("rpc");
+    }
+
     // CPU Opt Pipeline
     if (target == "sequential" || target == "openmp") {
-        if (remote_ctx) {
-            std::cout << "Running RPC Loop Optimization for target: " << target << ", category: " << category << " on "
-                      << remote_ctx->get_remote_address() << std::endl;
-            sdfg::passes::rpc::RpcLoopOpt rpcOpt(*remote_ctx, target, category);
-            rpcOpt.run(builder, analysis_manager);
-        }
-
-        // CPU Tiling
-        // sdfg::passes::scheduler::PollyScheduler polly_scheduler;
-        // polly_scheduler.run(builder, analysis_manager);
-
         sdfg::passes::Pipeline dce = sdfg::passes::Pipeline::dead_code_elimination();
         sdfg::passes::DeadDataElimination dde;
         sdfg::passes::SymbolPropagation symbol_propagation_pass;
@@ -294,27 +353,31 @@ void PyStructuredSDFG::
         dde.run(builder, analysis_manager);
         dce.run(builder, analysis_manager);
 
-
-        // CPU Parallelization
         if (target == "openmp") {
-            sdfg::passes::scheduler::OMPScheduler omp_scheduler;
-            omp_scheduler.run(builder, analysis_manager);
+            schedulers.push_back(target);
         }
-
-        // CPU Vectorization
-        sdfg::passes::scheduler::HighwayScheduler highway_scheduler;
-        highway_scheduler.run(builder, analysis_manager);
+        schedulers.push_back("highway");
     }
-
     // GPU Opt Pipeline
-    else if (target == "cuda") {
-        sdfg::passes::scheduler::CUDAScheduler cuda_scheduler;
-        cuda_scheduler.run(builder, analysis_manager);
+    else if (target == "cuda" || target == "rocm") {
+        schedulers.push_back(target);
+    } else if (target == "onnx") {
+        // nothing
+    } else if (target == "etsoc") {
+#ifdef DOCC_HAS_TARGET_ET
 
-        sdfg::cuda::CudaLibraryNodeRewriterPass cuda_library_node_rewriter_pass;
-        cuda_library_node_rewriter_pass.run(builder, analysis_manager);
+#endif
+    } else {
+        std::cerr << "[WARNING] Target '" << target << "' is not supported, ignoring!" << std::endl;
     }
+    sdfg::passes::scheduler::LoopSchedulingPass loop_scheduling_pass(schedulers, nullptr);
+    loop_scheduling_pass.run(builder, analysis_manager);
 }
+
+struct SnippetMetadata {
+    std::string name;
+    std::string extension;
+};
 
 std::string PyStructuredSDFG::compile(
     const std::string& output_folder,
@@ -364,13 +427,14 @@ std::string PyStructuredSDFG::compile(
     generator.as_source(header_path, source_path);
 
     // Write library snippets
-    std::unordered_set<std::string> lib_files;
+    std::unordered_map<std::string, SnippetMetadata> lib_files;
     for (auto& [name, snippet] : snippet_factory->snippets()) {
         if (snippet.is_as_file()) {
             auto p = build_path / (name + "." + snippet.extension());
             std::ofstream outfile_lib;
-            if (lib_files.insert(p.string()).second) {
+            if (!lib_files.contains(p.string())) {
                 outfile_lib.open(p, std::ios_base::out);
+                lib_files[p.string()] = {.name = name, .extension = snippet.extension()};
             } else {
                 outfile_lib.open(p, std::ios_base::app);
             }
@@ -384,29 +448,54 @@ std::string PyStructuredSDFG::compile(
 
     // Find libraries relative to the module location
     Dl_info info;
+    fs::path package_path;
     std::string package_path_str;
+    std::string package_lib_path_str;
     std::string package_include_path_str;
     if (dladdr((void*) &_anchor, &info)) {
         fs::path lib_path = fs::canonical(info.dli_fname);
-        fs::path package_path = lib_path.parent_path().parent_path();
+        package_path = lib_path.parent_path().parent_path();
         package_path_str = package_path.string();
+        package_lib_path_str = (package_path / "lib").string();
         package_include_path_str = (package_path / "include").string();
     }
 
     bool has_highway = false;
     std::unordered_set<std::string> object_files;
-    for (const auto& lib_file : lib_files) {
+    for (const auto& [lib_file, meta] : lib_files) {
         std::filesystem::path lib_path(lib_file);
+        auto& [snippet_name, extension] = meta;
+        if (extension == "json") {
+            continue;
+        }
+
+#ifdef DOCC_HAS_TARGET_ET
+        if (extension == docc::target::et::ETSOC_KERNEL_FILE_EXT) {
+            docc::target::et::EtBuildArgs args{.build_dir = build_path, .plugin_rt_dir = package_path};
+            auto et_k_file = docc::target::et::et_build_kernel(*sdfg_, *snippet_factory, lib_file, args);
+            DEBUG_PRINTLN("Generated ET Kernel to: " << et_k_file);
+            continue;
+        }
+#endif
         std::string name = lib_path.stem().string();
         std::string object_file = build_path.string() + "/" + name + ".o";
         std::stringstream cmd;
-        cmd << "clang-19 -c -fPIC -O3  -march=native -mtune=native -funroll-loops";
+#if defined(__APPLE__)
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -Xpreprocessor -fopenmp -march=native -mtune=native -funroll-loops";
+#else
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
+#endif
         if (!package_path_str.empty()) {
-            cmd << " -L" << package_path_str;
+            cmd << " -L" << package_lib_path_str;
             cmd << " -I" << package_include_path_str;
         }
-        if (target == "cuda") {
+#if defined(__APPLE__)
+        cmd << " -I/opt/homebrew/include";
+#endif
+        if (target == "cuda") { // should use .cu to detect
             cmd << " -x cuda --cuda-gpu-arch=sm_70 --cuda-path=/usr/local/cuda";
+        } else if (target == "rocm" && extension == "rocm.cpp") {
+            cmd << " -x hip --offload-arch=gfx1201 --rocm-path=/opt/rocm -I/opt/rocm/include";
         }
 
         cmd << " " << lib_file;
@@ -426,16 +515,27 @@ std::string PyStructuredSDFG::compile(
     // Compile
     {
         std::stringstream cmd;
-        cmd << "clang-19 -c -fPIC -O3 -march=native -mtune=native -funroll-loops";
+#if defined(__APPLE__)
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -Xpreprocessor -fopenmp -march=native -mtune=native -funroll-loops";
+#else
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
+#endif
         if (!package_path_str.empty()) {
-            cmd << " -L" << package_path_str;
+            cmd << " -L" << package_lib_path_str;
             cmd << " -I" << package_include_path_str;
         }
         if (target == "cuda") {
             cmd << " -x cuda -lcuda";
+        } else if (target == "rocm") {
+            cmd << " -x hip --offload-arch=gfx1201 --offload-host-only --rocm-path=/opt/rocm -I/opt/rocm/include";
+        } else if (target == "etsoc") {
+#ifdef DOCC_HAS_TARGET_ET
+            cmd << " " << docc::target::et::et_get_host_additional_compile_args(*sdfg_, *snippet_factory);
+#endif
         }
         cmd << " " << source_path.string();
         cmd << " -o " << (build_path / (sdfg_->name() + ".o")).string();
+        DEBUG_PRINTLN("Compile: " << cmd.str());
         int ret = std::system(cmd.str().c_str());
         if (ret != 0) {
             throw std::runtime_error("Compilation failed: " + cmd.str());
@@ -447,9 +547,15 @@ std::string PyStructuredSDFG::compile(
     fs::path lib_path = build_path / ("lib" + sdfg_->name() + ".so");
 
     std::stringstream cmd;
-    cmd << "clang-19 -shared -fopenmp -fPIC -O3";
+#if defined(__APPLE__)
+    cmd << DOCC_CXX_COMPILER << " -shared -Xpreprocessor -fopenmp -fPIC -O3";
+    cmd << " -L/opt/homebrew/opt/libomp/lib -I/opt/homebrew/opt/libomp/include";
+    cmd << " -L/opt/homebrew/lib";
+#else
+    cmd << DOCC_CXX_COMPILER << " -shared -fopenmp -fPIC -O3";
+#endif
     if (!package_path_str.empty()) {
-        cmd << " -L" << package_path_str;
+        cmd << " -L" << package_lib_path_str;
         cmd << " -I" << package_include_path_str;
     }
     // cmd << " " << source_path.string();
@@ -461,16 +567,33 @@ std::string PyStructuredSDFG::compile(
     }
     cmd << " -ldaisy_rtl";
     cmd << " -larg_capture_io";
+#if defined(__APPLE__)
+    cmd << " -lomp";
+    cmd << " -framework Accelerate";
+#else
     cmd << " -lblas";
+#endif
     cmd << " -lm";
     cmd << " -lstdc++";
     if (target == "cuda") {
         cmd << " /usr/local/cuda/lib64/libcudart.so";
         cmd << " /usr/local/cuda/lib64/libcublas.so";
+    } else if (target == "rocm") {
+        cmd << " /opt/rocm/lib/libamdhip64.so";
+        cmd << " /opt/rocm/lib/libhiprtc.so";
+        cmd << " /opt/rocm/lib/libhipblas.so";
+    } else if (target == "onnx") {
+        cmd << " -L/usr/local/onnxruntime/lib";
+        cmd << " -lonnxruntime";
+        cmd << " -ldl"; // Required for dladdr()
+    } else if (target == "etsoc") {
+#ifdef DOCC_HAS_TARGET_ET
+        cmd << " " << docc::target::et::et_get_host_additional_link_args(*sdfg_, *snippet_factory);
+#endif
     }
     cmd << " -o " << lib_path.string();
 
-
+    DEBUG_PRINTLN("Link: " << cmd.str());
     int ret = std::system(cmd.str().c_str());
     if (ret != 0) {
         throw std::runtime_error("Compilation failed: " + cmd.str());
@@ -500,4 +623,46 @@ pybind11::dict PyStructuredSDFG::loop_report() const {
     }
 
     return result;
+}
+
+std::string PyStructuredSDFG::to_json() const {
+    sdfg::serializer::JSONSerializer serializer;
+    nlohmann::json j = serializer.serialize(*sdfg_);
+    return j.dump();
+}
+
+std::string PyStructuredSDFG::to_dot() const {
+    sdfg::visualizer::DotVisualizer viz(*sdfg_);
+    viz.visualize();
+    return viz.getStream().str();
+}
+
+std::string PyStructuredSDFG::to_cpp() const {
+    sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+
+    auto instrumentation_plan = sdfg::codegen::InstrumentationPlan::none(*sdfg_);
+    auto arg_capture_plan = sdfg::codegen::ArgCapturePlan::none(*sdfg_);
+
+    std::shared_ptr<sdfg::codegen::CodeSnippetFactory> snippet_factory =
+        std::make_shared<sdfg::codegen::CodeSnippetFactory>();
+
+    sdfg::codegen::CPPCodeGenerator
+        generator(*sdfg_, analysis_manager, *instrumentation_plan, *arg_capture_plan, snippet_factory);
+    generator.generate();
+
+    std::ostringstream oss;
+    // Header section
+    oss << "#pragma once" << std::endl;
+    oss << generator.includes().str() << std::endl;
+    oss << generator.classes().str() << std::endl;
+
+    // Source section
+    oss << generator.globals().str() << std::endl;
+    oss << generator.function_definition() << std::endl;
+    oss << "{" << std::endl;
+    oss << generator.main().str() << std::endl;
+    oss << "}" << std::endl;
+
+    return oss.str();
 }

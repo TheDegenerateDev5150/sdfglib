@@ -63,15 +63,17 @@ void TestConvNode(
     for (size_t i = 0; i < kernel_dims.size(); ++i) {
         shape.push_back(symbolic::integer(10)); // Arbitrary spatial size
     }
+    types::Tensor desc_tensor_input(desc, shape);
+    types::Tensor desc_tensor_weights(desc, kernel_shape); // C_out and C_in will be inferred
 
     auto& conv_node = static_cast<math::tensor::ConvNode&>(builder.add_library_node<math::tensor::ConvNode>(
         block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, output_channels, group
     ));
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
 
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_input, block.debug_info());
 
     if (has_bias) {
         auto& bias_node = builder.add_access(block, "bias");
@@ -276,13 +278,18 @@ TEST(ConvNodeTest, ValidationError_MismatchedStrides) {
     std::vector<symbolic::Expression> shape = {
         symbolic::integer(1), symbolic::integer(1), symbolic::integer(10), symbolic::integer(10)
     };
+    types::Tensor desc_tensor_input(desc, shape);
+    types::Tensor desc_tensor_weights(desc, {symbolic::integer(3), symbolic::integer(3)});
+    types::Tensor desc_tensor_output(
+        desc, {symbolic::integer(1), symbolic::integer(1), symbolic::integer(10), symbolic::integer(10)}
+    );
 
     auto& conv_node = builder.add_library_node<
         math::tensor::ConvNode>(block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, symbolic::one(), group);
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_output, block.debug_info());
 
     // Validation should fail due to mismatched strides dimension
     EXPECT_THROW(sdfg.validate(), InvalidSDFGException);
@@ -316,13 +323,18 @@ TEST(ConvNodeTest, ValidationError_MismatchedPads) {
     std::vector<symbolic::Expression> shape = {
         symbolic::integer(1), symbolic::integer(1), symbolic::integer(10), symbolic::integer(10)
     };
+    types::Tensor desc_tensor_input(desc, shape);
+    types::Tensor desc_tensor_weights(desc, {symbolic::integer(3), symbolic::integer(3)});
+    types::Tensor desc_tensor_output(
+        desc, {symbolic::integer(1), symbolic::integer(1), symbolic::integer(10), symbolic::integer(10)}
+    );
 
     auto& conv_node = builder.add_library_node<
         math::tensor::ConvNode>(block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, symbolic::one(), group);
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_output, block.debug_info());
 
     // Validation should fail due to mismatched pads dimension
     EXPECT_THROW(sdfg.validate(), InvalidSDFGException);
@@ -402,14 +414,21 @@ TEST(ConvNodeTest, Conv2D_SimpleExpansion) {
     std::vector<symbolic::Expression> shape = {
         symbolic::integer(1), symbolic::integer(1), symbolic::integer(4), symbolic::integer(4)
     };
+    types::Tensor desc_tensor_input(desc, shape);
+    // W shape: [C_out, C_in/group, kH, kW] = [1, 1, 3, 3]
+    types::Tensor desc_tensor_weights(
+        desc, {symbolic::integer(1), symbolic::integer(1), symbolic::integer(3), symbolic::integer(3)}
+    );
+    types::Tensor
+        desc_tensor_output(desc, {symbolic::integer(1), symbolic::integer(1), symbolic::integer(2), symbolic::integer(2)});
 
     auto& conv_node = static_cast<math::tensor::ConvNode&>(builder.add_library_node<math::tensor::ConvNode>(
         block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, symbolic::one(), group
     ));
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_output, block.debug_info());
 
     // Validate the SDFG before expansion
     EXPECT_NO_THROW(sdfg.validate());
@@ -452,14 +471,19 @@ TEST(ConvNodeTest, Conv2D_ExpansionNotImplemented) {
     std::vector<symbolic::Expression> shape = {
         symbolic::integer(1), symbolic::integer(1), symbolic::integer(4), symbolic::integer(4)
     };
+    types::Tensor desc_tensor_input(desc, shape);
+    // W shape: [C_out, C_in/group, kH, kW] = [1, 1, 3, 3]
+    types::Tensor desc_tensor_weights(
+        desc, {symbolic::integer(1), symbolic::integer(1), symbolic::integer(3), symbolic::integer(3)}
+    );
 
     auto& conv_node = static_cast<math::tensor::ConvNode&>(builder.add_library_node<math::tensor::ConvNode>(
         block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, symbolic::one(), group
     ));
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_input, block.debug_info());
 
     analysis::AnalysisManager analysis_manager(sdfg);
     bool expanded = conv_node.expand(builder, analysis_manager);
@@ -494,14 +518,17 @@ TEST(ConvNodeTest, Conv1D_Expansion) {
 
     // X shape: [N, C_in, D0] = [1, 1, 10]
     std::vector<symbolic::Expression> shape = {symbolic::integer(1), symbolic::integer(1), symbolic::integer(10)};
+    types::Tensor desc_tensor_input(desc, shape);
+    // W shape: [C_out, C_in/group, k0] = [1, 1, 5]
+    types::Tensor desc_tensor_weights(desc, {symbolic::integer(1), symbolic::integer(1), symbolic::integer(5)});
 
     auto& conv_node = static_cast<math::tensor::ConvNode&>(builder.add_library_node<math::tensor::ConvNode>(
         block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, symbolic::one(), group
     ));
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_input, block.debug_info());
 
     // Validate the SDFG before expansion
     EXPECT_NO_THROW(sdfg.validate());
@@ -548,14 +575,20 @@ TEST(ConvNodeTest, Conv3D_Expansion) {
     std::vector<symbolic::Expression> shape = {
         symbolic::integer(1), symbolic::integer(1), symbolic::integer(4), symbolic::integer(4), symbolic::integer(4)
     };
+    types::Tensor desc_tensor_input(desc, shape);
+    // W shape: [C_out, C_in/group, k0, k1, k2] = [1, 1, 3, 3, 3]
+    types::Tensor desc_tensor_weights(
+        desc,
+        {symbolic::integer(1), symbolic::integer(1), symbolic::integer(3), symbolic::integer(3), symbolic::integer(3)}
+    );
 
     auto& conv_node = static_cast<math::tensor::ConvNode&>(builder.add_library_node<math::tensor::ConvNode>(
         block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, symbolic::one(), group
     ));
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_input, block.debug_info());
 
     // Validate the SDFG before expansion
     EXPECT_NO_THROW(sdfg.validate());
@@ -597,14 +630,19 @@ TEST(ConvNodeTest, LinearizationTest) {
     std::vector<symbolic::Expression> shape = {
         symbolic::integer(1), symbolic::integer(1), symbolic::integer(4), symbolic::integer(4)
     };
+    types::Tensor desc_tensor_input(desc, shape);
+    // W shape: [C_out, C_in/group, kH, kW] = [1, 1, 3, 3]
+    types::Tensor desc_tensor_weights(
+        desc, {symbolic::integer(1), symbolic::integer(1), symbolic::integer(3), symbolic::integer(3)}
+    );
 
     auto& conv_node = static_cast<math::tensor::ConvNode&>(builder.add_library_node<math::tensor::ConvNode>(
         block, DebugInfo(), shape, kernel_shape, strides, pads, dilations, symbolic::one(), group
     ));
 
-    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_ptr, block.debug_info());
-    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_ptr, block.debug_info());
+    builder.add_computational_memlet(block, input_node, conv_node, "X", {}, desc_tensor_input, block.debug_info());
+    builder.add_computational_memlet(block, weights_node, conv_node, "W", {}, desc_tensor_weights, block.debug_info());
+    builder.add_computational_memlet(block, conv_node, "Y", output_node, {}, desc_tensor_input, block.debug_info());
 
     analysis::AnalysisManager analysis_manager(sdfg);
     bool expanded = conv_node.expand(builder, analysis_manager);

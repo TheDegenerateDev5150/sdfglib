@@ -11,46 +11,79 @@ set(SOURCE_FILES
     src/analysis/scop_analysis.cpp
     src/passes/normalization/perfect_loop_distribution.cpp
     src/passes/normalization/stride_minimization.cpp
+    src/passes/normalization/map_fusion.cpp
+    src/passes/targets/target_mapping_pass.cpp
     src/passes/offloading/cuda_library_node_rewriter_pass.cpp
     src/passes/offloading/code_motion/block_hoisting.cpp
     src/passes/offloading/code_motion/block_sorting.cpp
     src/passes/offloading/data_transfer_minimization_pass.cpp
+    src/passes/offloading/onnx_library_node_rewriter_pass.cpp
     src/passes/offloading/remove_redundant_transfers_pass.cpp
+    src/passes/offloading/rocm_library_node_rewriter_pass.cpp
     src/passes/offloading/sync_condition_propagation.cpp
     src/passes/dot_expansion_pass.cpp
     src/passes/gemm_expansion_pass.cpp
     src/passes/opt_pipeline.cpp
     src/passes/scheduler/cuda_scheduler.cpp
+    src/passes/scheduler/rocm_scheduler.cpp
     src/passes/scheduler/highway_scheduler.cpp
-    src/passes/scheduler/loop_scheduler.cpp
+    src/passes/scheduler/loop_scheduling_pass.cpp
     src/passes/scheduler/omp_scheduler.cpp
     src/passes/scheduler/polly_scheduler.cpp
+    src/passes/scheduler/scheduler_registry.cpp
     src/targets/cuda/blas/dot.cpp
     src/targets/cuda/blas/gemm.cpp
     src/targets/cuda/blas/utils.cpp
     src/targets/cuda/cuda.cpp
     src/targets/cuda/cuda_data_offloading_node.cpp
     src/targets/cuda/cuda_map_dispatcher.cpp
+    src/targets/rocm/blas/dot.cpp
+    src/targets/rocm/blas/gemm.cpp
+    src/targets/rocm/blas/utils.cpp
+    src/targets/rocm/rocm.cpp
+    src/targets/rocm/rocm_data_offloading_node.cpp
+    src/targets/rocm/rocm_map_dispatcher.cpp
+    src/targets/gpu/gpu_map_utils.cpp
     src/targets/highway/codegen/highway_map_dispatcher.cpp
     src/targets/offloading/data_offloading_node.cpp
     src/targets/offloading/utils.cpp
     src/targets/omp/codegen/omp_map_dispatcher.cpp
+    src/targets/onnx/blas/dot_dispatcher.cpp
+    src/targets/onnx/blas/gemm_dispatcher.cpp
+    src/targets/onnx/tensor/broadcast_dispatcher.cpp
+    src/targets/onnx/tensor/conv_dispatcher.cpp
+    src/targets/onnx/tensor/elementwise_dispatcher.cpp
+    src/targets/onnx/tensor/reduce_dispatcher.cpp
+    src/targets/onnx/tensor/transpose_dispatcher.cpp
     src/transformations/offloading/cublas_offloading_expansion.cpp
     src/transformations/offloading/cuda_parallelize_nested_map.cpp
     src/transformations/offloading/cuda_transform.cpp
     src/transformations/offloading/gpu_condition_propagation.cpp
     src/transformations/offloading/gpu_loop_reordering.cpp
     src/transformations/offloading/gpu_tiling.cpp
+    src/transformations/offloading/rocm_parallelize_nested_map.cpp
+    src/transformations/offloading/rocm_transform.cpp
     src/transformations/offloading/kernel_local_storage.cpp
     src/transformations/highway_transform.cpp
     src/transformations/omp_transform.cpp
     src/transformations/offloading/offload_transform.cpp
     src/transformations/polly_transform.cpp
+    src/transformations/loop_distribute.cpp
+    src/transformations/loop_interchange.cpp
+    src/transformations/loop_skewing.cpp
+    src/transformations/loop_tiling.cpp
+    src/transformations/map_fusion.cpp
+    src/transformations/tile_fusion.cpp
+    src/transformations/out_local_storage.cpp
+    src/transformations/recorder.cpp
+    src/transformations/replayer.cpp
+    src/transformations/utils.cpp
 )
 add_library(sdfgopt
     ${SOURCE_FILES}
 )
 add_library(sdfg::opt ALIAS sdfgopt)
+add_library(docc::opt ALIAS sdfgopt)
 add_library(sdfgopt::sdfgopt ALIAS sdfgopt)
 target_include_directories(sdfgopt
     PUBLIC

@@ -1,3 +1,4 @@
+import sys
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -37,6 +38,9 @@ def kernel(A):
     return Q, R
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin", reason="Instrumentation not supported on macOS"
+)
 @pytest.mark.parametrize(
     "target",
     [
@@ -44,43 +48,59 @@ def kernel(A):
         "sequential",
         "openmp",
         # "cuda"
+        # "rocm"
     ],
 )
 def test_gramschmidt(target):
     if target == "none":
         verifier = SDFGVerification(
             verification={
+                "Free": 3,
                 "GEMM": 1,
-                "MAP": 6,
+                "MAP": 7,
                 "CMath": 1,
-                "DOT": 0,
-                "SEQUENTIAL": 6,
-                "FOR": 9,
+                "SEQUENTIAL": 7,
+                "FOR": 10,
                 "Memset": 2,
-                "Malloc": 2,
+                "Malloc": 3,
             }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
+                "Free": 3,
                 "HIGHWAY": 2,
                 "GEMM": 1,
-                "MAP": 6,
+                "MAP": 7,
                 "CMath": 1,
-                "DOT": 0,
-                "SEQUENTIAL": 4,
-                "FOR": 9,
+                "SEQUENTIAL": 5,
+                "FOR": 10,
                 "Memset": 2,
-                "Malloc": 2,
+                "Malloc": 3,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
+                "Free": 3,
                 "HIGHWAY": 2,
                 "GEMM": 1,
-                "MAP": 6,
+                "MAP": 7,
                 "CPU_PARALLEL": 3,
+                "CMath": 1,
+                "SEQUENTIAL": 2,
+                "FOR": 10,
+                "Memset": 2,
+                "Malloc": 3,
+            }
+        )
+    elif target == "cuda":
+        verifier = SDFGVerification(
+            verification={
+                "GEMM": 1,
+                "CUDA": 5,
+                "MAP": 6,
+                "CUDAOffloading": 14,
                 "CMath": 1,
                 "DOT": 0,
                 "SEQUENTIAL": 1,
@@ -89,13 +109,13 @@ def test_gramschmidt(target):
                 "Malloc": 2,
             }
         )
-    else:  # cuda
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "GEMM": 1,
-                "CUDA": 5,
+                "ROCM": 5,
                 "MAP": 6,
-                "CUDAOffloading": 14,
+                "ROCMOffloading": 14,
                 "CMath": 1,
                 "DOT": 0,
                 "SEQUENTIAL": 1,

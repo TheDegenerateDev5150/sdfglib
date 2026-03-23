@@ -13,7 +13,7 @@ class KernelLocalStorage : public Transformation {
 private:
     structured_control_flow::StructuredLoop& loop_;
     symbolic::Expression offset_;
-    const std::string& container_;
+    std::string container_;
 
 public:
     KernelLocalStorage(

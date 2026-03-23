@@ -127,7 +127,6 @@ const std::unordered_map<Vertex, Vertex> post_dominator_tree(Graph& graph) {
             terminal_vertices.insert(*vb);
         }
     }
-    assert(!terminal_vertices.empty());
 
     // add synthetic super-terminal if needed
     bool modified = false;

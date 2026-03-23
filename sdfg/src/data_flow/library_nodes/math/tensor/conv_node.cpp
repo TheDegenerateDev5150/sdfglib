@@ -307,14 +307,17 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     builder.add_computational_memlet(init_block, init_tasklet, "_out", accum_init, {}, scalar_type, block.debug_info());
 
     // Create nested for loops for input channels and kernel dimensions
-    // For loop over input channels
+    // For grouped convolution, each output channel group only reads C_in/group input channels
+    auto C_in_per_group = symbolic::div(C_in, group_);
+
+    // For loop over input channels (per group)
     std::string ic_str = builder.find_new_name("ic");
     builder.add_container(ic_str, types::Scalar(types::PrimitiveType::UInt64));
     auto ic_var = symbolic::symbol(ic_str);
     auto& for_ic = builder.add_for(
         *current_scope,
         ic_var,
-        symbolic::Lt(ic_var, C_in),
+        symbolic::Lt(ic_var, C_in_per_group),
         symbolic::zero(),
         symbolic::add(ic_var, symbolic::one()),
         {},
@@ -367,19 +370,8 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     auto& fma_tasklet =
         builder.add_tasklet(comp_block, data_flow::fp_fma, "_out", {"_in1", "_in2", "_in3"}, block.debug_info());
 
-    // Linearization helper
-    auto linearize = [&](const std::vector<symbolic::Expression>& indices,
-                         const std::vector<symbolic::Expression>& shape) -> symbolic::Expression {
-        symbolic::Expression idx = symbolic::zero();
-        symbolic::Expression stride = symbolic::one();
-        for (int i = shape.size() - 1; i >= 0; --i) {
-            idx = symbolic::add(idx, symbolic::mul(indices[i], stride));
-            stride = symbolic::mul(stride, shape[i]);
-        }
-        return idx;
-    };
 
-    // Calculate shapes for linearization
+    // Calculate shapes for
     // X shape: [N, C_in, D0, D1...]
     std::vector<symbolic::Expression> x_shape_vec = {N, C_in};
     x_shape_vec.insert(x_shape_vec.end(), input_spatial_dims.begin(), input_spatial_dims.end());
@@ -388,23 +380,30 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     std::vector<symbolic::Expression> w_shape_vec = {C_out, symbolic::div(C_in, group_)};
     w_shape_vec.insert(w_shape_vec.end(), kernel_shape_.begin(), kernel_shape_.end());
 
-    // Connect edges with linearized subsets
-    std::vector<symbolic::Expression> x_indices_vec = {n_var, ic_var};
+    // Connect edges with subsets
+    // For grouped conv, compute group index g = oc / (C_out/group), then
+    // input channel = g * (C_in/group) + ic
+    // For group=1: g=0, input_channel=ic. For depthwise (group=C): g=oc, input_channel=oc+ic.
+    auto C_out_per_group = symbolic::div(C_out, group_);
+    auto group_idx = symbolic::div(oc_var, C_out_per_group);
+    auto input_channel_idx = symbolic::add(symbolic::mul(group_idx, C_in_per_group), ic_var);
+    std::vector<symbolic::Expression> x_indices_vec = {n_var, input_channel_idx};
     x_indices_vec.insert(x_indices_vec.end(), input_spatial_indices.begin(), input_spatial_indices.end());
 
-    std::vector<symbolic::Expression> w_indices_vec = {oc_var, ic_var}; // Assuming group=1 for now for simplicity of
-                                                                        // indices
-    // TODO: Handle groups properly in indices if needed, but for standard conv:
+    std::vector<symbolic::Expression> w_indices_vec = {oc_var, ic_var};
     w_indices_vec.insert(w_indices_vec.end(), kernel_vars.begin(), kernel_vars.end());
 
-    data_flow::Subset x_subset({linearize(x_indices_vec, x_shape_vec)});
-    data_flow::Subset w_subset({linearize(w_indices_vec, w_shape_vec)});
+    data_flow::Subset x_subset(x_indices_vec);
+    data_flow::Subset w_subset(w_indices_vec);
+
+    types::Tensor x_tensor_type(scalar_type, x_shape_vec);
+    types::Tensor w_tensor_type(scalar_type, w_shape_vec);
 
     builder.add_computational_memlet(
-        comp_block, x_access, fma_tasklet, "_in1", x_subset, x_edge->base_type(), x_edge->debug_info()
+        comp_block, x_access, fma_tasklet, "_in1", x_subset, x_tensor_type, x_edge->debug_info()
     );
     builder.add_computational_memlet(
-        comp_block, w_access, fma_tasklet, "_in2", w_subset, w_edge->base_type(), w_edge->debug_info()
+        comp_block, w_access, fma_tasklet, "_in2", w_subset, w_tensor_type, w_edge->debug_info()
     );
     builder.add_computational_memlet(comp_block, accum_read, fma_tasklet, "_in3", {}, scalar_type, block.debug_info());
     builder.add_computational_memlet(comp_block, fma_tasklet, "_out", accum_write, {}, scalar_type, block.debug_info());
@@ -418,7 +417,7 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     std::vector<symbolic::Expression> y_shape_vec = {N, C_out};
     y_shape_vec.insert(y_shape_vec.end(), output_spatial_dims.begin(), output_spatial_dims.end());
 
-    data_flow::Subset y_subset({linearize(output_indices, y_shape_vec)});
+    data_flow::Subset y_subset(output_indices);
 
     if (b_node) {
         // Add bias: output = accum + bias[oc]

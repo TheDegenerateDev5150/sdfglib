@@ -33,6 +33,8 @@ SoftmaxNode::SoftmaxNode(
     }
 }
 
+void SoftmaxNode::validate(const Function& function) const {}
+
 bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& dataflow = this->get_parent();
     auto& block = static_cast<structured_control_flow::Block&>(*dataflow.get_parent());
@@ -53,6 +55,19 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
     // Calculate reduced shape (for Max and Sum)
     std::vector<symbolic::Expression> reduced_shape;
     std::vector<int64_t> sorted_axes = axes_;
+    // Normalize negative axes
+    for (auto& axis : sorted_axes) {
+        if (axis < 0) {
+            axis = static_cast<int64_t>(shape_.size()) + axis;
+        }
+        // Validate axis is in bounds
+        if (axis < 0 || axis >= static_cast<int64_t>(shape_.size())) {
+            throw InvalidSDFGException(
+                "Library Node: Axis value out of bounds. Axis: " + std::to_string(axis) +
+                " Shape size: " + std::to_string(shape_.size())
+            );
+        }
+    }
     std::sort(sorted_axes.begin(), sorted_axes.end());
 
     for (size_t i = 0; i < shape_.size(); ++i) {
@@ -74,12 +89,26 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
     types::Scalar element_type(this->primitive_type(dataflow));
     types::Pointer pointer_type(element_type);
 
+    // Type to store reduced results (e.g., max and sum)
+    types::Tensor reduced_tensor_type(element_type, reduced_shape);
+    // Type for broadcasted tensors (e.g., max and sum after broadcasting)
+    // Compute broadcast strides: use strides from reduced_tensor_type, but set to zero for reduced dimensions
+    symbolic::MultiExpression reduced_strides = reduced_tensor_type.strides();
+    symbolic::MultiExpression broadcast_strides;
+    for (size_t i = 0; i < shape_.size(); ++i) {
+        bool is_reduced = std::find(sorted_axes.begin(), sorted_axes.end(), static_cast<int64_t>(i)) !=
+                          sorted_axes.end();
+        if (is_reduced) {
+            broadcast_strides.push_back(symbolic::zero());
+        } else {
+            broadcast_strides.push_back(reduced_strides[i]);
+        }
+    }
+    types::Tensor broadcast_tensor_type(element_type, shape_, broadcast_strides);
+
     // Temporary buffers
     std::string tmp_max_name = builder.find_new_name("_softmax_max");
     builder.add_container(tmp_max_name, pointer_type);
-
-    std::string tmp_max_bcast_name = builder.find_new_name("_softmax_max_bcast");
-    builder.add_container(tmp_max_bcast_name, pointer_type);
 
     std::string tmp_sub_name = builder.find_new_name("_softmax_sub");
     builder.add_container(tmp_sub_name, pointer_type);
@@ -90,11 +119,8 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
     std::string tmp_sum_name = builder.find_new_name("_softmax_sum");
     builder.add_container(tmp_sum_name, pointer_type);
 
-    std::string tmp_sum_bcast_name = builder.find_new_name("_softmax_sum_bcast");
-    builder.add_container(tmp_sum_bcast_name, pointer_type);
-
     // Mallocs
-    if (in_edge.base_type().type_id() == types::TypeID::Pointer) {
+    {
         symbolic::Expression bytes_elem = types::get_type_size(element_type, false);
 
         symbolic::Expression bytes_full = bytes_elem;
@@ -112,17 +138,14 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
         auto malloc_helper = [&](const std::string& name, const symbolic::Expression& size) {
             auto& access = builder.add_access(alloc_block, name);
             auto& malloc_node = builder.add_library_node<stdlib::MallocNode>(alloc_block, this->debug_info(), size);
-            builder.add_computational_memlet(
-                alloc_block, malloc_node, "_ret", access, {}, in_edge.base_type(), this->debug_info()
-            );
+            builder
+                .add_computational_memlet(alloc_block, malloc_node, "_ret", access, {}, pointer_type, this->debug_info());
         };
 
         malloc_helper(tmp_max_name, bytes_reduced);
-        malloc_helper(tmp_max_bcast_name, bytes_full);
         malloc_helper(tmp_sub_name, bytes_full);
         malloc_helper(tmp_exp_name, bytes_full);
         malloc_helper(tmp_sum_name, bytes_reduced);
-        malloc_helper(tmp_sum_bcast_name, bytes_full);
     }
 
     // 1. Max(X) -> TmpMax
@@ -136,20 +159,8 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
 
         builder
             .add_computational_memlet(max_block, in_access, max_node, "X", {}, in_edge.base_type(), this->debug_info());
-        builder.add_computational_memlet(max_block, max_node, "Y", out_access, {}, pointer_type, this->debug_info());
-    }
-
-    // 1.5 Broadcast Max -> TmpMaxBcast
-    {
-        auto& bcast_block = builder.add_block_before(parent, block, {}, this->debug_info());
-        auto& bcast_node =
-            builder.add_library_node<BroadcastNode>(bcast_block, this->debug_info(), reduced_shape, this->shape_);
-
-        auto& in_access = builder.add_access(bcast_block, tmp_max_name);
-        auto& out_access = builder.add_access(bcast_block, tmp_max_bcast_name);
-
-        builder.add_computational_memlet(bcast_block, in_access, bcast_node, "X", {}, pointer_type, this->debug_info());
-        builder.add_computational_memlet(bcast_block, bcast_node, "Y", out_access, {}, pointer_type, this->debug_info());
+        builder
+            .add_computational_memlet(max_block, max_node, "Y", out_access, {}, reduced_tensor_type, this->debug_info());
     }
 
     // 2. Sub(X, TmpMaxBcast) -> TmpSub
@@ -158,13 +169,15 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
         auto& sub_node = builder.add_library_node<SubNode>(sub_block, this->debug_info(), this->shape_);
 
         auto& in1_access = builder.add_access(sub_block, in_node.data());
-        auto& in2_access = builder.add_access(sub_block, tmp_max_bcast_name);
+        auto& in2_access = builder.add_access(sub_block, tmp_max_name);
         auto& out_access = builder.add_access(sub_block, tmp_sub_name);
 
         builder
             .add_computational_memlet(sub_block, in1_access, sub_node, "A", {}, in_edge.base_type(), this->debug_info());
-        builder.add_computational_memlet(sub_block, in2_access, sub_node, "B", {}, pointer_type, this->debug_info());
-        builder.add_computational_memlet(sub_block, sub_node, "C", out_access, {}, pointer_type, this->debug_info());
+        builder
+            .add_computational_memlet(sub_block, in2_access, sub_node, "B", {}, broadcast_tensor_type, this->debug_info());
+        builder
+            .add_computational_memlet(sub_block, sub_node, "C", out_access, {}, in_edge.base_type(), this->debug_info());
     }
 
     // 3. Exp(TmpSub) -> TmpExp
@@ -175,8 +188,10 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
         auto& in_access = builder.add_access(exp_block, tmp_sub_name);
         auto& out_access = builder.add_access(exp_block, tmp_exp_name);
 
-        builder.add_computational_memlet(exp_block, in_access, exp_node, "X", {}, pointer_type, this->debug_info());
-        builder.add_computational_memlet(exp_block, exp_node, "Y", out_access, {}, pointer_type, this->debug_info());
+        builder
+            .add_computational_memlet(exp_block, in_access, exp_node, "X", {}, in_edge.base_type(), this->debug_info());
+        builder
+            .add_computational_memlet(exp_block, exp_node, "Y", out_access, {}, in_edge.base_type(), this->debug_info());
     }
 
     // 4. Sum(TmpExp) -> TmpSum
@@ -188,34 +203,25 @@ bool SoftmaxNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Anal
         auto& in_access = builder.add_access(sum_block, tmp_exp_name);
         auto& out_access = builder.add_access(sum_block, tmp_sum_name);
 
-        builder.add_computational_memlet(sum_block, in_access, sum_node, "X", {}, pointer_type, this->debug_info());
-        builder.add_computational_memlet(sum_block, sum_node, "Y", out_access, {}, pointer_type, this->debug_info());
+        builder
+            .add_computational_memlet(sum_block, in_access, sum_node, "X", {}, in_edge.base_type(), this->debug_info());
+        builder
+            .add_computational_memlet(sum_block, sum_node, "Y", out_access, {}, reduced_tensor_type, this->debug_info());
     }
 
-    // 4.5 Broadcast Sum -> TmpSumBcast
-    {
-        auto& bcast_block = builder.add_block_before(parent, block, {}, this->debug_info());
-        auto& bcast_node =
-            builder.add_library_node<BroadcastNode>(bcast_block, this->debug_info(), reduced_shape, this->shape_);
-
-        auto& in_access = builder.add_access(bcast_block, tmp_sum_name);
-        auto& out_access = builder.add_access(bcast_block, tmp_sum_bcast_name);
-
-        builder.add_computational_memlet(bcast_block, in_access, bcast_node, "X", {}, pointer_type, this->debug_info());
-        builder.add_computational_memlet(bcast_block, bcast_node, "Y", out_access, {}, pointer_type, this->debug_info());
-    }
-
-    // 5. Div(TmpExp, TmpSumBcast) -> Output
+    // 5. Div(TmpExp, TmpSum) -> Output
     {
         auto& div_block = builder.add_block_before(parent, block, {}, this->debug_info());
         auto& div_node = builder.add_library_node<DivNode>(div_block, this->debug_info(), this->shape_);
 
         auto& in1_access = builder.add_access(div_block, tmp_exp_name);
-        auto& in2_access = builder.add_access(div_block, tmp_sum_bcast_name);
+        auto& in2_access = builder.add_access(div_block, tmp_sum_name);
         auto& out_access = builder.add_access(div_block, out_node.data());
 
-        builder.add_computational_memlet(div_block, in1_access, div_node, "A", {}, pointer_type, this->debug_info());
-        builder.add_computational_memlet(div_block, in2_access, div_node, "B", {}, pointer_type, this->debug_info());
+        builder
+            .add_computational_memlet(div_block, in1_access, div_node, "A", {}, in_edge.base_type(), this->debug_info());
+        builder
+            .add_computational_memlet(div_block, in2_access, div_node, "B", {}, broadcast_tensor_type, this->debug_info());
         builder
             .add_computational_memlet(div_block, div_node, "C", out_access, {}, out_edge.base_type(), this->debug_info());
     }

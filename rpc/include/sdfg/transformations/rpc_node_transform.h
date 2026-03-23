@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
 #include <string>
+#include <variant>
 #include "sdfg/analysis/users.h"
 #include "sdfg/passes/rpc/rpc_responses.h"
 #include "sdfg/structured_control_flow/control_flow_node.h"
@@ -35,8 +36,6 @@ private:
     std::variant<std::unique_ptr<passes::rpc::RpcOptResponse>, std::string>
     query_rpc_server(passes::rpc::RpcOptRequest request, sdfg::passes::rpc::RpcContext& context);
 
-    std::variant<std::unique_ptr<passes::rpc::RpcOptResponse>, std::string> parse_rpc_response(HttpResult result);
-
     void print_transformation_sequence(const nlohmann::json& sequence) const;
 
 public:
@@ -60,6 +59,8 @@ public:
     passes::rpc::RpcOptResponse& applied_recipe() const { return *opt_resp_; }
 
     void to_json(nlohmann::json& j) const override;
+
+    std::variant<std::unique_ptr<passes::rpc::RpcOptResponse>, std::string> parse_rpc_response(HttpResult result);
 };
 
 

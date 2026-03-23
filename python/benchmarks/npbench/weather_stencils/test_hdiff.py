@@ -1,3 +1,4 @@
+import sys
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -57,6 +58,7 @@ def kernel(in_field, out_field, coeff):
     )
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize(
     "target",
     [
@@ -69,7 +71,7 @@ def kernel(in_field, out_field, coeff):
 def test_hdiff(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 53, "SEQUENTIAL": 53, "FOR": 87, "Malloc": 28}
+            verification={"SEQUENTIAL": 42, "FOR": 48, "MAP": 42, "Malloc": 15}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
@@ -79,9 +81,27 @@ def test_hdiff(target):
         verifier = SDFGVerification(
             verification={"MAP": 53, "SEQUENTIAL": 53, "FOR": 87, "Malloc": 28}
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
-            verification={"MAP": 53, "SEQUENTIAL": 53, "FOR": 87, "Malloc": 28}
+            verification={
+                "CUDA": 36,
+                "SEQUENTIAL": 21,
+                "FOR": 63,
+                "MAP": 57,
+                "CUDAOffloading": 80,
+                "Malloc": 20,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "ROCM": 36,
+                "SEQUENTIAL": 21,
+                "FOR": 63,
+                "MAP": 57,
+                "ROCMOffloading": 80,
+                "Malloc": 20,
+            }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

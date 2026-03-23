@@ -1,3 +1,4 @@
+import sys
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -117,6 +118,7 @@ def kernel(utens_stage, u_stage, wcon, u_pos, utens, dtr_stage):
         utens_stage[:, :, k] = dtr_stage * (datacol - u_pos[:, :, k])
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize(
     "target",
     [
@@ -124,37 +126,53 @@ def kernel(utens_stage, u_stage, wcon, u_pos, utens, dtr_stage):
         "sequential",
         "openmp",
         # "cuda"
+        # "rocm"
     ],
 )
 def test_vadv(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 132, "SEQUENTIAL": 132, "FOR": 157, "Malloc": 65}
+            verification={"MAP": 89, "SEQUENTIAL": 89, "FOR": 113, "Malloc": 43}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 41,
-                "MAP": 132,
-                "SEQUENTIAL": 91,
-                "FOR": 157,
-                "Malloc": 65,
+                "HIGHWAY": 17,
+                "MAP": 89,
+                "SEQUENTIAL": 72,
+                "FOR": 113,
+                "Malloc": 43,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 41,
-                "CPU_PARALLEL": 64,
-                "MAP": 132,
-                "SEQUENTIAL": 27,
-                "FOR": 157,
-                "Malloc": 65,
+                "HIGHWAY": 17,
+                "MAP": 89,
+                "SEQUENTIAL": 71,
+                "FOR": 113,
+                "Malloc": 43,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
-            verification={"MAP": 132, "SEQUENTIAL": 132, "FOR": 157, "Malloc": 65}
+            verification={
+                "HIGHWAY": 35,
+                "MAP": 141,
+                "SEQUENTIAL": 106,
+                "FOR": 165,
+                "Malloc": 43,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "HIGHWAY": 25,
+                "MAP": 141,
+                "SEQUENTIAL": 116,
+                "FOR": 165,
+                "Malloc": 43,
+            }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

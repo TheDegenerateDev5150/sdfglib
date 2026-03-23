@@ -2,7 +2,6 @@
 
 #include <cstddef>
 
-#include "sdfg/codegen/language_extensions/cpp_language_extension.h"
 #include "sdfg/data_flow/library_node.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
@@ -1393,7 +1392,7 @@ data_flow::Memlet& StructuredSDFGBuilder::add_memlet(
 data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
     structured_control_flow::Block& block,
     data_flow::AccessNode& src,
-    data_flow::Tasklet& dst,
+    data_flow::CodeNode& dst,
     const std::string& dst_conn,
     const data_flow::Subset& subset,
     const types::IType& base_type,
@@ -1404,7 +1403,7 @@ data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
 
 data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
     structured_control_flow::Block& block,
-    data_flow::Tasklet& src,
+    data_flow::CodeNode& src,
     const std::string& src_conn,
     data_flow::AccessNode& dst,
     const data_flow::Subset& subset,
@@ -1428,8 +1427,8 @@ data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
     } else {
         src_type = &this->structured_sdfg_->type(src.data());
     }
-    auto& base_type = types::infer_type(*this->structured_sdfg_, *src_type, subset);
-    if (base_type.type_id() != types::TypeID::Scalar) {
+    auto base_type = types::infer_type(*this->structured_sdfg_, *src_type, subset);
+    if (base_type->type_id() != types::TypeID::Scalar) {
         throw InvalidSDFGException("Computational memlet must have a scalar type");
     }
     return this->add_memlet(block, src, "void", dst, dst_conn, subset, *src_type, debug_info);
@@ -1444,35 +1443,11 @@ data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
     const DebugInfo& debug_info
 ) {
     auto& dst_type = this->structured_sdfg_->type(dst.data());
-    auto& base_type = types::infer_type(*this->structured_sdfg_, dst_type, subset);
-    if (base_type.type_id() != types::TypeID::Scalar) {
+    auto base_type = types::infer_type(*this->structured_sdfg_, dst_type, subset);
+    if (base_type->type_id() != types::TypeID::Scalar) {
         throw InvalidSDFGException("Computational memlet must have a scalar type");
     }
     return this->add_memlet(block, src, src_conn, dst, "void", subset, dst_type, debug_info);
-};
-
-data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
-    structured_control_flow::Block& block,
-    data_flow::AccessNode& src,
-    data_flow::LibraryNode& dst,
-    const std::string& dst_conn,
-    const data_flow::Subset& subset,
-    const types::IType& base_type,
-    const DebugInfo& debug_info
-) {
-    return this->add_memlet(block, src, "void", dst, dst_conn, subset, base_type, debug_info);
-};
-
-data_flow::Memlet& StructuredSDFGBuilder::add_computational_memlet(
-    structured_control_flow::Block& block,
-    data_flow::LibraryNode& src,
-    const std::string& src_conn,
-    data_flow::AccessNode& dst,
-    const data_flow::Subset& subset,
-    const types::IType& base_type,
-    const DebugInfo& debug_info
-) {
-    return this->add_memlet(block, src, src_conn, dst, "void", subset, base_type, debug_info);
 };
 
 data_flow::Memlet& StructuredSDFGBuilder::add_reference_memlet(
@@ -1515,7 +1490,7 @@ void StructuredSDFGBuilder::remove_node(structured_control_flow::Block& block, c
     graph.nodes_.erase(v);
 };
 
-void StructuredSDFGBuilder::clear_node(structured_control_flow::Block& block, const data_flow::CodeNode& node) {
+void StructuredSDFGBuilder::clear_code_node_legacy(structured_control_flow::Block& block, const data_flow::CodeNode& node) {
     auto& graph = block.dataflow();
 
     std::unordered_set<const data_flow::DataFlowNode*> to_delete = {&node};
@@ -1558,41 +1533,55 @@ void StructuredSDFGBuilder::clear_node(structured_control_flow::Block& block, co
     }
 };
 
-void StructuredSDFGBuilder::clear_node(structured_control_flow::Block& block, const data_flow::AccessNode& node) {
+void StructuredSDFGBuilder::clear_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node) {
+    clear_node(block, node, {&node});
+}
+
+void StructuredSDFGBuilder::clear_node(
+    structured_control_flow::Block& block,
+    const data_flow::DataFlowNode& node,
+    const std::unordered_set<const data_flow::DataFlowNode*>& ignore_side_effects
+) {
     auto& graph = block.dataflow();
 
     std::list<const data_flow::Memlet*> tmp;
     std::list<const data_flow::DataFlowNode*> queue = {&node};
-    while (!queue.empty()) {
+    std::unordered_set<const data_flow::DataFlowNode*> remove_once_set = {&node};
+    do {
         auto current = queue.front();
         queue.pop_front();
-        if (current != &node) {
-            if (dynamic_cast<const data_flow::AccessNode*>(current)) {
-                if (graph.in_degree(*current) > 0 || graph.out_degree(*current) > 0) {
-                    continue;
+
+        bool no_more_consumers = graph.out_degree(*current) == 0; // cannot remove nodes still in use
+
+        auto* access_node = dynamic_cast<const data_flow::AccessNode*>(current);
+
+        // we can remove nodes without out-edges & side effects
+        if ((no_more_consumers && !current->side_effect()) ||
+            (ignore_side_effects.contains(current) && (no_more_consumers || access_node))) {
+            // Or for access-nodes on the ignore list, we can remove the write side (will not remove the node, only
+            // inputs) For any other node on the ignore list, we can ignore if it has side effects or not
+            tmp.clear();
+            for (auto& iedge : graph.in_edges(*current)) {
+                tmp.push_back(&iedge);
+            }
+            for (auto iedge : tmp) {
+                auto& src = iedge->src();
+                if (remove_once_set.insert(&src).second) {
+                    queue.push_back(&src);
                 }
+
+                auto edge = iedge->edge();
+                graph.edges_.erase(edge);
+                boost::remove_edge(edge, graph.graph_);
+            }
+
+            if (no_more_consumers) {
+                auto vertex = current->vertex();
+                graph.nodes_.erase(vertex);
+                boost::remove_vertex(vertex, graph.graph_);
             }
         }
-
-        tmp.clear();
-        for (auto& iedge : graph.in_edges(*current)) {
-            tmp.push_back(&iedge);
-        }
-        for (auto iedge : tmp) {
-            auto& src = iedge->src();
-            queue.push_back(&src);
-
-            auto edge = iedge->edge();
-            graph.edges_.erase(edge);
-            boost::remove_edge(edge, graph.graph_);
-        }
-
-        if (current != &node || graph.out_degree(*current) == 0) {
-            auto vertex = current->vertex();
-            graph.nodes_.erase(vertex);
-            boost::remove_vertex(vertex, graph.graph_);
-        }
-    }
+    } while (!queue.empty());
 };
 
 void StructuredSDFGBuilder::add_dataflow(const data_flow::DataFlowGraph& from, Block& to) {
@@ -1627,11 +1616,11 @@ void StructuredSDFGBuilder::merge_siblings(data_flow::AccessNode& source_node) {
         throw InvalidSDFGException("Parent of user graph must be a block!");
     }
 
-    // Merge access nodes if they access the same container on a tasklet
+    // Merge access nodes if they access the same container on a code node
     for (auto& oedge : user_graph.out_edges(source_node)) {
-        if (auto* tasklet = dynamic_cast<data_flow::Tasklet*>(&oedge.dst())) {
+        if (auto* code_node = dynamic_cast<data_flow::CodeNode*>(&oedge.dst())) {
             std::unordered_set<data_flow::Memlet*> iedges;
-            for (auto& iedge : user_graph.in_edges(*tasklet)) {
+            for (auto& iedge : user_graph.in_edges(*code_node)) {
                 iedges.insert(&iedge);
             }
             for (auto* iedge : iedges) {
@@ -1646,13 +1635,41 @@ void StructuredSDFGBuilder::merge_siblings(data_flow::AccessNode& source_node) {
                     *block,
                     source_node,
                     iedge->src_conn(),
-                    *tasklet,
+                    *code_node,
                     iedge->dst_conn(),
                     iedge->subset(),
                     iedge->base_type(),
                     iedge->debug_info()
                 );
                 this->remove_memlet(*block, *iedge);
+                source_node.set_debug_info(DebugInfo::merge(source_node.debug_info(), access_node->debug_info()));
+            }
+        }
+    }
+
+    // Also merge "output" access nodes if they access the same container on a library node
+    for (auto& iedge : user_graph.in_edges(source_node)) {
+        if (auto* libnode = dynamic_cast<data_flow::LibraryNode*>(&iedge.src())) {
+            std::unordered_set<data_flow::Memlet*> oedges;
+            for (auto& oedge : user_graph.out_edges(*libnode)) {
+                oedges.insert(&oedge);
+            }
+            for (auto* oedge : oedges) {
+                auto* access_node = static_cast<data_flow::AccessNode*>(&oedge->dst());
+                if (access_node == &source_node || access_node->data() != source_node.data()) {
+                    continue;
+                }
+                this->add_memlet(
+                    *block,
+                    *libnode,
+                    oedge->src_conn(),
+                    source_node,
+                    oedge->dst_conn(),
+                    oedge->subset(),
+                    oedge->base_type(),
+                    oedge->debug_info()
+                );
+                this->remove_memlet(*block, *oedge);
                 source_node.set_debug_info(DebugInfo::merge(source_node.debug_info(), access_node->debug_info()));
             }
         }

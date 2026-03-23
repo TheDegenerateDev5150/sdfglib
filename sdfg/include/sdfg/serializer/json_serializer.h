@@ -120,6 +120,8 @@ public:
     types::StorageType json_to_storage_type(const nlohmann::json& j);
 
     static std::string expression(const symbolic::Expression expr);
+
+    static void writeToFile(const StructuredSDFG& sdfg, const std::filesystem::path& file);
 };
 
 class JSONSymbolicPrinter : public SymEngine::BaseVisitor<JSONSymbolicPrinter, SymEngine::CodePrinter> {

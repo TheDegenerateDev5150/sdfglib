@@ -82,13 +82,26 @@ def test_nussinov(target):
                 "DOT": 0,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "FOR": 5,
                 "MAP": 2,
                 "SEQUENTIAL": 0,
                 "CUDA": 2,
+                "CPU_PARALLEL": 0,
+                "HIGHWAY": 0,
+                "GEMM": 0,
+                "DOT": 0,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "FOR": 5,
+                "MAP": 2,
+                "SEQUENTIAL": 0,
+                "ROCM": 2,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 0,

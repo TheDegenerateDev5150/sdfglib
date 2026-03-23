@@ -6,6 +6,8 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+option(DOCC_TESTS_ENABLE_DUMP "Enable dumping intermediary files of test cases" OFF)
+
 set(TEST_FILES
     analysis/arguments_analysis_test.cpp
     analysis/assumptions_analysis_test.cpp
@@ -48,12 +50,17 @@ set(TEST_FILES
     data_flow/data_flow_node_test.cpp
     data_flow/memlet_test.cpp
     data_flow/tasklet_test.cpp
+    data_flow/library_nodes/load_const_node_test.cpp
     data_flow/library_nodes/math/blas/blas_test.cpp
     data_flow/library_nodes/math/cmath/cmath_node_test.cpp
+    data_flow/library_nodes/math/tensor/cmath_node_test.cpp
     data_flow/library_nodes/math/tensor/reduce_test.cpp
     data_flow/library_nodes/math/tensor/elementwise_test.cpp
     data_flow/library_nodes/math/tensor/primitive_type_test.cpp
     data_flow/library_nodes/math/tensor/conv_test.cpp
+    data_flow/library_nodes/math/tensor/matmul_test.cpp
+    data_flow/library_nodes/math/tensor/pooling_test.cpp
+    data_flow/library_nodes/math/tensor/tasklet_node_test.cpp
     deepcopy/structured_sdfg_deep_copy_test.cpp
     element_test.cpp
     graph/graph_algorithms_test.cpp
@@ -66,8 +73,8 @@ set(TEST_FILES
     passes/dataflow/reference_propagation_test.cpp
     passes/dataflow/tasklet_fusion_test.cpp
     passes/dataflow/memlet_linearization_test.cpp
+    passes/dataflow/tensor_to_pointer_conversion_test.cpp
     passes/memory/allocation_management_test.cpp
-    passes/memory/insert_frees_test.cpp
     passes/pipeline_test.cpp
     passes/schedules/expansion_pass_test.cpp
     passes/structured_control_flow/block_fusion_test.cpp
@@ -97,12 +104,6 @@ set(TEST_FILES
     symbolic/symbolic_test.cpp
     symbolic/sets_test.cpp
     symbolic/utils_test.cpp
-    transformations/loop_distribute_test.cpp
-    transformations/loop_interchange_test.cpp
-    transformations/loop_skewing_test.cpp
-    transformations/loop_tiling_test.cpp
-    transformations/out_local_storage_test.cpp
-    transformations/recorder_test.cpp
     types/array_test.cpp
     types/function_test.cpp
     types/pointer_test.cpp
@@ -111,6 +112,7 @@ set(TEST_FILES
     types/scalar_test.cpp
     types/sizeof_test.cpp
     types/structure_test.cpp
+    types/tensor_test.cpp
     types/utils_test.cpp
     visitor/structured_sdfg_visitor_test.cpp
     visualizer/dot_visualizer_test.cpp
@@ -121,6 +123,11 @@ set(TEST_FILES
 add_executable(sdfglib_test ${TEST_FILES})
 target_include_directories(sdfglib_test PRIVATE ./)
 target_link_libraries(sdfglib_test gtest_main sdfg::sdfg)
+if(DOCC_TESTS_ENABLE_DUMP)
+    target_compile_definitions(sdfglib_test PRIVATE
+        DOCC_TESTS_ENABLE_DUMP
+    )
+endif()
 if(SDFG_ENABLE_COVERAGE)
 target_compile_options(sdfglib_test PRIVATE
   -fprofile-instr-generate

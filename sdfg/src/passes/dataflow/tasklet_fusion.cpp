@@ -40,7 +40,13 @@ bool TaskletFusion::accept(structured_control_flow::Block& block) {
     auto& dfg = block.dataflow();
 
     // Fuse "input" assignments:
+    std::unordered_set<data_flow::AccessNode*> removed_in_input_loop;
     for (auto* access_node : dfg.data_nodes()) {
+        // Skip nodes removed as a side-effect of an earlier iteration (e.g. duplicate
+        // access nodes for the same container that were merged away).
+        if (removed_in_input_loop.count(access_node)) {
+            continue;
+        }
         // Require exactly one in edge and at leat one out edge
         if (dfg.in_degree(*access_node) != 1 || dfg.out_degree(*access_node) == 0) {
             continue;
@@ -75,8 +81,8 @@ bool TaskletFusion::accept(structured_control_flow::Block& block) {
         }
 
         // The result tye of the in edge of the assignment tasklet must match with the base types
-        auto& result_type = assign_tasklet_iedge.result_type(this->builder_.subject());
-        if (result_type.type_id() != types::TypeID::Scalar || result_type.primitive_type() != iedge_base_type) {
+        auto result_type = assign_tasklet_iedge.result_type(this->builder_.subject());
+        if (result_type->type_id() != types::TypeID::Scalar || result_type->primitive_type() != iedge_base_type) {
             continue;
         }
 
@@ -118,6 +124,7 @@ bool TaskletFusion::accept(structured_control_flow::Block& block) {
                         .set_debug_info(DebugInfo::merge(new_access_node.debug_info(), other_access_node->debug_info())
                         );
                     if (dfg.in_degree(*other_access_node) == 0 && dfg.out_degree(*other_access_node) == 0) {
+                        removed_in_input_loop.insert(other_access_node);
                         this->builder_.remove_node(block, *other_access_node);
                     }
                 }
@@ -191,9 +198,9 @@ bool TaskletFusion::accept(structured_control_flow::Block& block) {
         if (iedge.base_type().primitive_type() != oedge.base_type().primitive_type()) {
             continue;
         }
-        auto& result_type = assign_tasklet_oedge.result_type(this->builder_.subject());
-        if (result_type.type_id() != types::TypeID::Scalar ||
-            result_type.primitive_type() != iedge.base_type().primitive_type()) {
+        auto result_type = assign_tasklet_oedge.result_type(this->builder_.subject());
+        if (result_type->type_id() != types::TypeID::Scalar ||
+            result_type->primitive_type() != iedge.base_type().primitive_type()) {
             continue;
         }
 

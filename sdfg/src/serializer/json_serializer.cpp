@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <memory>
+#include <sdfg/data_flow/library_nodes/load_const_node.h>
 #include <utility>
 #include <vector>
 
@@ -9,6 +10,8 @@
 #include "sdfg/data_flow/library_nodes/call_node.h"
 #include "sdfg/data_flow/library_nodes/invoke_node.h"
 #include "sdfg/data_flow/library_nodes/math/math.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/library_nodes/metadata_node.h"
 #include "sdfg/data_flow/library_nodes/stdlib/stdlib.h"
 
@@ -406,6 +409,24 @@ void JSONSerializer::type_to_json(nlohmann::json& j, const types::IType& type) {
         nlohmann::json reference_type_json;
         type_to_json(reference_type_json, reference_type->reference_type());
         j["reference_type"] = reference_type_json;
+    } else if (auto tensor_type = dynamic_cast<const types::Tensor*>(&type)) {
+        j["type"] = "tensor";
+        nlohmann::json element_type_json;
+        type_to_json(element_type_json, tensor_type->element_type());
+        j["element_type"] = element_type_json;
+        j["shape"] = nlohmann::json::array();
+        for (const auto& dim : tensor_type->shape()) {
+            j["shape"].push_back(expression(dim));
+        }
+        j["strides"] = nlohmann::json::array();
+        for (const auto& stride : tensor_type->strides()) {
+            j["strides"].push_back(expression(stride));
+        }
+        j["offset"] = expression(tensor_type->offset());
+        j["storage_type"] = nlohmann::json::object();
+        storage_type_to_json(j["storage_type"], tensor_type->storage_type());
+        j["initializer"] = tensor_type->initializer();
+        j["alignment"] = tensor_type->alignment();
     } else {
         throw std::runtime_error("Unknown type");
     }
@@ -432,8 +453,10 @@ void JSONSerializer::debug_info_to_json(nlohmann::json& j, const DebugInfo& debu
     j["end_column"] = debug_info.end_column();
 }
 
+
 void JSONSerializer::schedule_type_to_json(nlohmann::json& j, const ScheduleType& schedule_type) {
     j["value"] = schedule_type.value();
+    j["category"] = static_cast<int>(schedule_type.category());
     j["properties"] = nlohmann::json::object();
     for (const auto& prop : schedule_type.properties()) {
         j["properties"][prop.first] = prop.second;
@@ -1040,6 +1063,37 @@ std::unique_ptr<types::IType> JSONSerializer::json_to_type(const nlohmann::json&
             assert(j.contains("reference_type"));
             std::unique_ptr<types::IType> reference_type = json_to_type(j["reference_type"]);
             return std::make_unique<sdfg::codegen::Reference>(*reference_type);
+        } else if (j["type"] == "tensor") {
+            // Deserialize tensor type
+            assert(j.contains("element_type"));
+            std::unique_ptr<types::IType> element_type = json_to_type(j["element_type"]);
+            assert(j.contains("shape"));
+            std::vector<symbolic::Expression> shape;
+            for (const auto& dim : j["shape"]) {
+                assert(dim.is_string());
+                std::string dim_str = dim;
+                auto expr = symbolic::parse(dim_str);
+                shape.push_back(expr);
+            }
+            assert(j.contains("strides"));
+            std::vector<symbolic::Expression> strides;
+            for (const auto& stride : j["strides"]) {
+                assert(stride.is_string());
+                std::string stride_str = stride;
+                auto expr = symbolic::parse(stride_str);
+                strides.push_back(expr);
+            }
+            assert(j.contains("offset"));
+            symbolic::Expression offset = symbolic::parse(j["offset"].get<std::string>());
+            assert(j.contains("storage_type"));
+            types::StorageType storage_type = json_to_storage_type(j["storage_type"]);
+            assert(j.contains("initializer"));
+            std::string initializer = j["initializer"];
+            assert(j.contains("alignment"));
+            size_t alignment = j["alignment"];
+            return std::make_unique<types::Tensor>(
+                storage_type, alignment, initializer, dynamic_cast<types::Scalar&>(*element_type), shape, strides, offset
+            );
         } else {
             throw std::runtime_error("Unknown type");
         }
@@ -1078,9 +1132,15 @@ DebugInfo JSONSerializer::json_to_debug_info(const nlohmann::json& j) {
 ScheduleType JSONSerializer::json_to_schedule_type(const nlohmann::json& j) {
     assert(j.contains("value"));
     assert(j["value"].is_string());
+    // assert(j.contains("category"));
+    // assert(j["category"].is_number_integer());
     assert(j.contains("properties"));
     assert(j["properties"].is_object());
-    ScheduleType schedule_type(j["value"].get<std::string>());
+    ScheduleTypeCategory category = ScheduleTypeCategory::None;
+    if (j.contains("category")) {
+        category = static_cast<ScheduleTypeCategory>(j["category"].get<int>());
+    }
+    ScheduleType schedule_type(j["value"].get<std::string>(), category);
     for (const auto& [key, value] : j["properties"].items()) {
         assert(value.is_string());
         schedule_type.set_property(key, value.get<std::string>());
@@ -1117,6 +1177,23 @@ std::string JSONSerializer::expression(const symbolic::Expression expr) {
     JSONSymbolicPrinter printer;
     return printer.apply(expr);
 };
+
+void JSONSerializer::writeToFile(const StructuredSDFG& sdfg, const std::filesystem::path& file) {
+    JSONSerializer ser;
+    auto json = ser.serialize(sdfg);
+
+    auto parent_path = file.parent_path();
+    if (!parent_path.empty()) {
+        std::filesystem::create_directories(file.parent_path());
+    }
+
+    std::ofstream out(file, std::ofstream::out);
+    if (!out.is_open()) {
+        std::cerr << "Could not open file " << file << " for writing JSON output." << std::endl;
+    }
+    out << json << std::endl;
+    out.close();
+}
 
 void JSONSymbolicPrinter::bvisit(const SymEngine::Equality& x) {
     str_ = apply(x.get_args()[0]) + " == " + apply(x.get_args()[1]);
@@ -1210,6 +1287,10 @@ void register_default_serializers() {
             return std::make_unique<stdlib::AllocaNodeSerializer>();
         });
     LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(stdlib::LibraryNodeType_Assert.value(), []() {
+            return std::make_unique<stdlib::AssertNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(stdlib::LibraryNodeType_Calloc.value(), []() {
             return std::make_unique<stdlib::CallocNodeSerializer>();
         });
@@ -1264,6 +1345,12 @@ void register_default_serializers() {
             return std::make_unique<data_flow::InvokeNodeSerializer>();
         });
 
+    // LoadConst
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(data_flow::LibraryNodeType_LoadConst.value(), []() {
+            return std::make_unique<data_flow::LoadConstNodeSerializer>();
+        });
+
     // CMath
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::cmath::LibraryNodeType_CMath.value(), []() {
@@ -1296,8 +1383,16 @@ void register_default_serializers() {
             return std::make_unique<math::tensor::ConvNodeSerializer>();
         });
     LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Pooling.value(), []() {
+            return std::make_unique<math::tensor::PoolingNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_Transpose.value(), []() {
             return std::make_unique<math::tensor::TransposeNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_MatMul.value(), []() {
+            return std::make_unique<math::tensor::MatMulNodeSerializer>();
         });
 
     // Elementwise
@@ -1368,6 +1463,22 @@ void register_default_serializers() {
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_Maximum.value(), []() {
             return std::make_unique<math::tensor::MaximumNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Fill.value(), []() {
+            return std::make_unique<math::tensor::FillNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_TensorTasklet.value(), []() {
+            return std::make_unique<math::tensor::TaskletTensorNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_TensorCMath.value(), []() {
+            return std::make_unique<math::tensor::CMathTensorNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Cast.value(), []() {
+            return std::make_unique<math::tensor::CastNodeSerializer>();
         });
 
     // Reduce

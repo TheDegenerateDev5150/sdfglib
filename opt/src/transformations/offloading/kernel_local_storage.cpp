@@ -1,5 +1,6 @@
 #include "sdfg/transformations/offloading/kernel_local_storage.h"
 
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -17,13 +18,14 @@
 #include "sdfg/passes/structured_control_flow/sequence_fusion.h"
 #include "sdfg/serializer/json_serializer.h"
 #include "sdfg/structured_control_flow/control_flow_node.h"
+#include "sdfg/structured_control_flow/for.h"
 #include "sdfg/structured_control_flow/if_else.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/cuda/cuda.h"
+#include "sdfg/targets/gpu/gpu_schedule_type.h"
 #include "sdfg/transformations/utils.h"
 #include "sdfg/types/array.h"
 #include "sdfg/types/structure.h"
@@ -73,20 +75,18 @@ std::tuple<symbolic::Integer, symbolic::Integer, symbolic::Integer> KernelLocalS
     for (auto node : ancestors) {
         if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
             auto schedule_type = ancestor_map->schedule_type();
-            if (schedule_type.value() != cuda::ScheduleType_CUDA::value()) {
+            if (!gpu::is_gpu_schedule(schedule_type)) {
                 continue;
             }
-            if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::X) {
-                x_dim_size = cuda::ScheduleType_CUDA::block_size(schedule_type);
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Y) {
-                y_dim_size = cuda::ScheduleType_CUDA::block_size(schedule_type);
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Z) {
-                z_dim_size = cuda::ScheduleType_CUDA::block_size(schedule_type);
+            auto dim = gpu::gpu_dimension(schedule_type);
+            if (dim == gpu::GPUDimension::X) {
+                x_dim_size = gpu::gpu_block_size(schedule_type);
+            } else if (dim == gpu::GPUDimension::Y) {
+                y_dim_size = gpu::gpu_block_size(schedule_type);
+            } else if (dim == gpu::GPUDimension::Z) {
+                z_dim_size = gpu::gpu_block_size(schedule_type);
             } else {
-                throw InvalidSDFGException(
-                    "Unknown dimension in CUDA Schedule type: " +
-                    std::to_string((int) cuda::ScheduleType_CUDA::dimension(schedule_type))
-                );
+                throw InvalidSDFGException("Unknown dimension in GPU Schedule type: " + std::to_string((int) dim));
             }
         }
     }
@@ -103,20 +103,18 @@ std::tuple<symbolic::Symbol, symbolic::Symbol, symbolic::Symbol> KernelLocalStor
     for (auto node : ancestors) {
         if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
             auto schedule_type = ancestor_map->schedule_type();
-            if (schedule_type.value() != cuda::ScheduleType_CUDA::value()) {
+            if (!gpu::is_gpu_schedule(schedule_type)) {
                 continue;
             }
-            if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::X) {
+            auto dim = gpu::gpu_dimension(schedule_type);
+            if (dim == gpu::GPUDimension::X) {
                 x_dim_indvar = ancestor_map->indvar();
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Y) {
+            } else if (dim == gpu::GPUDimension::Y) {
                 y_dim_indvar = ancestor_map->indvar();
-            } else if (cuda::ScheduleType_CUDA::dimension(schedule_type) == cuda::CUDADimension::Z) {
+            } else if (dim == gpu::GPUDimension::Z) {
                 z_dim_indvar = ancestor_map->indvar();
             } else {
-                throw InvalidSDFGException(
-                    "Unknown dimension in CUDA Schedule type: " +
-                    std::to_string((int) cuda::ScheduleType_CUDA::dimension(schedule_type))
-                );
+                throw InvalidSDFGException("Unknown dimension in GPU Schedule type: " + std::to_string((int) dim));
             }
         }
     }
@@ -204,22 +202,29 @@ bool KernelLocalStorage::
     can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& sdfg = builder.subject();
 
+    // Criterion: transformation cannot be applied twice on the same container
+    std::set<std::string> containers(sdfg.containers().begin(), sdfg.containers().end());
+    std::string shared_container_name = "__daisy_shared_" + container_;
+    if (containers.find(shared_container_name) != containers.end()) {
+        return false;
+    }
+
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
     auto ancestors = scope_analysis.ancestor_scopes(&loop_);
 
-    // Criterion: Must not be a CUDA map itself
+    // Criterion: Must not be a GPU map itself
     if (auto loop_map = dynamic_cast<structured_control_flow::Map*>(&loop_)) {
-        if (loop_map->schedule_type().value() == cuda::ScheduleType_CUDA::value()) {
+        if (gpu::is_gpu_schedule(loop_map->schedule_type())) {
             return false;
         }
     }
 
-    // Criterion: Must be nested in a cuda schedule
-    bool is_cuda_scope = false;
+    // Criterion: Must be nested in a GPU schedule
+    bool is_gpu_scope = false;
     for (auto ancestor : ancestors) {
         if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(ancestor)) {
-            if (ancestor_map->schedule_type().value() == cuda::ScheduleType_CUDA::value()) {
-                is_cuda_scope = true;
+            if (gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
+                is_gpu_scope = true;
             } else if (ancestor_map->schedule_type().value() == ScheduleType_Sequential::value()) {
                 continue;
             } else {
@@ -227,7 +232,7 @@ bool KernelLocalStorage::
             }
         }
     }
-    if (!is_cuda_scope) {
+    if (!is_gpu_scope) {
         return false;
     }
 
@@ -340,6 +345,18 @@ bool KernelLocalStorage::
         return false;
     }
 
+    // Criterion: Containers in subset expressions are not written to in the loop
+    for (auto subset : subsets) {
+        for (auto atom : symbolic::atoms(subset)) {
+            if (SymEngine::is_a<SymEngine::Symbol>(*atom)) {
+                auto symbol = SymEngine::rcp_static_cast<const SymEngine::Symbol>(atom);
+                if (!inner_body_users.writes(symbol->get_name()).empty()) {
+                    return false;
+                }
+            }
+        }
+    }
+
     // Criterion: Has a free dimension to map to and that dimension is big enough
     auto [x_dim_available, y_dim_available, z_dim_available] = available_dims(subsets, analysis_manager);
 
@@ -361,9 +378,21 @@ void KernelLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis
     auto& inner_body = this->loop_.root();
     analysis::UsersView inner_body_users(users, inner_body);
 
-    std::string x_name = "__daisy_cuda_thread_idx_x";
-    std::string y_name = "__daisy_cuda_thread_idx_y";
-    std::string z_name = "__daisy_cuda_thread_idx_z";
+    // Detect GPU backend from ancestor map schedule types
+    bool is_rocm = false;
+    for (auto node : ancestors) {
+        if (auto ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+            if (ancestor_map->schedule_type().value() == "ROCM") {
+                is_rocm = true;
+                break;
+            }
+        }
+    }
+
+    std::string thread_prefix = is_rocm ? "__daisy_hip_thread_idx_" : "__daisy_cuda_thread_idx_";
+    std::string x_name = thread_prefix + "x";
+    std::string y_name = thread_prefix + "y";
+    std::string z_name = thread_prefix + "z";
     symbolic::Symbol x_symbol = symbolic::symbol(x_name);
     symbolic::Symbol y_symbol = symbolic::symbol(y_name);
     symbolic::Symbol z_symbol = symbolic::symbol(z_name);
@@ -443,22 +472,24 @@ void KernelLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis
     //     );
     // }
 
+    auto generic_storage = is_rocm ? types::StorageType("AMD_Generic") : types::StorageType::NV_Generic();
+
     types::Array tile_array_type(types::StorageType::NV_Shared(), 8, {}, peeled_type, iteration_count);
-    types::Array z_array_type(types::StorageType::NV_Generic(), 8, {}, tile_array_type, z_dim_size);
+    types::Array z_array_type(generic_storage, 8, {}, tile_array_type, z_dim_size);
     types::Array* pred_y;
     if (symbolic::eq(target_dim, z_symbol)) {
         pred_y = &tile_array_type;
     } else {
         pred_y = &z_array_type;
     }
-    types::Array y_array_type(types::StorageType::NV_Generic(), 8, {}, *pred_y, y_dim_size);
+    types::Array y_array_type(generic_storage, 8, {}, *pred_y, y_dim_size);
     types::Array* pred_x;
     if (symbolic::eq(target_dim, y_symbol)) {
         pred_x = &z_array_type;
     } else {
         pred_x = &y_array_type;
     }
-    types::Array x_array_type(types::StorageType::NV_Generic(), 8, {}, *pred_x, x_dim_size);
+    types::Array x_array_type(generic_storage, 8, {}, *pred_x, x_dim_size);
     types::Array* final_type;
     if (symbolic::eq(target_dim, x_symbol)) {
         final_type = &y_array_type;

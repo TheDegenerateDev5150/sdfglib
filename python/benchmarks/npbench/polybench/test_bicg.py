@@ -64,17 +64,26 @@ def test_bicg(target):
                 "DOT": 0,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
+                "CUDA": 2,
                 "FOR": 2,
                 "MAP": 2,
-                "SEQUENTIAL": 0,
-                "CUDA": 2,
-                "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
+                "CUDAOffloading": 8,
                 "GEMM": 2,
-                "DOT": 0,
+                "Malloc": 2,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "ROCM": 2,
+                "FOR": 2,
+                "MAP": 2,
+                "ROCMOffloading": 8,
+                "GEMM": 2,
+                "Malloc": 2,
             }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)

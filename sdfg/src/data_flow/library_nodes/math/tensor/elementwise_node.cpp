@@ -2,6 +2,8 @@
 
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
+#include "sdfg/data_flow/tasklet.h"
+#include "sdfg/types/type.h"
 
 #include "sdfg/analysis/scope_analysis.h"
 
@@ -19,6 +21,53 @@ ElementWiseUnaryNode::ElementWiseUnaryNode(
 )
     : TensorNode(element_id, debug_info, vertex, parent, code, {"Y"}, {"X"}, data_flow::ImplementationType_NONE),
       shape_(shape) {}
+
+void ElementWiseUnaryNode::validate(const Function& function) const {
+    TensorNode::validate(function);
+
+    auto& graph = this->get_parent();
+
+    auto& oedge = *graph.out_edges(*this).begin();
+    auto& tensor_output = static_cast<const types::Tensor&>(oedge.base_type());
+    if (tensor_output.shape().size() != this->shape_.size()) {
+        throw InvalidSDFGException(
+            "Library Node: Output tensor shape must match node shape. Output shape: " +
+            std::to_string(tensor_output.shape().size()) + " Node shape: " + std::to_string(this->shape_.size())
+        );
+    }
+    for (size_t i = 0; i < this->shape_.size(); ++i) {
+        if (!symbolic::eq(tensor_output.shape().at(i), this->shape_.at(i))) {
+            throw InvalidSDFGException(
+                "Library Node: Output tensor shape does not match expected shape. Output shape: " +
+                tensor_output.shape().at(i)->__str__() + " Expected shape: " + this->shape_.at(i)->__str__()
+            );
+        }
+    }
+
+    for (auto& iedge : graph.in_edges(*this)) {
+        auto& tensor_input = static_cast<const types::Tensor&>(iedge.base_type());
+        // Case 1: Scalar input is allowed as secondary input
+        if (tensor_input.is_scalar()) {
+            continue;
+        }
+
+        // Case 2: Tensor input
+        if (tensor_input.shape().size() != this->shape_.size()) {
+            throw InvalidSDFGException(
+                "Library Node: Input tensor shape must match node shape. Input shape: " +
+                std::to_string(tensor_input.shape().size()) + " Node shape: " + std::to_string(this->shape_.size())
+            );
+        }
+        for (size_t i = 0; i < this->shape_.size(); ++i) {
+            if (!symbolic::eq(tensor_input.shape().at(i), this->shape_.at(i))) {
+                throw InvalidSDFGException(
+                    "Library Node: Input tensor shape does not match expected shape. Input shape: " +
+                    tensor_input.shape().at(i)->__str__() + " Expected shape: " + this->shape_.at(i)->__str__()
+                );
+            }
+        }
+    }
+}
 
 symbolic::SymbolSet ElementWiseUnaryNode::symbols() const {
     symbolic::SymbolSet syms;
@@ -93,24 +142,15 @@ bool ElementWiseUnaryNode::expand(builder::StructuredSDFGBuilder& builder, analy
         loop_vars.push_back(indvar);
     }
 
-    // Linearize subset
-    symbolic::Expression linear_index = symbolic::zero();
-    for (size_t i = 0; i < this->shape_.size(); ++i) {
-        linear_index = symbolic::add(symbolic::mul(linear_index, this->shape_[i]), loop_vars[i]);
-    }
-    if (!this->shape_.empty()) {
-        new_subset.push_back(linear_index);
-    }
-
     bool success = this->expand_operation(
         builder,
         analysis_manager,
         *last_scope,
         input_node.data(),
         output_node.data(),
-        iedge.base_type(),
-        oedge.base_type(),
-        new_subset
+        static_cast<const types::Tensor&>(iedge.base_type()),
+        static_cast<const types::Tensor&>(oedge.base_type()),
+        loop_vars
     );
     if (!success) {
         return false;
@@ -138,6 +178,53 @@ ElementWiseBinaryNode::ElementWiseBinaryNode(
     : TensorNode(element_id, debug_info, vertex, parent, code, {"C"}, {"A", "B"}, data_flow::ImplementationType_NONE),
       shape_(shape) {}
 
+void ElementWiseBinaryNode::validate(const Function& function) const {
+    TensorNode::validate(function);
+
+    auto& graph = this->get_parent();
+
+    auto& oedge = *graph.out_edges(*this).begin();
+    auto& tensor_output = static_cast<const types::Tensor&>(oedge.base_type());
+    if (tensor_output.shape().size() != this->shape_.size()) {
+        throw InvalidSDFGException(
+            "Library Node: Output tensor shape must match node shape. Output shape: " +
+            std::to_string(tensor_output.shape().size()) + " Node shape: " + std::to_string(this->shape_.size())
+        );
+    }
+    for (size_t i = 0; i < this->shape_.size(); ++i) {
+        if (!symbolic::eq(tensor_output.shape().at(i), this->shape_.at(i))) {
+            throw InvalidSDFGException(
+                "Library Node: Output tensor shape does not match expected shape. Output shape: " +
+                tensor_output.shape().at(i)->__str__() + " Expected shape: " + this->shape_.at(i)->__str__()
+            );
+        }
+    }
+
+    for (auto& iedge : graph.in_edges(*this)) {
+        auto& tensor_input = static_cast<const types::Tensor&>(iedge.base_type());
+        // Case 1: Scalar input is allowed as secondary input
+        if (tensor_input.is_scalar()) {
+            continue;
+        }
+
+        // Case 2: Tensor input
+        if (tensor_input.shape().size() != this->shape_.size()) {
+            throw InvalidSDFGException(
+                "Library Node: Input tensor shape must match node shape. Input shape: " +
+                std::to_string(tensor_input.shape().size()) + " Node shape: " + std::to_string(this->shape_.size())
+            );
+        }
+        for (size_t i = 0; i < this->shape_.size(); ++i) {
+            if (!symbolic::eq(tensor_input.shape().at(i), this->shape_.at(i))) {
+                throw InvalidSDFGException(
+                    "Library Node: Input tensor shape does not match expected shape. Input shape: " +
+                    tensor_input.shape().at(i)->__str__() + " Expected shape: " + this->shape_.at(i)->__str__()
+                );
+            }
+        }
+    }
+}
+
 symbolic::SymbolSet ElementWiseBinaryNode::symbols() const {
     symbolic::SymbolSet syms;
     for (const auto& dim : shape_) {
@@ -151,6 +238,29 @@ symbolic::SymbolSet ElementWiseBinaryNode::symbols() const {
 void ElementWiseBinaryNode::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {
     for (auto& dim : shape_) {
         dim = symbolic::subs(dim, old_expression, new_expression);
+    }
+}
+
+void ElementWiseBinaryNode::create_input_memlet(
+    builder::StructuredSDFGBuilder& builder,
+    const std::string& input_conn,
+    const std::string& input_name,
+    const types::Tensor& input_type,
+    const data_flow::Subset& subset,
+    structured_control_flow::Block& code_block,
+    data_flow::CodeNode& code_node
+) {
+    if (builder.subject().exists(input_name)) {
+        auto& input_node = builder.add_access(code_block, input_name);
+        if (input_type.is_scalar()) {
+            builder.add_computational_memlet(code_block, input_node, code_node, input_conn, {}, input_type);
+        } else {
+            builder.add_computational_memlet(code_block, input_node, code_node, input_conn, subset, input_type);
+        }
+    } else {
+        types::Scalar const_type(input_type.primitive_type());
+        auto& input_node = builder.add_constant(code_block, input_name, const_type);
+        builder.add_computational_memlet(code_block, input_node, code_node, input_conn, {}, input_type);
     }
 }
 
@@ -189,7 +299,6 @@ bool ElementWiseBinaryNode::expand(builder::StructuredSDFGBuilder& builder, anal
     auto& new_sequence = builder.add_sequence_before(parent, block, transition.assignments(), block.debug_info());
 
     // Add maps
-    data_flow::Subset new_subset;
     structured_control_flow::Sequence* last_scope = &new_sequence;
     structured_control_flow::Map* last_map = nullptr;
     std::vector<symbolic::Expression> loop_vars;
@@ -217,15 +326,6 @@ bool ElementWiseBinaryNode::expand(builder::StructuredSDFGBuilder& builder, anal
         loop_vars.push_back(indvar);
     }
 
-    // Linearize subset
-    symbolic::Expression linear_index = symbolic::zero();
-    for (size_t i = 0; i < this->shape_.size(); ++i) {
-        linear_index = symbolic::add(symbolic::mul(linear_index, this->shape_[i]), loop_vars[i]);
-    }
-    if (!this->shape_.empty()) {
-        new_subset.push_back(linear_index);
-    }
-
     // Add tasklet block
     bool success = this->expand_operation(
         builder,
@@ -234,10 +334,10 @@ bool ElementWiseBinaryNode::expand(builder::StructuredSDFGBuilder& builder, anal
         input_node_a.data(),
         input_node_b.data(),
         output_node.data(),
-        iedge_a->base_type(),
-        iedge_b->base_type(),
-        oedge.base_type(),
-        new_subset
+        static_cast<const types::Tensor&>(iedge_a->base_type()),
+        static_cast<const types::Tensor&>(iedge_b->base_type()),
+        static_cast<const types::Tensor&>(oedge.base_type()),
+        loop_vars
     );
     if (!success) {
         return false;

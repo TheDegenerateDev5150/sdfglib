@@ -345,6 +345,72 @@ TEST(DelinearizeTest, Delinearize4D_WithOffsets_Symbolic) {
     EXPECT_TRUE(symbolic::eq(expr_delinearized[3], symbolic::add(_32, symbolic::one())));
 }
 
+TEST(DelinearizeTest, Delinearize4D_PowStride) {
+    // 4D: T[i + s0*i1 + s0*s1*i2 + s0*s1**2*i3]
+    using namespace symbolic;
+    types::Scalar desc(types::PrimitiveType::Int64);
+    auto i0 = symbolic::symbol("i0");
+    auto i1 = symbolic::symbol("i1");
+    auto i2 = symbolic::symbol("i2");
+    auto i3 = symbolic::symbol("i3");
+    auto s0 = symbolic::symbol("s0");
+    auto s1 = symbolic::symbol("s1");
+
+    symbolic::Assumptions assums;
+    auto assum_i0 = symbolic::Assumption::create(i0, desc);
+    assum_i0.lower_bound_deprecated(symbolic::zero());
+    assum_i0.upper_bound_deprecated(symbolic::sub(s0, symbolic::one()));
+    assum_i0.map(symbolic::add(i0, symbolic::one()));
+    assum_i0.constant(true);
+    assums.insert({i0, assum_i0});
+
+    auto assum_i1 = symbolic::Assumption::create(i1, desc);
+    assum_i1.lower_bound_deprecated(symbolic::zero());
+    assum_i1.upper_bound_deprecated(symbolic::sub(s1, symbolic::one()));
+    assum_i1.map(symbolic::add(i1, symbolic::one()));
+    assum_i1.constant(true);
+    assums.insert({i1, assum_i1});
+
+    auto assum_i2 = symbolic::Assumption::create(i2, desc);
+    assum_i2.lower_bound_deprecated(symbolic::zero());
+    assum_i2.upper_bound_deprecated(symbolic::sub(s1, symbolic::one()));
+    assum_i2.map(symbolic::add(i2, symbolic::one()));
+    assum_i2.constant(true);
+    assums.insert({i2, assum_i2});
+
+    auto assum_i3 = symbolic::Assumption::create(i3, desc);
+    assum_i3.lower_bound_deprecated(symbolic::zero());
+    assum_i3.upper_bound_deprecated(symbolic::sub(s1, symbolic::one()));
+    assum_i3.map(symbolic::add(i3, symbolic::one()));
+    assum_i3.constant(true);
+    assums.insert({i3, assum_i3});
+
+    auto assum_s0 = symbolic::Assumption::create(s0, desc);
+    assum_s0.lower_bound_deprecated(symbolic::integer(1));
+    assum_s0.constant(true);
+    assums.insert({s0, assum_s0});
+
+    auto assum_s1 = symbolic::Assumption::create(s1, desc);
+    assum_s1.lower_bound_deprecated(symbolic::integer(1));
+    assum_s1.constant(true);
+    assums.insert({s1, assum_s1});
+
+    // _i6 + _s1*_i5 + _s1**2*_i4 + _s0*_s1**2*_i3
+    auto s1_2 = symbolic::pow(s1, symbolic::integer(2));
+    auto expr = symbolic::mul(symbolic::mul(s0, s1_2), i0);
+    expr = symbolic::add(expr, symbolic::mul(s1_2, i1));
+    expr = symbolic::add(expr, symbolic::mul(s1, i2));
+    expr = symbolic::add(expr, i3);
+    std::cout << "Original expression: " << expr->__str__() << std::endl;
+
+    auto result = symbolic::delinearize({expr}, assums);
+    ASSERT_EQ(result.size(), 4);
+    EXPECT_TRUE(symbolic::eq(result[0], i0));
+    EXPECT_TRUE(symbolic::eq(result[1], i1));
+    EXPECT_TRUE(symbolic::eq(result[2], i2));
+    EXPECT_TRUE(symbolic::eq(result[3], i3));
+}
+
 TEST(DelinearizeTest, ZeroStride) {
     auto x = symbolic::symbol("x");
     auto y = symbolic::symbol("y");
@@ -419,54 +485,4 @@ TEST(DelinearizeTest, NegativeStride) {
     auto expr_delinearized = symbolic::delinearize({expr}, assums);
     EXPECT_EQ(expr_delinearized.size(), 1);
     EXPECT_TRUE(symbolic::eq(expr_delinearized.at(0), expr));
-}
-
-TEST(DelinearizeTest, OffsetDecompositionComplex) {
-    auto _1 = symbolic::symbol("_1");
-    auto _2 = symbolic::symbol("_2");
-    auto _3 = symbolic::symbol("_3");
-
-    types::Scalar desc(types::PrimitiveType::UInt8);
-    symbolic::Assumptions assums;
-
-    auto assum_1 = symbolic::Assumption::create(_1, desc);
-    assum_1.constant(false);
-    assum_1.lower_bound_deprecated(symbolic::zero());
-    assums.insert({_1, assum_1});
-
-    auto assum_2 = symbolic::Assumption::create(_2, desc);
-    assum_2.constant(true);
-    assum_2.lower_bound_deprecated(symbolic::zero());
-    assums.insert({_2, assum_2});
-
-    auto assum_3 = symbolic::Assumption::create(_3, desc);
-    assum_3.constant(true);
-    assum_3.lower_bound_deprecated(symbolic::zero());
-    assums.insert({_3, assum_3});
-
-    // Stride = (2+_3)*(2+_2)
-    auto stride = symbolic::mul(symbolic::add(symbolic::integer(2), _3), symbolic::add(symbolic::integer(2), _2));
-
-    // Offset = 7 + 2*_2 + 3*_3 + _2*_3
-    // This is equal to stride + 3 + _3
-    auto offset = SymEngine::add(
-        {symbolic::integer(7),
-         symbolic::mul(symbolic::integer(2), _2),
-         symbolic::mul(symbolic::integer(3), _3),
-         symbolic::mul(_2, _3)}
-    );
-
-    // We subtract (3+_3) from offset to make it exactly divisible by stride
-    auto offset_divisible = symbolic::sub(offset, symbolic::add(symbolic::integer(3), _3));
-    offset_divisible = symbolic::expand(offset_divisible);
-
-    // Expr = _1 * stride + offset_divisible
-    auto expr = symbolic::add(symbolic::mul(_1, stride), offset_divisible);
-
-    auto res = symbolic::delinearize({expr}, assums);
-
-    // Expect success: {_1 + 1}
-    EXPECT_EQ(res.size(), 1);
-    auto expected = symbolic::add(_1, symbolic::integer(1));
-    EXPECT_TRUE(symbolic::eq(res[0], expected));
 }

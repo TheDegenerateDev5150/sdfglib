@@ -1,0 +1,712 @@
+#include "mlir/Target/SDFG/ArithToSDFGTranslator.h"
+
+#include <cstdint>
+#include <llvm/ADT/TypeSwitch.h>
+#include <llvm/Support/LogicalResult.h>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/BuiltinAttributeInterfaces.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Target/SDFG/SDFGTranslator.h"
+#include "mlir/Target/SDFG/helper.h"
+#include "sdfg/data_flow/library_nodes/load_const_node.h"
+#include "sdfg/data_flow/library_nodes/math/cmath/cmath_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
+#include "sdfg/data_flow/tasklet.h"
+#include "sdfg/element.h"
+#include "sdfg/symbolic/symbolic.h"
+#include "sdfg/types/scalar.h"
+#include "sdfg/types/type.h"
+
+namespace mlir {
+namespace sdfg {
+
+template<typename Op, ::sdfg::data_flow::TaskletCode code>
+LogicalResult translateArithBinaryOp(SDFGTranslator& translator, Op* op) {
+    Value lhs = op->getLhs();
+    Value rhs = op->getRhs();
+    Value result = op->getResult();
+
+    auto& builder = translator.builder();
+    auto lhs_container = translator.get_or_create_container(lhs);
+    auto rhs_container = translator.get_or_create_container(rhs);
+    auto result_container = translator.get_or_create_container(result);
+
+    if (is_sdfg_primitive(lhs.getType()) && is_sdfg_primitive(rhs.getType()) && is_sdfg_primitive(result.getType())) {
+        auto& block = builder.add_block(translator.insertion_point());
+        auto& lhs_access = builder.add_access(block, lhs_container);
+        auto& rhs_access = builder.add_access(block, rhs_container);
+        auto& result_access = builder.add_access(block, result_container);
+        auto& tasklet = builder.add_tasklet(block, code, "_out", {"_in1", "_in2"});
+        builder.add_computational_memlet(block, lhs_access, tasklet, "_in1", {});
+        builder.add_computational_memlet(block, rhs_access, tasklet, "_in2", {});
+        builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
+    } else if (is_tensor_of_sdfg_primitive(lhs.getType()) && is_tensor_of_sdfg_primitive(rhs.getType()) &&
+               is_tensor_of_sdfg_primitive(result.getType())) {
+        auto result_tensor_type = llvm::dyn_cast<TensorType>(result.getType());
+        auto tensor_info = translator.get_or_create_tensor_info(result_container, result_tensor_type);
+
+        auto element_type = translator.convertType(result_tensor_type.getElementType());
+        auto sdfg_tensor = tensor_info.get_sdfg_tensor(static_cast<::sdfg::types::Scalar&>(*element_type));
+
+        uint64_t size = 1;
+        for (int64_t dim : tensor_info.shape()) {
+            size *= dim;
+        }
+        translator.handle_malloc(
+            result_container,
+            ::sdfg::symbolic::mul(::sdfg::symbolic::integer(size), ::sdfg::symbolic::size_of_type(*element_type))
+        );
+        auto& block = builder.add_block(translator.insertion_point());
+        auto& lhs_access = builder.add_access(block, lhs_container);
+        auto& rhs_access = builder.add_access(block, rhs_container);
+        auto& result_access = builder.add_access(block, result_container);
+        std::vector<::sdfg::symbolic::Expression> shape;
+        auto& libnode = builder.add_library_node<::sdfg::math::tensor::TaskletTensorNode>(
+            block,
+            ::sdfg::DebugInfo(),
+            code,
+            std::vector<std::string>({"_out"}),
+            std::vector<std::string>({"_in1", "_in2"}),
+            sdfg_tensor->shape()
+        );
+        builder.add_computational_memlet(block, lhs_access, libnode, "_in1", {}, *sdfg_tensor);
+        builder.add_computational_memlet(block, rhs_access, libnode, "_in2", {}, *sdfg_tensor);
+        builder.add_computational_memlet(block, libnode, "_out", result_access, {}, *sdfg_tensor);
+    } else {
+        return op->emitOpError("Unsupported type(s)");
+    }
+
+    return success();
+}
+
+template<typename Op, ::sdfg::math::cmath::CMathFunction function>
+LogicalResult translateArithCMathBinaryOp(SDFGTranslator& translator, Op* op) {
+    Value lhs = op->getLhs();
+    Value rhs = op->getRhs();
+    Value result = op->getResult();
+
+    if (!is_sdfg_primitive(lhs.getType()) || !is_sdfg_primitive(rhs.getType()) ||
+        !is_sdfg_primitive(result.getType())) {
+        return op->emitOpError("Only SDFG primitive types are supported");
+    }
+
+    auto& builder = translator.builder();
+    auto lhs_container = translator.get_or_create_container(lhs);
+    auto& lhs_container_type = builder.subject().type(lhs_container);
+    auto rhs_container = translator.get_or_create_container(rhs);
+    auto result_container = translator.get_or_create_container(result);
+
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& lhs_access = builder.add_access(block, lhs_container);
+    auto& rhs_access = builder.add_access(block, rhs_container);
+    auto& result_access = builder.add_access(block, result_container);
+    auto& libnode = builder.add_library_node<
+        ::sdfg::math::cmath::CMathNode>(block, ::sdfg::DebugInfo(), function, lhs_container_type.primitive_type());
+    builder.add_computational_memlet(block, lhs_access, libnode, "_in1", {}, lhs_container_type);
+    builder.add_computational_memlet(block, rhs_access, libnode, "_in2", {}, builder.subject().type(rhs_container));
+    builder
+        .add_computational_memlet(block, libnode, "_out", result_access, {}, builder.subject().type(result_container));
+
+    return success();
+}
+
+template<typename Op>
+LogicalResult translateArithCastOp(SDFGTranslator& translator, Op* op) {
+    Value in = op->getIn();
+    Value result = op->getResult();
+
+    // Types must be primitive for now
+    if (!is_sdfg_primitive(in.getType()) || !is_sdfg_primitive(result.getType())) {
+        return op->emitOpError("Only SDFG primitive types are supported");
+    }
+
+    auto& builder = translator.builder();
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& in_access = builder.add_access(block, translator.get_or_create_container(in));
+    auto& result_access = builder.add_access(block, translator.get_or_create_container(result));
+    auto& tasklet = builder.add_tasklet(block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, in_access, tasklet, "_in", {});
+    builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
+
+    return success();
+}
+
+LogicalResult translateArithCmpFOp(SDFGTranslator& translator, arith::CmpFOp* cmpf_op) {
+    Value lhs = cmpf_op->getLhs();
+    Value rhs = cmpf_op->getRhs();
+    Value result = cmpf_op->getResult();
+
+    // Types must be primitive for now
+    if (!is_sdfg_primitive(lhs.getType()) || !is_sdfg_primitive(rhs.getType()) ||
+        !is_sdfg_primitive(result.getType())) {
+        return cmpf_op->emitOpError("Only SDFG primitive types are supported");
+    }
+
+    auto& builder = translator.builder();
+    auto& block = builder.add_block(translator.insertion_point());
+
+    // Handle AlwaysFalse and AlwaysTrue separately
+    if (cmpf_op->getPredicate() == arith::CmpFPredicate::AlwaysFalse ||
+        cmpf_op->getPredicate() == arith::CmpFPredicate::AlwaysTrue) {
+        std::string val = (cmpf_op->getPredicate() == arith::CmpFPredicate::AlwaysTrue) ? "true" : "false";
+        ::sdfg::types::Scalar bool_type(::sdfg::types::PrimitiveType::Bool);
+
+        auto& constant_access = builder.add_constant(block, val, bool_type);
+        auto& result_access = builder.add_access(block, translator.get_or_create_container(result));
+        auto& tasklet = builder.add_tasklet(block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, constant_access, tasklet, "_in", {});
+        builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
+
+        return success();
+    }
+
+    // Determine supported tasklet code from predicate
+    ::sdfg::data_flow::TaskletCode code;
+    switch (cmpf_op->getPredicate()) {
+        case arith::CmpFPredicate::OEQ:
+            code = ::sdfg::data_flow::TaskletCode::fp_oeq;
+            break;
+        case arith::CmpFPredicate::OGT:
+            code = ::sdfg::data_flow::TaskletCode::fp_ogt;
+            break;
+        case arith::CmpFPredicate::OGE:
+            code = ::sdfg::data_flow::TaskletCode::fp_oge;
+            break;
+        case arith::CmpFPredicate::OLT:
+            code = ::sdfg::data_flow::TaskletCode::fp_olt;
+            break;
+        case arith::CmpFPredicate::OLE:
+            code = ::sdfg::data_flow::TaskletCode::fp_ole;
+            break;
+        case arith::CmpFPredicate::ONE:
+            code = ::sdfg::data_flow::TaskletCode::fp_one;
+            break;
+        case arith::CmpFPredicate::ORD:
+            code = ::sdfg::data_flow::TaskletCode::fp_ord;
+            break;
+        case arith::CmpFPredicate::UEQ:
+            code = ::sdfg::data_flow::TaskletCode::fp_ueq;
+            break;
+        case arith::CmpFPredicate::UGT:
+            code = ::sdfg::data_flow::TaskletCode::fp_ugt;
+            break;
+        case arith::CmpFPredicate::UGE:
+            code = ::sdfg::data_flow::TaskletCode::fp_uge;
+            break;
+        case arith::CmpFPredicate::ULT:
+            code = ::sdfg::data_flow::TaskletCode::fp_ult;
+            break;
+        case arith::CmpFPredicate::ULE:
+            code = ::sdfg::data_flow::TaskletCode::fp_ule;
+            break;
+        case arith::CmpFPredicate::UNE:
+            code = ::sdfg::data_flow::TaskletCode::fp_une;
+            break;
+        case arith::CmpFPredicate::UNO:
+            code = ::sdfg::data_flow::TaskletCode::fp_uno;
+            break;
+        default:
+            return failure();
+    }
+
+    auto& lhs_access = builder.add_access(block, translator.get_or_create_container(lhs));
+    auto& rhs_access = builder.add_access(block, translator.get_or_create_container(rhs));
+    auto& result_access = builder.add_access(block, translator.get_or_create_container(result));
+    auto& tasklet = builder.add_tasklet(block, code, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, lhs_access, tasklet, "_in1", {});
+    builder.add_computational_memlet(block, rhs_access, tasklet, "_in2", {});
+    builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
+
+    return success();
+}
+
+LogicalResult translateArithCmpIOp(SDFGTranslator& translator, arith::CmpIOp* cmpi_op) {
+    Value lhs = cmpi_op->getLhs();
+    Value rhs = cmpi_op->getRhs();
+    Value result = cmpi_op->getResult();
+
+    // Types must be primitive for now
+    if (!is_sdfg_primitive(lhs.getType()) || !is_sdfg_primitive(rhs.getType()) ||
+        !is_sdfg_primitive(result.getType())) {
+        return cmpi_op->emitOpError("Only SDFG primitive types are supported");
+    }
+
+    // Determine supported tasklet code from predicate
+    ::sdfg::data_flow::TaskletCode code;
+    switch (cmpi_op->getPredicate()) {
+        case arith::CmpIPredicate::eq:
+            code = ::sdfg::data_flow::TaskletCode::int_eq;
+            break;
+        case arith::CmpIPredicate::ne:
+            code = ::sdfg::data_flow::TaskletCode::int_ne;
+            break;
+        case arith::CmpIPredicate::slt:
+            code = ::sdfg::data_flow::TaskletCode::int_slt;
+            break;
+        case arith::CmpIPredicate::sle:
+            code = ::sdfg::data_flow::TaskletCode::int_sle;
+            break;
+        case arith::CmpIPredicate::sgt:
+            code = ::sdfg::data_flow::TaskletCode::int_sgt;
+            break;
+        case arith::CmpIPredicate::sge:
+            code = ::sdfg::data_flow::TaskletCode::int_sge;
+            break;
+        case arith::CmpIPredicate::ult:
+            code = ::sdfg::data_flow::TaskletCode::int_ult;
+            break;
+        case arith::CmpIPredicate::ule:
+            code = ::sdfg::data_flow::TaskletCode::int_ule;
+            break;
+        case arith::CmpIPredicate::ugt:
+            code = ::sdfg::data_flow::TaskletCode::int_ugt;
+            break;
+        case arith::CmpIPredicate::uge:
+            code = ::sdfg::data_flow::TaskletCode::int_uge;
+            break;
+    }
+
+    auto& builder = translator.builder();
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& lhs_access = builder.add_access(block, translator.get_or_create_container(lhs));
+    auto& rhs_access = builder.add_access(block, translator.get_or_create_container(rhs));
+    auto& result_access = builder.add_access(block, translator.get_or_create_container(result));
+    auto& tasklet = builder.add_tasklet(block, code, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, lhs_access, tasklet, "_in1", {});
+    builder.add_computational_memlet(block, rhs_access, tasklet, "_in2", {});
+    builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
+
+    return success();
+}
+
+struct RawArrayRef {
+    const void* data;
+    size_t bytes;
+    int per_element;
+
+    RawArrayRef() : data(nullptr), bytes(0), per_element(0) {}
+    RawArrayRef(const void* data, size_t bytes, int per_element) : data(data), bytes(bytes), per_element(per_element) {}
+};
+
+template<typename T>
+RawArrayRef getRawArrayRef(DenseResourceElementsAttr attr) {
+    if (::mlir::detail::DenseResourceElementsAttrBase<T> typed_attr =
+            dyn_cast_or_null<::mlir::detail::DenseResourceElementsAttrBase<T>>(attr)) {
+        std::optional<ArrayRef<T>> array_ref = typed_attr.tryGetAsArrayRef();
+        if (!array_ref) {
+            return {};
+        }
+        size_t elemCount = array_ref->size();
+        int per_elem_bytes = sizeof(T);
+        return RawArrayRef(reinterpret_cast<const void*>(array_ref->data()), elemCount * per_elem_bytes, per_elem_bytes);
+    }
+    return {};
+}
+
+LogicalResult translateArithConstantOp(SDFGTranslator& translator, arith::ConstantOp* constant_op) {
+    Value result = constant_op->getResult();
+
+    auto mlir_type = constant_op->getValue().getType();
+    auto val_type = translator.convertType(mlir_type);
+
+    if (!val_type) {
+        return constant_op->emitOpError("Unmapped type of arith.constant");
+    }
+    if (val_type->type_id() == ::sdfg::types::TypeID::Scalar) {
+        std::string val = llvm::TypeSwitch<TypedAttr, std::string>(constant_op->getValue())
+                              .Case<FloatAttr>([](FloatAttr attr) {
+                                  double v = attr.getValue().convertToDouble();
+                                  if (std::isinf(v)) return v < 0 ? std::string("-INFINITY") : std::string("INFINITY");
+                                  if (std::isnan(v)) return std::string("NAN");
+                                  return std::to_string(v);
+                              })
+                              .Case<IntegerAttr>([](IntegerAttr attr) { return std::to_string(attr.getInt()); })
+                              .Case<DenseIntElementsAttr>([](DenseIntElementsAttr attr) {
+                                  assert(attr.getNumElements() == 1);
+                                  auto value = *attr.begin();
+                                  if (attr.getElementType().isUnsignedInteger()) {
+                                      return std::to_string(value.getZExtValue());
+                                  } else {
+                                      return std::to_string(value.getSExtValue());
+                                  }
+                              })
+                              .Case<DenseFPElementsAttr>([](DenseFPElementsAttr attr) {
+                                  assert(attr.getNumElements() == 1);
+                                  auto value = *attr.begin();
+                                  if (attr.getElementType().isF32()) {
+                                      float v = value.convertToFloat();
+                                      if (std::isinf(v))
+                                          return v < 0 ? std::string("-INFINITY") : std::string("INFINITY");
+                                      if (std::isnan(v)) return std::string("NAN");
+                                      return std::to_string(v);
+                                  } else if (attr.getElementType().isF64()) {
+                                      double v = value.convertToDouble();
+                                      if (std::isinf(v))
+                                          return v < 0 ? std::string("-INFINITY") : std::string("INFINITY");
+                                      if (std::isnan(v)) return std::string("NAN");
+                                      return std::to_string(v);
+                                  } else {
+                                      return std::string();
+                                  }
+                              })
+                              .Default([](TypedAttr attr) { return ""; });
+        if (!val.empty()) { // scalar constant, trivially representable with Const-Node
+            auto& builder = translator.builder();
+            auto& block = builder.add_block(translator.insertion_point());
+            auto& in_access = builder.add_constant(block, val, *val_type);
+            auto& result_access = builder.add_access(block, translator.get_or_create_container(result));
+            auto& tasklet = builder.add_tasklet(block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+            builder.add_computational_memlet(block, in_access, tasklet, "_in", {});
+            builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
+
+            return success();
+        } else {
+            return constant_op->emitOpError("Unsupported scalar const type");
+        }
+    } else if (val_type->type_id() == ::sdfg::types::TypeID::Pointer) {
+        if (auto dense_resource_attr = dyn_cast<DenseResourceElementsAttr>(constant_op->getValue())) {
+            RawArrayRef ref;
+            Type element_type = dense_resource_attr.getElementType();
+            if (element_type.isInteger(1)) {
+                ref = getRawArrayRef<bool>(dense_resource_attr);
+            } else if (element_type.isSignedInteger(8) || element_type.isSignlessInteger(8)) {
+                ref = getRawArrayRef<int8_t>(dense_resource_attr);
+            } else if (element_type.isSignedInteger(16) || element_type.isSignlessInteger(16)) {
+                ref = getRawArrayRef<int16_t>(dense_resource_attr);
+            } else if (element_type.isSignedInteger(32) || element_type.isSignlessInteger(32)) {
+                ref = getRawArrayRef<int32_t>(dense_resource_attr);
+            } else if (element_type.isSignedInteger(64) || element_type.isSignlessInteger(64)) {
+                ref = getRawArrayRef<int64_t>(dense_resource_attr);
+            } else if (element_type.isUnsignedInteger(8)) {
+                ref = getRawArrayRef<uint8_t>(dense_resource_attr);
+            } else if (element_type.isUnsignedInteger(16)) {
+                ref = getRawArrayRef<uint16_t>(dense_resource_attr);
+            } else if (element_type.isUnsignedInteger(32)) {
+                ref = getRawArrayRef<uint32_t>(dense_resource_attr);
+            } else if (element_type.isUnsignedInteger(64)) {
+                ref = getRawArrayRef<uint64_t>(dense_resource_attr);
+            } else if (element_type.isF32()) {
+                ref = getRawArrayRef<float>(dense_resource_attr);
+            } else if (element_type.isF64()) {
+                ref = getRawArrayRef<double>(dense_resource_attr);
+            } else {
+                return constant_op->emitOpError("Unsupported dense resource type");
+            }
+
+            if (!ref.data || !ref.bytes) {
+                return constant_op->emitOpError("0-length constant");
+            }
+
+            auto& builder = translator.builder();
+            auto& block = builder.add_block(translator.insertion_point());
+            const uint8_t* data_start = reinterpret_cast<const uint8_t*>(ref.data);
+            auto& load_const = builder.add_library_node<::sdfg::data_flow::LoadConstNode>(
+                block,
+                {},
+                val_type->clone(),
+                std::make_unique<::sdfg::data_flow::InMemoryConstSource>(data_start, data_start + ref.bytes)
+            );
+            auto& dst_access = builder.add_access(block, translator.get_or_create_container(result));
+            builder.add_computational_memlet(block, load_const, load_const.outputs()[0], dst_access, {}, *val_type);
+
+            return success();
+        } else if (auto dense_elements_attr = dyn_cast<DenseIntOrFPElementsAttr>(constant_op->getValue())) {
+            std::vector<uint8_t> data;
+            if (auto dense_int_elements_attr = dyn_cast<DenseIntElementsAttr>(dense_elements_attr)) {
+                Type element_type = dense_int_elements_attr.getElementType();
+                if (element_type.isInteger(1)) {
+                    for (auto element : dense_int_elements_attr) {
+                        bool val = element.getBoolValue();
+                        data.push_back(val);
+                    }
+                } else if (element_type.isInteger(8)) {
+                    for (auto element : dense_int_elements_attr) {
+                        auto val = element.getZExtValue();
+                        data.push_back(static_cast<uint8_t>(val));
+                    }
+                } else if (element_type.isInteger(16)) {
+                    for (auto element : dense_int_elements_attr) {
+                        auto val = element.getZExtValue();
+                        data.push_back(static_cast<uint8_t>(val >> 8));
+                        data.push_back(static_cast<uint8_t>(val));
+                    }
+                } else if (element_type.isInteger(32)) {
+                    for (auto element : dense_int_elements_attr) {
+                        auto val = element.getZExtValue();
+                        data.push_back(static_cast<uint8_t>(val >> 24));
+                        data.push_back(static_cast<uint8_t>(val >> 16));
+                        data.push_back(static_cast<uint8_t>(val >> 8));
+                        data.push_back(static_cast<uint8_t>(val));
+                    }
+                } else if (element_type.isInteger(64)) {
+                    for (auto element : dense_int_elements_attr) {
+                        auto val = element.getZExtValue();
+                        data.push_back(static_cast<uint8_t>(val >> 56));
+                        data.push_back(static_cast<uint8_t>(val >> 48));
+                        data.push_back(static_cast<uint8_t>(val >> 40));
+                        data.push_back(static_cast<uint8_t>(val >> 32));
+                        data.push_back(static_cast<uint8_t>(val >> 24));
+                        data.push_back(static_cast<uint8_t>(val >> 16));
+                        data.push_back(static_cast<uint8_t>(val >> 8));
+                        data.push_back(static_cast<uint8_t>(val));
+                    }
+                } else {
+                    return constant_op->emitOpError("Unsupported dense int elements attribute");
+                }
+            } else if (auto dense_fp_elements_attr = dyn_cast<DenseFPElementsAttr>(dense_elements_attr)) {
+                Type element_type = dense_fp_elements_attr.getElementType();
+                if (element_type.isF32()) {
+                    for (auto element : dense_fp_elements_attr) {
+                        auto val = std::bit_cast<uint32_t>(element.convertToFloat());
+                        data.push_back(static_cast<uint8_t>(val >> 24));
+                        data.push_back(static_cast<uint8_t>(val >> 16));
+                        data.push_back(static_cast<uint8_t>(val >> 8));
+                        data.push_back(static_cast<uint8_t>(val));
+                    }
+                } else if (element_type.isF64()) {
+                    for (auto element : dense_fp_elements_attr) {
+                        auto val = std::bit_cast<uint64_t>(element.convertToDouble());
+                        data.push_back(static_cast<uint8_t>(val >> 56));
+                        data.push_back(static_cast<uint8_t>(val >> 48));
+                        data.push_back(static_cast<uint8_t>(val >> 40));
+                        data.push_back(static_cast<uint8_t>(val >> 32));
+                        data.push_back(static_cast<uint8_t>(val >> 24));
+                        data.push_back(static_cast<uint8_t>(val >> 16));
+                        data.push_back(static_cast<uint8_t>(val >> 8));
+                        data.push_back(static_cast<uint8_t>(val));
+                    }
+                } else {
+                    return constant_op->emitOpError("Unsupported dense fp elements attribute");
+                }
+            }
+
+            auto& builder = translator.builder();
+            auto& block = builder.add_block(translator.insertion_point());
+            auto& load_const = builder.add_library_node<::sdfg::data_flow::LoadConstNode>(
+                block,
+                ::sdfg::DebugInfo(),
+                val_type->clone(),
+                std::make_unique<::sdfg::data_flow::InMemoryConstSource>(data.begin(), data.end())
+            );
+            auto& dst_access = builder.add_access(block, translator.get_or_create_container(result));
+            builder.add_computational_memlet(block, load_const, load_const.outputs()[0], dst_access, {}, *val_type);
+
+            return success();
+        } else {
+            return constant_op->emitOpError("Unsupported constant pointer init");
+        }
+    }
+
+    return constant_op->emitOpError("Can not convert attribute type");
+}
+
+LogicalResult translateArithNegFOp(SDFGTranslator& translator, arith::NegFOp* negf_op) {
+    Value operand = negf_op->getOperand();
+    Value result = negf_op->getResult();
+
+    // Types must be primitive for now
+    if (!is_sdfg_primitive(operand.getType()) || !is_sdfg_primitive(result.getType())) {
+        return negf_op->emitOpError("Only SDFG primitive types are supported");
+    }
+
+    auto& builder = translator.builder();
+    auto& block = builder.add_block(translator.insertion_point());
+    auto& in_access = builder.add_access(block, translator.get_or_create_container(operand));
+    auto& result_access = builder.add_access(block, translator.get_or_create_container(result));
+    auto& tasklet = builder.add_tasklet(block, ::sdfg::data_flow::TaskletCode::fp_neg, "_out", {"_in"});
+    builder.add_computational_memlet(block, in_access, tasklet, "_in", {});
+    builder.add_computational_memlet(block, tasklet, "_out", result_access, {});
+
+    return success();
+}
+
+LogicalResult translateArithSelectOp(SDFGTranslator& translator, arith::SelectOp* select_op) {
+    Value condition = select_op->getCondition();
+    Value true_value = select_op->getTrueValue();
+    Value false_value = select_op->getFalseValue();
+    Value result = select_op->getResult();
+
+    auto& builder = translator.builder();
+    auto condition_container = translator.get_or_create_container(condition);
+    auto true_value_container = translator.get_or_create_container(true_value);
+    auto false_value_container = translator.get_or_create_container(false_value);
+    auto result_container = translator.get_or_create_container(result);
+
+    if (is_sdfg_primitive(condition.getType()) && is_sdfg_primitive(true_value.getType()) &&
+        is_sdfg_primitive(false_value.getType()) && is_sdfg_primitive(result.getType())) {
+        auto& if_else = builder.add_if_else(translator.insertion_point());
+        auto& true_case = builder.add_case(
+            if_else, ::sdfg::symbolic::Eq(::sdfg::symbolic::symbol(condition_container), ::sdfg::symbolic::__true__())
+        );
+        auto& false_case = builder.add_case(
+            if_else, ::sdfg::symbolic::Eq(::sdfg::symbolic::symbol(condition_container), ::sdfg::symbolic::__false__())
+        );
+
+        auto& true_block = builder.add_block(true_case);
+        auto& true_value_access = builder.add_access(true_block, true_value_container);
+        auto& true_result_access = builder.add_access(true_block, result_container);
+        auto& true_tasklet = builder.add_tasklet(true_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(true_block, true_value_access, true_tasklet, "_in", {});
+        builder.add_computational_memlet(true_block, true_tasklet, "_out", true_result_access, {});
+
+        auto& false_block = builder.add_block(false_case);
+        auto& false_value_access = builder.add_access(false_block, false_value_container);
+        auto& false_result_access = builder.add_access(false_block, result_container);
+        auto& false_tasklet = builder.add_tasklet(false_block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(false_block, false_value_access, false_tasklet, "_in", {});
+        builder.add_computational_memlet(false_block, false_tasklet, "_out", false_result_access, {});
+    } else {
+        return select_op->emitOpError("Unsupported type(s)");
+    }
+
+    return success();
+}
+
+LogicalResult translateArithOp(SDFGTranslator& translator, Operation* op) {
+    return llvm::TypeSwitch<Operation*, LogicalResult>(op)
+        .Case<arith::AddFOp>([&](arith::AddFOp addf_op) {
+            return translateArithBinaryOp<arith::AddFOp, ::sdfg::data_flow::TaskletCode::fp_add>(translator, &addf_op);
+        })
+        .Case<arith::AddIOp>([&](arith::AddIOp addi_op) {
+            return translateArithBinaryOp<arith::AddIOp, ::sdfg::data_flow::TaskletCode::int_add>(translator, &addi_op);
+        })
+        .Case<arith::AndIOp>([&](arith::AndIOp andi_op) {
+            return translateArithBinaryOp<arith::AndIOp, ::sdfg::data_flow::TaskletCode::int_and>(translator, &andi_op);
+        })
+        .Case<arith::DivFOp>([&](arith::DivFOp divf_op) {
+            return translateArithBinaryOp<arith::DivFOp, ::sdfg::data_flow::TaskletCode::fp_div>(translator, &divf_op);
+        })
+        .Case<arith::DivSIOp>([&](arith::DivSIOp divsi_op) {
+            return translateArithBinaryOp<arith::DivSIOp, ::sdfg::data_flow::TaskletCode::int_sdiv>(translator, &divsi_op);
+        })
+        .Case<arith::DivUIOp>([&](arith::DivUIOp divui_op) {
+            return translateArithBinaryOp<arith::DivUIOp, ::sdfg::data_flow::TaskletCode::int_udiv>(translator, &divui_op);
+        })
+        .Case<arith::MaxSIOp>([&](arith::MaxSIOp maxsi_op) {
+            return translateArithBinaryOp<arith::MaxSIOp, ::sdfg::data_flow::TaskletCode::int_smax>(translator, &maxsi_op);
+        })
+        .Case<arith::MaxUIOp>([&](arith::MaxUIOp maxui_op) {
+            return translateArithBinaryOp<arith::MaxUIOp, ::sdfg::data_flow::TaskletCode::int_umax>(translator, &maxui_op);
+        })
+        .Case<arith::MinSIOp>([&](arith::MinSIOp minsi_op) {
+            return translateArithBinaryOp<arith::MinSIOp, ::sdfg::data_flow::TaskletCode::int_smin>(translator, &minsi_op);
+        })
+        .Case<arith::MinUIOp>([&](arith::MinUIOp minui_op) {
+            return translateArithBinaryOp<arith::MinUIOp, ::sdfg::data_flow::TaskletCode::int_umin>(translator, &minui_op);
+        })
+        .Case<arith::MulFOp>([&](arith::MulFOp mulf_op) {
+            return translateArithBinaryOp<arith::MulFOp, ::sdfg::data_flow::TaskletCode::fp_mul>(translator, &mulf_op);
+        })
+        .Case<arith::MulIOp>([&](arith::MulIOp muli_op) {
+            return translateArithBinaryOp<arith::MulIOp, ::sdfg::data_flow::TaskletCode::int_mul>(translator, &muli_op);
+        })
+        .Case<arith::OrIOp>([&](arith::OrIOp ori_op) {
+            return translateArithBinaryOp<arith::OrIOp, ::sdfg::data_flow::TaskletCode::int_or>(translator, &ori_op);
+        })
+        .Case<arith::RemFOp>([&](arith::RemFOp remf_op) {
+            return translateArithBinaryOp<arith::RemFOp, ::sdfg::data_flow::TaskletCode::fp_rem>(translator, &remf_op);
+        })
+        .Case<arith::RemSIOp>([&](arith::RemSIOp remsi_op) {
+            return translateArithBinaryOp<arith::RemSIOp, ::sdfg::data_flow::TaskletCode::int_srem>(translator, &remsi_op);
+        })
+        .Case<arith::RemUIOp>([&](arith::RemUIOp remui_op) {
+            return translateArithBinaryOp<arith::RemUIOp, ::sdfg::data_flow::TaskletCode::int_urem>(translator, &remui_op);
+        })
+        .Case<arith::ShLIOp>([&](arith::ShLIOp shli_op) {
+            return translateArithBinaryOp<arith::ShLIOp, ::sdfg::data_flow::TaskletCode::int_shl>(translator, &shli_op);
+        })
+        .Case<arith::ShRSIOp>([&](arith::ShRSIOp shrsi_op) {
+            return translateArithBinaryOp<arith::ShRSIOp, ::sdfg::data_flow::TaskletCode::int_ashr>(translator, &shrsi_op);
+        })
+        .Case<arith::ShRUIOp>([&](arith::ShRUIOp shrui_op) {
+            return translateArithBinaryOp<arith::ShRUIOp, ::sdfg::data_flow::TaskletCode::int_lshr>(translator, &shrui_op);
+        })
+        .Case<arith::SubFOp>([&](arith::SubFOp subf_op) {
+            return translateArithBinaryOp<arith::SubFOp, ::sdfg::data_flow::TaskletCode::fp_sub>(translator, &subf_op);
+        })
+        .Case<arith::SubIOp>([&](arith::SubIOp subi_op) {
+            return translateArithBinaryOp<arith::SubIOp, ::sdfg::data_flow::TaskletCode::int_sub>(translator, &subi_op);
+        })
+        .Case<arith::XOrIOp>([&](arith::XOrIOp xori_op) {
+            return translateArithBinaryOp<arith::XOrIOp, ::sdfg::data_flow::TaskletCode::int_xor>(translator, &xori_op);
+        })
+        .Case<arith::MaximumFOp>([&](arith::MaximumFOp maximumf_op) {
+            // Not technically correct because of different handling of NaN's
+            return translateArithCMathBinaryOp<
+                arith::MaximumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &maximumf_op);
+        })
+        .Case<arith::MaxNumFOp>([&](arith::MaxNumFOp maxnumf_op) {
+            return translateArithCMathBinaryOp<
+                arith::MaxNumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmax>(translator, &maxnumf_op);
+        })
+        .Case<arith::MinimumFOp>([&](arith::MinimumFOp minimumf_op) {
+            // Not technically correct because of different handling of NaN's
+            return translateArithCMathBinaryOp<
+                arith::MinimumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmin>(translator, &minimumf_op);
+        })
+        .Case<arith::MinNumFOp>([&](arith::MinNumFOp minnumf_op) {
+            return translateArithCMathBinaryOp<
+                arith::MinNumFOp,
+                ::sdfg::math::cmath::CMathFunction::fmin>(translator, &minnumf_op);
+        })
+        .Case<arith::BitcastOp>([&](arith::BitcastOp bitcast_op) {
+            return translateArithCastOp<arith::BitcastOp>(translator, &bitcast_op);
+        })
+        .Case<arith::ExtFOp>([&](arith::ExtFOp extf_op) {
+            return translateArithCastOp<arith::ExtFOp>(translator, &extf_op);
+        })
+        .Case<arith::ExtSIOp>([&](arith::ExtSIOp extsi_op) {
+            return translateArithCastOp<arith::ExtSIOp>(translator, &extsi_op);
+        })
+        .Case<arith::ExtUIOp>([&](arith::ExtUIOp extui_op) {
+            return translateArithCastOp<arith::ExtUIOp>(translator, &extui_op);
+        })
+        .Case<arith::FPToSIOp>([&](arith::FPToSIOp fptosi_op) {
+            return translateArithCastOp<arith::FPToSIOp>(translator, &fptosi_op);
+        })
+        .Case<arith::FPToUIOp>([&](arith::FPToUIOp fptoui_op) {
+            return translateArithCastOp<arith::FPToUIOp>(translator, &fptoui_op);
+        })
+        .Case<arith::SIToFPOp>([&](arith::SIToFPOp sitofp_op) {
+            return translateArithCastOp<arith::SIToFPOp>(translator, &sitofp_op);
+        })
+        .Case<arith::TruncFOp>([&](arith::TruncFOp truncf_op) {
+            return translateArithCastOp<arith::TruncFOp>(translator, &truncf_op);
+        })
+        .Case<arith::TruncIOp>([&](arith::TruncIOp trunci_op) {
+            return translateArithCastOp<arith::TruncIOp>(translator, &trunci_op);
+        })
+        .Case<arith::UIToFPOp>([&](arith::UIToFPOp uitofp_op) {
+            return translateArithCastOp<arith::UIToFPOp>(translator, &uitofp_op);
+        })
+        .Case<arith::IndexCastOp>([&](arith::IndexCastOp indexcast_op) {
+            return translateArithCastOp<arith::IndexCastOp>(translator, &indexcast_op);
+        })
+        .Case<arith::IndexCastUIOp>([&](arith::IndexCastUIOp indexcastui_op) {
+            return translateArithCastOp<arith::IndexCastUIOp>(translator, &indexcastui_op);
+        })
+        .Case<arith::CmpFOp>([&](arith::CmpFOp cmpf_op) { return translateArithCmpFOp(translator, &cmpf_op); })
+        .Case<arith::CmpIOp>([&](arith::CmpIOp cmpi_op) { return translateArithCmpIOp(translator, &cmpi_op); })
+        .Case<arith::ConstantOp>([&](arith::ConstantOp constant_op) {
+            return translateArithConstantOp(translator, &constant_op);
+        })
+        .Case<arith::NegFOp>([&](arith::NegFOp negf_op) { return translateArithNegFOp(translator, &negf_op); })
+        .Case<arith::SelectOp>([&](arith::SelectOp select_op) { return translateArithSelectOp(translator, &select_op); }
+        )
+        .Default([&](Operation* op) {
+            return op->emitError("Unknown operation from arith dialect encountered: ") << op->getName();
+        });
+}
+
+} // namespace sdfg
+} // namespace mlir

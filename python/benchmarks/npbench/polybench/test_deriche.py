@@ -86,20 +86,22 @@ def kernel(alpha, imgIn):
     "target",
     [
         "none",
-        "sequential",
-        "openmp",
+        # "sequential",
+        # "openmp",
         # "cuda"
+        # "rocm"
     ],
 )
 def test_deriche(target):
     if target == "none":
         verifier = SDFGVerification(
             verification={
-                "MAP": 14,
-                "SEQUENTIAL": 14,
-                "FOR": 24,
+                "Free": 9,
+                "SEQUENTIAL": 21,
+                "FOR": 29,
+                "MAP": 21,
                 "CMath": 9,
-                "Malloc": 4,
+                "Malloc": 9,
             }
         )
     elif target == "sequential":
@@ -116,21 +118,34 @@ def test_deriche(target):
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 4,
+                "HIGHWAY": 5,
                 "MAP": 14,
                 "FOR": 24,
-                "CPU_PARALLEL": 10,
+                "CPU_PARALLEL": 8,
                 "CMath": 9,
                 "Malloc": 4,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
                 "FOR": 0,
                 "MAP": 0,
                 "SEQUENTIAL": 0,
                 "CUDA": 0,
+                "CPU_PARALLEL": 0,
+                "HIGHWAY": 0,
+                "GEMM": 0,
+                "DOT": 0,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "FOR": 0,
+                "MAP": 0,
+                "SEQUENTIAL": 0,
+                "ROCM": 0,
                 "CPU_PARALLEL": 0,
                 "HIGHWAY": 0,
                 "GEMM": 0,

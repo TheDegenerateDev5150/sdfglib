@@ -9,6 +9,7 @@
 #include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/analysis/users.h"
 #include "sdfg/structured_sdfg.h"
+#include "sdfg/symbolic/maps.h"
 
 namespace sdfg {
 namespace analysis {
@@ -16,6 +17,17 @@ namespace analysis {
 enum LoopCarriedDependency {
     LOOP_CARRIED_DEPENDENCY_READ_WRITE,
     LOOP_CARRIED_DEPENDENCY_WRITE_WRITE,
+};
+
+/**
+ * @brief Extended loop-carried dependency information including distance vectors.
+ *
+ * Combines the dependency type (read-write or write-write) with the full
+ * ISL delta set representing all possible iteration-distance vectors.
+ */
+struct LoopCarriedDependencyInfo {
+    LoopCarriedDependency type;
+    symbolic::maps::DependenceDeltas deltas;
 };
 
 /**
@@ -39,12 +51,14 @@ private:
 
     std::unordered_map<std::string, std::unordered_map<User*, std::unordered_set<User*>>> results_;
 
-    std::unordered_map<structured_control_flow::StructuredLoop*, std::unordered_map<std::string, LoopCarriedDependency>>
+    std::unordered_map<
+        structured_control_flow::StructuredLoop*,
+        std::unordered_map<std::string, LoopCarriedDependencyInfo>>
         loop_carried_dependencies_;
 
     std::list<std::unique_ptr<User>> undefined_users_;
 
-    bool loop_depends(
+    symbolic::maps::DependenceDeltas loop_deltas(
         User& previous,
         User& current,
         analysis::AnalysisManager& analysis_manager,
@@ -156,8 +170,8 @@ public:
 
     bool available(structured_control_flow::StructuredLoop& loop) const;
 
-    const std::unordered_map<std::string, LoopCarriedDependency>& dependencies(structured_control_flow::StructuredLoop&
-                                                                                   loop) const;
+    const std::unordered_map<std::string, LoopCarriedDependencyInfo>& dependencies(structured_control_flow::StructuredLoop&
+                                                                                       loop) const;
 };
 
 } // namespace analysis

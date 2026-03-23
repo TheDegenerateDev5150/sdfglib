@@ -157,7 +157,7 @@ public:
      * @brief Check if this node has side effects
      * @return True if the node has side effects
      */
-    bool side_effect() const;
+    [[nodiscard]] bool side_effect() const override;
 
     /**
      * @brief Convert node to string representation

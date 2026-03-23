@@ -23,6 +23,7 @@
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda_data_offloading_node.h"
 #include "sdfg/targets/offloading/data_offloading_node.h"
+#include "sdfg/targets/rocm/rocm_data_offloading_node.h"
 #include "sdfg/types/pointer.h"
 #include "sdfg/visitor/structured_sdfg_visitor.h"
 
@@ -155,9 +156,9 @@ bool DataTransferMinimization::accept(structured_control_flow::Sequence& sequenc
             if (read_after && copy_out->is_free()) {
                 copy_out->remove_free();
             } else if (!read_after) {
-                this->builder_.clear_node(*copy_out_block, *copy_out);
+                this->builder_.clear_code_node_legacy(*copy_out_block, *copy_out);
             }
-            this->builder_.clear_node(*copy_in_block, *copy_in);
+            this->builder_.clear_code_node_legacy(*copy_in_block, *copy_in);
 
             // Maps the device pointers if necessary
             if (copy_out_device_container != copy_in_device_container) {
@@ -201,6 +202,9 @@ std::pair<data_flow::AccessNode*, data_flow::AccessNode*> DataTransferMinimizati
     }
     data_flow::AccessNode *src, *dst;
     if (dynamic_cast<cuda::CUDADataOffloadingNode*>(offloading_node)) {
+        src = this->get_in_access(offloading_node, "_src");
+        dst = this->get_out_access(offloading_node, "_dst");
+    } else if (dynamic_cast<rocm::ROCMDataOffloadingNode*>(offloading_node)) {
         src = this->get_in_access(offloading_node, "_src");
         dst = this->get_out_access(offloading_node, "_dst");
     } else {

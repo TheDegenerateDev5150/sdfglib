@@ -70,6 +70,8 @@ std::unique_ptr<data_flow::DataFlowNode> CallNode::
     return std::make_unique<CallNode>(element_id, debug_info_, vertex, parent, callee_name_, outputs_, inputs_);
 }
 
+std::string CallNode::toStr() const { return LibraryNode::toStr() + "('" + callee_name_ + "')"; }
+
 void CallNode::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {}
 
 nlohmann::json CallNodeSerializer::serialize(const data_flow::LibraryNode& library_node) {
@@ -149,8 +151,8 @@ void CallNodeDispatcher::dispatch_code(
 
         // Return type
         if (ret_memlet) {
-            auto& ret_type = ret_memlet->result_type(function_);
-            func_ptr_type = language_extension_.declaration("", ret_type) + " (*)";
+            auto ret_type = ret_memlet->result_type(function_);
+            func_ptr_type = language_extension_.declaration("", *ret_type) + " (*)";
         } else {
             func_ptr_type = "void (*)";
         }
@@ -160,8 +162,8 @@ void CallNodeDispatcher::dispatch_code(
         for (size_t i = 0; i < node.inputs().size(); i++) {
             auto memlet_in = input_memlets.find(node.inputs().at(i));
             assert(memlet_in != input_memlets.end());
-            auto& in_type = memlet_in->second->result_type(function_);
-            func_ptr_type += language_extension_.declaration("", in_type);
+            auto in_type = memlet_in->second->result_type(function_);
+            func_ptr_type += language_extension_.declaration("", *in_type);
             if (i < node.inputs().size() - 1) {
                 func_ptr_type += ", ";
             }

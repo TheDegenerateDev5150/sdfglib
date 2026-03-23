@@ -75,38 +75,59 @@ def kernel(TSTEPS, N, u):
 def test_adi(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 14, "SEQUENTIAL": 14, "FOR": 21, "Malloc": 3}
+            verification={
+                "Free": 5,
+                "MAP": 32,
+                "SEQUENTIAL": 32,
+                "FOR": 37,
+                "Malloc": 19,
+            }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 3,
-                "MAP": 14,
-                "SEQUENTIAL": 11,
-                "FOR": 21,
-                "Malloc": 3,
+                "Free": 5,
+                "HIGHWAY": 10,
+                "MAP": 32,
+                "SEQUENTIAL": 22,
+                "FOR": 37,
+                "Malloc": 19,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 1,
-                "CPU_PARALLEL": 9,
-                "MAP": 14,
-                "SEQUENTIAL": 4,
-                "FOR": 21,
-                "Malloc": 3,
+                "Free": 5,
+                "CPU_PARALLEL": 1,
+                "HIGHWAY": 10,
+                "MAP": 32,
+                "SEQUENTIAL": 21,
+                "FOR": 37,
+                "Malloc": 19,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 10,
-                "MAP": 14,
-                "CUDAOffloading": 24,
-                "SEQUENTIAL": 4,
-                "FOR": 21,
-                "Malloc": 3,
+                "Free": 5,
+                "CUDA": 2,
+                "CUDAOffloading": 4,
+                "MAP": 32,
+                "SEQUENTIAL": 30,
+                "FOR": 37,
+                "Malloc": 19,
+            }
+        )
+    else:  # rocm
+        verifier = SDFGVerification(
+            verification={
+                "Free": 5,
+                "ROCM": 2,
+                "ROCMOffloading": 4,
+                "MAP": 24,
+                "SEQUENTIAL": 22,
+                "FOR": 29,
+                "Malloc": 11,
             }
         )
 

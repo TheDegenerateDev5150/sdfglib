@@ -215,6 +215,49 @@ public:
     MemletType type() const;
 
     /**
+     * Memlet actually reads src (from memory). Address calculations with the src as symbol are not reads.
+     * If src is local memory,
+     */
+    bool is_src_read() const;
+
+    /**
+     * Memlet returns the contents of src (this is [is_src_read()], excluding that the contents are only used
+     * transitively)
+     */
+    bool is_src_direct_read() const;
+
+    /**
+     * Makes a memory read with src-contents as (partial) address
+     */
+    bool is_src_pointed_to_read() const;
+
+    /**
+     * Leaks the address of src or uses it in an address calculation that is returned. If the result is not DeadCode,
+     * somebody else could use it to change src, without using the container
+     */
+    bool is_src_address_leak() const;
+
+    /**
+     * Leaks address of what src points to. Only valid for when src is a pointer-like
+     */
+    bool is_src_pointed_to_address_leak(const types::IType& src_type) const;
+
+    /**
+     * makes a memory write to dst (itself). Using dst as pointer is not a write to dst
+     */
+    bool is_dst_write() const;
+
+    /**
+     * Contents of dst are used in the address calculation of a memory write
+     */
+    bool is_dst_pointed_to_write() const;
+
+    /**
+     * Contents of dst are read
+     */
+    bool is_dst_read() const;
+
+    /**
      * @brief Get the source node (const)
      * @return Const reference to source node
      */
@@ -279,7 +322,7 @@ public:
      * @param function Function context for type inference
      * @return The inferred result type
      */
-    const types::IType& result_type(const Function& function) const;
+    std::unique_ptr<types::IType> result_type(const Function& function) const;
 
     /**
      * @brief Clone this memlet for graph transformations

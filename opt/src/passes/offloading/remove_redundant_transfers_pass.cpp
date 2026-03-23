@@ -83,7 +83,7 @@ bool RemoveRedundantTransfersPass::
 
     for (auto transfer : redundant_transfers) {
         if (auto block = dynamic_cast<structured_control_flow::Block*>(transfer->get_parent().get_parent())) {
-            builder.clear_node(*block, *transfer);
+            builder.clear_code_node_legacy(*block, *transfer);
             applied = true;
         }
     }

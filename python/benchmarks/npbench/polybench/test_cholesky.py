@@ -1,3 +1,4 @@
+import sys
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -29,13 +30,17 @@ def kernel(A):
         A[i, i] = np.sqrt(A[i, i])
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin", reason="Instrumentation not supported on macOS"
+)
 @pytest.mark.parametrize(
     "target",
     [
         "none",
         "sequential",
-        # "openmp",
+        "openmp",
         "cuda",
+        # "rocm",
     ],
 )
 def test_cholesky(target):
@@ -69,7 +74,17 @@ def test_cholesky(target):
                 "CMath": 2,
             }
         )
-    else:  # cuda
+    elif target == "cuda":
+        verifier = SDFGVerification(
+            verification={
+                "FOR": 4,
+                "MAP": 0,
+                "SEQUENTIAL": 0,
+                "DOT": 0,
+                "CMath": 2,
+            }
+        )
+    else:  # rocm
         verifier = SDFGVerification(
             verification={
                 "FOR": 4,

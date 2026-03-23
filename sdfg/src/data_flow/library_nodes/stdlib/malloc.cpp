@@ -18,7 +18,7 @@ MallocNode::MallocNode(
           LibraryNodeType_Malloc,
           {"_ret"},
           {},
-          true,
+          true, // debatable. Its a big change and we may want it as a flag
           data_flow::ImplementationType_NONE
       ),
       size_(size) {}
@@ -37,6 +37,8 @@ std::unique_ptr<data_flow::DataFlowNode> MallocNode::
 void MallocNode::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {
     this->size_ = symbolic::subs(this->size_, old_expression, new_expression);
 }
+
+std::string MallocNode::toStr() const { return LibraryNode::toStr() + "(" + size_->__str__() + ")"; }
 
 nlohmann::json MallocNodeSerializer::serialize(const data_flow::LibraryNode& library_node) {
     const MallocNode& node = static_cast<const MallocNode&>(library_node);

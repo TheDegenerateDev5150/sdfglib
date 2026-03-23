@@ -5,6 +5,7 @@ import ast
 import os
 import getpass
 import hashlib
+import ml_dtypes
 import numpy as np
 from typing import Annotated, get_origin, get_args, Any, Optional
 
@@ -15,15 +16,14 @@ from docc.sdfg import (
     Structure,
     Array,
     Type,
+    Tensor,
     StructuredSDFG,
     StructuredSDFGBuilder,
 )
 from docc.compiler.docc_program import DoccProgram
 from docc.compiler.compiled_sdfg import CompiledSDFG
 from docc.python.ast_parser import ASTParser
-
-# Global RPC context for scheduling SDFGs
-sdfg_rpc_context = None
+from docc.python.types import element_type_from_sdfg_type
 
 
 def _compile_wrapper(self, output_folder=None):
@@ -70,14 +70,26 @@ def _map_python_type(dtype):
     # Simple mapping for python types
     if dtype is float or dtype is np.float64:
         return Scalar(PrimitiveType.Double)
-    elif dtype is int or dtype is np.int64:
-        return Scalar(PrimitiveType.Int64)
-    elif dtype is bool or dtype is np.bool_:
-        return Scalar(PrimitiveType.Bool)
     elif dtype is np.float32:
         return Scalar(PrimitiveType.Float)
+    elif dtype is bool or dtype is np.bool_:
+        return Scalar(PrimitiveType.Bool)
+    elif dtype is int or dtype is np.int64:
+        return Scalar(PrimitiveType.Int64)
     elif dtype is np.int32:
         return Scalar(PrimitiveType.Int32)
+    elif dtype is np.int16:
+        return Scalar(PrimitiveType.Int16)
+    elif dtype is np.int8:
+        return Scalar(PrimitiveType.Int8)
+    elif dtype is np.uint64:
+        return Scalar(PrimitiveType.UInt64)
+    elif dtype is np.uint32:
+        return Scalar(PrimitiveType.UInt32)
+    elif dtype is np.uint16:
+        return Scalar(PrimitiveType.UInt16)
+    elif dtype is np.uint8:
+        return Scalar(PrimitiveType.UInt8)
 
     # Handle Python classes - map to Structure type
     if inspect.isclass(dtype):
@@ -96,6 +108,7 @@ class PythonProgram(DoccProgram):
         category: str = "server",
         instrumentation_mode: Optional[str] = None,
         capture_args: Optional[bool] = None,
+        remote_tuning: bool = False,
     ):
         super().__init__(
             name=func.__name__,
@@ -103,6 +116,7 @@ class PythonProgram(DoccProgram):
             category=category,
             instrumentation_mode=instrumentation_mode,
             capture_args=capture_args,
+            remote_tuning=remote_tuning,
         )
         self.func = func
         self._last_structure_member_info = {}
@@ -230,17 +244,22 @@ class PythonProgram(DoccProgram):
         signature = f"{type_sig}|{mapping_sig}|{equiv_sig}"
 
         if output_folder is None:
-            filename = inspect.getsourcefile(self.func)
-            hash_input = f"{filename}|{self.name}|{self.target}|{self.category}|{self.capture_args}|{self.instrumentation_mode}|{signature}".encode(
+            source_path = inspect.getsourcefile(self.func)
+            hash_input = f"{source_path}|{self.name}|{self.target}|{self.category}|{self.capture_args}|{self.instrumentation_mode}|{signature}".encode(
                 "utf-8"
             )
             stable_id = hashlib.sha256(hash_input).hexdigest()[:16]
+            filename = os.path.basename(inspect.getsourcefile(self.func))
 
             docc_tmp = os.environ.get("DOCC_TMP")
             if docc_tmp:
-                output_folder = f"{docc_tmp}/{self.name}-{stable_id}"
+                output_folder = (
+                    f"{docc_tmp}/{filename}-{self.name}-{self.target}-{stable_id}"
+                )
             else:
-                user = getpass.getuser()
+                user = os.getenv("USER")
+                if not user:
+                    user = getpass.getuser()
                 output_folder = f"/tmp/{user}/DOCC/{self.name}-{stable_id}"
 
         if original_output_folder is None and signature in self.cache:
@@ -250,30 +269,21 @@ class PythonProgram(DoccProgram):
         if os.path.exists(output_folder):
             # Multiple python processes running the same code?
             shutil.rmtree(output_folder)
-        sdfg, out_args, out_shapes = self._build_sdfg(
-            arg_types, args, arg_shape_mapping, len(shape_values), shape_to_scalar
+        sdfg, out_args, out_shapes, out_strides = self._build_sdfg(
+            arg_types, args, arg_shape_mapping, shape_values, shape_to_scalar
         )
-        sdfg.validate()
-        sdfg.expand()
-        sdfg.simplify()
 
-        if self.target != "none":
-            sdfg.normalize()
-
-        sdfg.dump(output_folder)
-
-        # Schedule if target is specified
-        if self.target != "none":
-            sdfg.schedule(self.target, self.category, sdfg_rpc_context)
-
-        self.last_sdfg = sdfg
-
-        lib_path = sdfg._compile(
-            output_folder=output_folder,
-            target=self.target,
-            instrumentation_mode=instrumentation_mode,
-            capture_args=capture_args,
+        lib_path = self.sdfg_pipe(
+            sdfg, output_folder, instrumentation_mode, capture_args
         )
+
+        # Build ONNX model from JSON if target is onnx (after _compile creates the JSON)
+        if self.target == "onnx":
+            from docc.python.targets.onnx_model_builder import convert_json_to_onnx
+
+            onnx_model_path = convert_json_to_onnx(output_folder)
+            if onnx_model_path:
+                print(f"Generated ONNX models: {onnx_model_path}")
 
         # 5. Create CompiledSDFG
         compiled = CompiledSDFG(
@@ -283,6 +293,7 @@ class PythonProgram(DoccProgram):
             self._last_structure_member_info,
             out_args,
             out_shapes,
+            out_strides,
         )
 
         # Cache if using default output folder
@@ -326,8 +337,8 @@ class PythonProgram(DoccProgram):
             if s_val in scalar_int_params:
                 shape_to_scalar[s_idx] = scalar_int_params[s_val]
 
-        sdfg, _, _ = self._build_sdfg(
-            arg_types, args, arg_shape_mapping, len(shape_values), shape_to_scalar
+        sdfg, _, _, _ = self._build_sdfg(
+            arg_types, args, arg_shape_mapping, shape_values, shape_to_scalar
         )
         return sdfg
 
@@ -352,28 +363,56 @@ class PythonProgram(DoccProgram):
         return str(t)
 
     def _infer_type(self, arg):
-        if isinstance(arg, (bool, np.bool_)):
+        if isinstance(arg, (float, np.float64)):
+            return Scalar(PrimitiveType.Double)
+        elif isinstance(arg, np.float32):
+            return Scalar(PrimitiveType.Float)
+        elif isinstance(arg, (bool, np.bool_)):
             return Scalar(PrimitiveType.Bool)
         elif isinstance(arg, (int, np.int64)):
             return Scalar(PrimitiveType.Int64)
-        elif isinstance(arg, (float, np.float64)):
-            return Scalar(PrimitiveType.Double)
         elif isinstance(arg, np.int32):
             return Scalar(PrimitiveType.Int32)
-        elif isinstance(arg, np.float32):
-            return Scalar(PrimitiveType.Float)
+        elif isinstance(arg, np.int16):
+            return Scalar(PrimitiveType.Int16)
+        elif isinstance(arg, np.int8):
+            return Scalar(PrimitiveType.Int8)
+        elif isinstance(arg, np.uint64):
+            return Scalar(PrimitiveType.UInt64)
+        elif isinstance(arg, np.uint32):
+            return Scalar(PrimitiveType.UInt32)
+        elif isinstance(arg, np.uint16):
+            return Scalar(PrimitiveType.UInt16)
+        elif isinstance(arg, np.uint8):
+            return Scalar(PrimitiveType.UInt8)
         elif isinstance(arg, np.ndarray):
             # Map dtype
             if arg.dtype == np.float64:
                 elem_type = Scalar(PrimitiveType.Double)
             elif arg.dtype == np.float32:
                 elem_type = Scalar(PrimitiveType.Float)
+            elif arg.dtype == np.float16:
+                elem_type = Scalar(PrimitiveType.Half)
+            elif arg.dtype == ml_dtypes.bfloat16:
+                elem_type = Scalar(PrimitiveType.BFloat)
+            elif arg.dtype == np.bool_:
+                elem_type = Scalar(PrimitiveType.Bool)
             elif arg.dtype == np.int64:
                 elem_type = Scalar(PrimitiveType.Int64)
             elif arg.dtype == np.int32:
                 elem_type = Scalar(PrimitiveType.Int32)
-            elif arg.dtype == np.bool_:
-                elem_type = Scalar(PrimitiveType.Bool)
+            elif arg.dtype == np.int16:
+                elem_type = Scalar(PrimitiveType.Int16)
+            elif arg.dtype == np.int8:
+                elem_type = Scalar(PrimitiveType.Int8)
+            elif arg.dtype == np.uint64:
+                elem_type = Scalar(PrimitiveType.UInt64)
+            elif arg.dtype == np.uint32:
+                elem_type = Scalar(PrimitiveType.UInt32)
+            elif arg.dtype == np.uint16:
+                elem_type = Scalar(PrimitiveType.UInt16)
+            elif arg.dtype == np.uint8:
+                elem_type = Scalar(PrimitiveType.UInt8)
             else:
                 raise ValueError(f"Unsupported numpy dtype: {arg.dtype}")
 
@@ -393,7 +432,7 @@ class PythonProgram(DoccProgram):
         arg_types,
         args,
         arg_shape_mapping,
-        num_unique_shapes,
+        shape_values,
         shape_to_scalar=None,
     ):
         if shape_to_scalar is None:
@@ -514,40 +553,77 @@ class PythonProgram(DoccProgram):
                 f"Argument count mismatch: expected {len(params)}, got {len(arg_types)}"
             )
 
-        array_info = {}
-
         # Add regular arguments
+        tensor_table = {}
         for i, ((name, param), dtype, arg) in enumerate(zip(params, arg_types, args)):
             builder.add_container(name, dtype, is_argument=True)
 
-            # If it's an array, prepare shape info
+            # Store layout information for arrays
             if isinstance(arg, np.ndarray):
+                element_type = element_type_from_sdfg_type(dtype)
+
                 shapes = []
                 for dim_idx in range(arg.ndim):
-                    u_idx = arg_shape_mapping[(i, dim_idx)]
-                    # Use scalar parameter name if there's an equivalence, otherwise _sX
-                    if u_idx in shape_to_scalar:
-                        shapes.append(shape_to_scalar[u_idx])
+                    dim_val = arg.shape[dim_idx]
+                    if dim_val == 1:
+                        # Always use literal "1" for size-1 dimensions to enable
+                        # proper broadcasting detection
+                        shapes.append("1")
                     else:
-                        shapes.append(f"_s{u_idx}")
+                        u_idx = arg_shape_mapping[(i, dim_idx)]
+                        if u_idx in shape_to_scalar:
+                            shapes.append(shape_to_scalar[u_idx])
+                        else:
+                            shapes.append(f"_s{u_idx}")
 
-                array_info[name] = {"ndim": arg.ndim, "shapes": shapes}
+                strides = []
+                if arg.flags["C_CONTIGUOUS"]:
+                    # Row-major: stride[i] = product of shapes[i+1:]
+                    for dim_idx in range(arg.ndim):
+                        if dim_idx == arg.ndim - 1:
+                            strides.append("1")
+                        else:
+                            suffix_shapes = shapes[dim_idx + 1 :]
+                            if len(suffix_shapes) == 1:
+                                strides.append(suffix_shapes[0])
+                            else:
+                                strides.append("(" + " * ".join(suffix_shapes) + ")")
+                elif arg.flags["F_CONTIGUOUS"]:
+                    # Column-major: stride[i] = product of shapes[:i]
+                    for dim_idx in range(arg.ndim):
+                        if dim_idx == 0:
+                            strides.append("1")
+                        else:
+                            prefix_shapes = shapes[:dim_idx]
+                            if len(prefix_shapes) == 1:
+                                strides.append(prefix_shapes[0])
+                            else:
+                                strides.append("(" + " * ".join(prefix_shapes) + ")")
+                else:
+                    # Non-contiguous: use actual stride values
+                    for dim_idx in range(arg.ndim):
+                        stride_val = arg.strides[dim_idx] // arg.itemsize
+                        strides.append(f"{stride_val}")
+
+                offset = "0"
+                tensor_table[name] = Tensor(element_type, shapes, strides, offset)
 
         # Add unified shape arguments only for shapes without scalar equivalents
-        for i in range(num_unique_shapes):
-            if i not in shape_to_scalar:
+        # and skip size-1 dimensions (they use literal "1" instead)
+        for i in range(len(shape_values)):
+            if i not in shape_to_scalar and shape_values[i] != 1:
                 builder.add_container(
                     f"_s{i}", Scalar(PrimitiveType.Int64), is_argument=True
                 )
 
         # Create symbol table for parser
-        symbol_table = {}
+        container_table = {}
         for i, ((name, param), dtype, arg) in enumerate(zip(params, arg_types, args)):
-            symbol_table[name] = dtype
+            container_table[name] = dtype
 
-        for i in range(num_unique_shapes):
-            if i not in shape_to_scalar:
-                symbol_table[f"_s{i}"] = Scalar(PrimitiveType.Int64)
+        for i in range(len(shape_values)):
+            if i not in shape_to_scalar and shape_values[i] != 1:
+                container_table[f"_s{i}"] = Scalar(PrimitiveType.Int64)
 
         # Parse AST
         source_lines, start_line = inspect.getsourcelines(self.func)
@@ -559,18 +635,29 @@ class PythonProgram(DoccProgram):
         filename = inspect.getsourcefile(self.func)
         function_name = self.func.__name__
 
+        # Combine globals with closure variables (closure takes precedence)
+        combined_globals = dict(self.func.__globals__)
+        if self.func.__closure__ is not None and self.func.__code__.co_freevars:
+            for name, cell in zip(
+                self.func.__code__.co_freevars, self.func.__closure__
+            ):
+                combined_globals[name] = cell.cell_contents
+
         parser = ASTParser(
             builder,
-            array_info,
-            symbol_table,
+            tensor_table,
+            container_table,
             filename,
             function_name,
             infer_return_type=infer_return_type,
-            globals_dict=self.func.__globals__,
+            globals_dict=combined_globals,
             structure_member_info=structure_member_info,
         )
         for node in func_def.body:
             parser.visit(node)
+
+        # Emit hoisted allocations at function entry
+        parser.memory_handler.emit_allocations()
 
         sdfg = builder.move()
         # Mark return arguments metadata
@@ -579,16 +666,22 @@ class PythonProgram(DoccProgram):
             if name.startswith("_docc_ret_"):
                 out_args.append(name)
 
-        return sdfg, out_args, parser.captured_return_shapes
+        return (
+            sdfg,
+            out_args,
+            parser.captured_return_shapes,
+            parser.captured_return_strides,
+        )
 
 
 def native(
     func=None,
     *,
     target="none",
-    category="desktop",
+    category="server",
     instrumentation_mode=None,
     capture_args=None,
+    remote_tuning=False,
 ):
     """Decorator to create a PythonProgram from a Python function.
 
@@ -606,6 +699,7 @@ def native(
             category=category,
             instrumentation_mode=instrumentation_mode,
             capture_args=capture_args,
+            remote_tuning=remote_tuning,
         )
     return PythonProgram(
         func,
@@ -613,4 +707,5 @@ def native(
         category=category,
         instrumentation_mode=instrumentation_mode,
         capture_args=capture_args,
+        remote_tuning=remote_tuning,
     )

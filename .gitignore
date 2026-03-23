@@ -3,10 +3,13 @@
 
 # cmake
 build/
+build_python/
 .cache/
 _deps/
 *-build-*/
 build-*/
+pybuild/
+pybuild-*/
 
 # Prerequisites
 *.d
@@ -49,4 +52,4 @@ docs/
 node_modules/
 dist/
 
-venv-mlir/
+venv*/

@@ -1,6 +1,9 @@
 #include "sdfg/symbolic/extreme_values.h"
 
 #include "sdfg/symbolic/polynomials.h"
+#include "sdfg/symbolic/symbolic.h"
+#include "symengine/basic.h"
+#include "symengine/functions.h"
 
 namespace sdfg {
 namespace symbolic {
@@ -50,6 +53,60 @@ Expression minimum(const Expression expr, const SymbolSet& parameters, const Ass
         if (assumptions.find(sym) != assumptions.end()) {
             return minimum(assumptions.at(sym).lower_bound_deprecated(), parameters, assumptions, depth + 1);
         }
+        return SymEngine::null;
+    }
+
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum(args[0], parameters, assumptions, depth + 1);
+        auto base_ub = maximum(args[0], parameters, assumptions, depth + 1);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        // Odd powers are monotonic. Even powers need interval sign reasoning.
+        if (exp_val % 2 != 0) {
+            return lb_pow;
+        }
+
+        auto zero = symbolic::zero();
+        bool interval_nonneg = symbolic::is_true(symbolic::Ge(base_lb, zero));
+        bool interval_nonpos = symbolic::is_true(symbolic::Le(base_ub, zero));
+        bool crosses_zero = symbolic::is_true(symbolic::Le(base_lb, zero)) &&
+                            symbolic::is_true(symbolic::Ge(base_ub, zero));
+
+        if (crosses_zero) {
+            return zero;
+        }
+        if (interval_nonneg || interval_nonpos) {
+            return symbolic::min(lb_pow, ub_pow);
+        }
+
+        // Cannot prove whether 0 belongs to the interval -> avoid unsound bound.
         return SymEngine::null;
     }
 
@@ -177,6 +234,45 @@ Expression maximum(const Expression expr, const SymbolSet& parameters, const Ass
             return maximum(assumptions.at(sym).upper_bound_deprecated(), parameters, assumptions, depth + 1);
         }
         return SymEngine::null;
+    }
+
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum(args[0], parameters, assumptions, depth + 1);
+        auto base_ub = maximum(args[0], parameters, assumptions, depth + 1);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        if (exp_val % 2 != 0) {
+            return ub_pow;
+        }
+
+        return symbolic::max(lb_pow, ub_pow);
     }
 
     if (SymEngine::is_a<symbolic::ZExtI64Function>(*expr)) {
@@ -335,22 +431,43 @@ Expression minimum_new(
         }
     }
 
-    if (SymEngine::is_a<symbolic::ZExtI64Function>(*expr)) {
-        auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(expr);
-        auto min_arg = minimum_new(zext->get_args()[0], parameters, assumptions, depth + 1, tight);
-        if (min_arg == SymEngine::null) {
-            return SymEngine::null;
-        } else {
-            return symbolic::zext_i64(min_arg);
-        }
-    }
-    if (SymEngine::is_a<symbolic::TruncI32Function>(*expr)) {
-        auto trunc = SymEngine::rcp_static_cast<const symbolic::TruncI32Function>(expr);
-        auto min_arg = minimum_new(trunc->get_args()[0], parameters, assumptions, depth + 1, tight);
-        if (min_arg == SymEngine::null) {
-            return SymEngine::null;
-        } else {
-            return symbolic::trunc_i32(min_arg);
+    if (SymEngine::is_a<SymEngine::FunctionSymbol>(*expr)) {
+        auto func_sym = SymEngine::rcp_static_cast<const SymEngine::FunctionSymbol>(expr);
+        auto func_id = func_sym->get_name();
+        if (func_id == "zext_i64") {
+            auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(expr);
+            auto min_arg = minimum_new(zext->get_args()[0], parameters, assumptions, depth + 1, tight);
+            if (min_arg == SymEngine::null) {
+                return SymEngine::null;
+            } else {
+                return symbolic::zext_i64(min_arg);
+            }
+        } else if (func_id == "trunc_i32") {
+            auto trunc = SymEngine::rcp_static_cast<const symbolic::TruncI32Function>(expr);
+            auto min_arg = minimum_new(trunc->get_args()[0], parameters, assumptions, depth + 1, tight);
+            if (min_arg == SymEngine::null) {
+                return SymEngine::null;
+            } else {
+                return symbolic::trunc_i32(min_arg);
+            }
+        } else if (func_id == "idiv") {
+            auto numerator = func_sym->get_args()[0];
+            auto denominator = func_sym->get_args()[1];
+            if (!SymEngine::is_a<const SymEngine::Integer>(*denominator)) {
+                // Denominator is not a constant integer -> cannot soundly bound.
+                return SymEngine::null;
+            }
+
+            auto numerator_lb = minimum_new(numerator, parameters, assumptions, depth + 1, tight);
+            auto denominator_ub = maximum_new(denominator, parameters, assumptions, depth + 1, tight);
+            if (numerator_lb == SymEngine::null || denominator_ub == SymEngine::null) {
+                return SymEngine::null;
+            }
+            if (symbolic::is_true(symbolic::Le(denominator_ub, symbolic::zero()))) {
+                // Denominator can be zero or negative -> cannot soundly bound.
+                return SymEngine::null;
+            }
+            return symbolic::div(numerator_lb, denominator_ub);
         }
     }
 
@@ -378,6 +495,60 @@ Expression minimum_new(
             }
             return new_lb;
         }
+        return SymEngine::null;
+    }
+
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum_new(args[0], parameters, assumptions, depth + 1, tight);
+        auto base_ub = maximum_new(args[0], parameters, assumptions, depth + 1, tight);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        // Odd powers are monotonic. Even powers need interval sign reasoning.
+        if (exp_val % 2 != 0) {
+            return lb_pow;
+        }
+
+        auto zero = symbolic::zero();
+        bool interval_nonneg = symbolic::is_true(symbolic::Ge(base_lb, zero));
+        bool interval_nonpos = symbolic::is_true(symbolic::Le(base_ub, zero));
+        bool crosses_zero = symbolic::is_true(symbolic::Le(base_lb, zero)) &&
+                            symbolic::is_true(symbolic::Ge(base_ub, zero));
+
+        if (crosses_zero) {
+            return zero;
+        }
+        if (interval_nonneg || interval_nonpos) {
+            return symbolic::min(lb_pow, ub_pow);
+        }
+
+        // Cannot prove whether 0 belongs to the interval -> avoid unsound bound.
         return SymEngine::null;
     }
 
@@ -503,22 +674,48 @@ Expression maximum_new(
         }
     }
 
-    if (SymEngine::is_a<symbolic::ZExtI64Function>(*expr)) {
-        auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(expr);
-        auto max_arg = maximum_new(zext->get_args()[0], parameters, assumptions, depth + 1, tight);
-        if (max_arg == SymEngine::null) {
-            return SymEngine::null;
-        } else {
-            return symbolic::zext_i64(max_arg);
-        }
-    }
-    if (SymEngine::is_a<symbolic::TruncI32Function>(*expr)) {
-        auto trunc = SymEngine::rcp_static_cast<const symbolic::TruncI32Function>(expr);
-        auto max_arg = maximum_new(trunc->get_args()[0], parameters, assumptions, depth + 1, tight);
-        if (max_arg == SymEngine::null) {
-            return SymEngine::null;
-        } else {
-            return symbolic::trunc_i32(max_arg);
+    if (SymEngine::is_a<SymEngine::FunctionSymbol>(*expr)) {
+        auto func_sym = SymEngine::rcp_static_cast<const SymEngine::FunctionSymbol>(expr);
+        auto func_id = func_sym->get_name();
+        if (func_id == "zext_i64") {
+            auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(expr);
+            auto max_arg = maximum_new(zext->get_args()[0], parameters, assumptions, depth + 1, tight);
+            if (max_arg == SymEngine::null) {
+                return SymEngine::null;
+            } else {
+                return symbolic::zext_i64(max_arg);
+            }
+            if (max_arg == SymEngine::null) {
+                return SymEngine::null;
+            } else {
+                return symbolic::zext_i64(max_arg);
+            }
+        } else if (func_id == "trunc_i32") {
+            auto trunc = SymEngine::rcp_static_cast<const symbolic::TruncI32Function>(expr);
+            auto max_arg = maximum_new(trunc->get_args()[0], parameters, assumptions, depth + 1, tight);
+            if (max_arg == SymEngine::null) {
+                return SymEngine::null;
+            } else {
+                return symbolic::trunc_i32(max_arg);
+            }
+        } else if (func_id == "idiv") {
+            auto numerator = func_sym->get_args()[0];
+            auto denominator = func_sym->get_args()[1];
+            if (!SymEngine::is_a<const SymEngine::Integer>(*denominator)) {
+                // Denominator is not a constant integer -> cannot soundly bound.
+                return SymEngine::null;
+            }
+
+            auto numerator_ub = maximum(numerator, parameters, assumptions, depth + 1);
+            auto denominator_lb = minimum(denominator, parameters, assumptions, depth + 1);
+            if (numerator_ub == SymEngine::null || denominator_lb == SymEngine::null) {
+                return SymEngine::null;
+            }
+            if (symbolic::is_true(symbolic::Le(denominator_lb, symbolic::zero()))) {
+                // Denominator can be zero or negative -> cannot soundly bound.
+                return SymEngine::null;
+            }
+            return symbolic::div(numerator_ub, denominator_lb);
         }
     }
 
@@ -547,6 +744,45 @@ Expression maximum_new(
             return new_ub;
         }
         return SymEngine::null;
+    }
+
+    // Pow(base, k) with constant integer exponent k
+    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
+        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
+        auto args = pow_expr->get_args();
+        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+            return SymEngine::null;
+        }
+
+        long long exp_val = 0;
+        try {
+            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+        } catch (const SymEngine::SymEngineException&) {
+            return SymEngine::null;
+        }
+
+        if (exp_val < 0) {
+            return SymEngine::null;
+        }
+        if (exp_val == 0) {
+            return symbolic::one();
+        }
+
+        auto base_lb = minimum_new(args[0], parameters, assumptions, depth + 1, tight);
+        auto base_ub = maximum_new(args[0], parameters, assumptions, depth + 1, tight);
+        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
+            return SymEngine::null;
+        }
+
+        auto exp_expr = symbolic::integer(exp_val);
+        auto lb_pow = symbolic::pow(base_lb, exp_expr);
+        auto ub_pow = symbolic::pow(base_ub, exp_expr);
+
+        if (exp_val % 2 != 0) {
+            return ub_pow;
+        }
+
+        return symbolic::max(lb_pow, ub_pow);
     }
 
     // Mul
