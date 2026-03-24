@@ -114,7 +114,8 @@ Expression abs(const Expression expr) {
 };
 
 Expression mod(const Expression lhs, const Expression rhs) {
-    return symbolic::sub(lhs, symbolic::mul(symbolic::div(lhs, rhs), rhs));
+    auto mod = SymEngine::function_symbol("imod", {lhs, rhs});
+    return mod;
 };
 
 Expression pow(const Expression base, const Expression exp) { return SymEngine::pow(base, exp); };
@@ -222,6 +223,9 @@ Expression simplify(const Expression expr) {
             auto rhs = func_sym->get_args()[1];
             if (symbolic::eq(rhs, symbolic::integer(0))) {
                 return expr;
+            }
+            if (symbolic::is_true(symbolic::Lt(lhs, rhs))) {
+                return symbolic::zero();
             }
 
             if (SymEngine::is_a<SymEngine::Mul>(*lhs) && SymEngine::is_a<SymEngine::Integer>(*rhs)) {

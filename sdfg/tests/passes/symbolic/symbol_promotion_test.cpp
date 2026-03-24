@@ -6,6 +6,7 @@
 
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/codegen/language_extensions/cpp_language_extension.h"
+#include "sdfg/symbolic/symbolic.h"
 #include "sdfg_debug_dump.h"
 
 using namespace sdfg;
