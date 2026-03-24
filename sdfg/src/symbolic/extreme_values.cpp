@@ -1,6 +1,5 @@
 #include "sdfg/symbolic/extreme_values.h"
 
-#include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "symengine/basic.h"
 #include "symengine/functions.h"
@@ -480,13 +479,22 @@ Expression minimum_new(
             auto width = symbolic::sub(lhs_ub, lhs_lb);
             if (symbolic::is_true(symbolic::Lt(width, rhs))) {
                 if (symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)))) {
+                    if (symbolic::is_true(symbolic::Lt(lhs_lb, symbolic::zero())) ||
+                        symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()))) {
+                        return symbolic::
+                            mul(symbolic::sub(symbolic::simplify(symbolic::abs(rhs)), symbolic::one()),
+                                symbolic::integer(-1));
+                    }
                     return symbolic::zero();
-                } else {
-                    return symbolic::mod(lhs_lb, rhs);
                 }
-            } else {
-                return symbolic::zero();
+                return symbolic::simplify(symbolic::mod(lhs_lb, rhs));
             }
+            if (symbolic::is_true(symbolic::Lt(lhs_lb, symbolic::zero())) ||
+                symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()))) {
+                return symbolic::
+                    mul(symbolic::sub(symbolic::simplify(symbolic::abs(rhs)), symbolic::one()), symbolic::integer(-1));
+            }
+            return symbolic::zero();
         }
     }
 
@@ -748,12 +756,15 @@ Expression maximum_new(
             if (symbolic::is_true(symbolic::Lt(width, rhs))) {
                 if (symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)))) {
                     return symbolic::sub(rhs, symbolic::one());
-                } else {
-                    return symbolic::mod(lhs_ub, rhs);
                 }
-            } else {
-                return symbolic::sub(rhs, symbolic::one());
+                return symbolic::simplify(symbolic::mod(lhs_ub, rhs));
             }
+
+            if (symbolic::is_true(symbolic::Lt(rhs, symbolic::zero())) ||
+                symbolic::is_true(symbolic::Lt(lhs_ub, symbolic::zero()))) {
+                return symbolic::zero();
+            }
+            return symbolic::sub(rhs, symbolic::one());
         }
     }
 

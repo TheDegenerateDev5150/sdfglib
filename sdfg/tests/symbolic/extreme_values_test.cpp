@@ -1,7 +1,6 @@
 #include "sdfg/symbolic/extreme_values.h"
 
 #include <gtest/gtest.h>
-#include <iostream>
 #include "sdfg/symbolic/symbolic.h"
 
 using namespace sdfg;
@@ -685,6 +684,7 @@ TEST(ExtremeValuesNewTest, IMod_Symbolic) {
     auto min = symbolic::minimum_new(expr, {N, M}, assums, false);
     auto max = symbolic::maximum_new(expr, {N, M}, assums, false);
 
+
     auto expected_min = symbolic::zero();
     EXPECT_TRUE(symbolic::eq(min, expected_min));
     auto expected_max = symbolic::integer(3);
@@ -787,4 +787,138 @@ TEST(ExtremeValuesNewTest, Conv2d_Access_Pattern) {
 
     auto max = symbolic::maximum_new(expr, {}, assums, false);
     EXPECT_TRUE(symbolic::eq(max, symbolic::integer(6889471)));
+}
+
+// ===== Tests for C++ truncation-toward-zero modulo with negative values =====
+
+TEST(ExtremeValuesNewTest, IMod_NegativeDividend) {
+    // a in [-7, -1], a % 3 (C++ semantics: result has sign of dividend)
+    // Values: -7%3=-1, -6%3=0, -5%3=-2, -4%3=-1, -3%3=0, -2%3=-2, -1%3=-1
+    // Expected: min = -2, max = 0
+    auto a = symbolic::symbol("a");
+
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(-7));
+    assum.add_upper_bound(symbolic::integer(-1));
+
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mod(a, symbolic::integer(3));
+
+    auto min = symbolic::minimum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(-2)));
+
+    auto max = symbolic::maximum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(0)));
+}
+
+TEST(ExtremeValuesNewTest, IMod_NegativeDividend_SmallRange) {
+    // a in [-2, -1], a % 3 (range < modulus)
+    // Values: -2%3=-2, -1%3=-1
+    // Expected: min = -2, max = -1
+    auto a = symbolic::symbol("a");
+
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(-2));
+    assum.add_upper_bound(symbolic::integer(-1));
+
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mod(a, symbolic::integer(3));
+
+    auto min = symbolic::minimum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(-2)));
+
+    auto max = symbolic::maximum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(-1)));
+}
+
+TEST(ExtremeValuesNewTest, IMod_CrossingZero) {
+    // a in [-3, 5], a % 4 (range crosses zero)
+    // Values: -3%4=-3, -2%4=-2, -1%4=-1, 0%4=0, 1%4=1, 2%4=2, 3%4=3, 4%4=0, 5%4=1
+    // Expected: min = -3, max = 3
+    auto a = symbolic::symbol("a");
+
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(-3));
+    assum.add_upper_bound(symbolic::integer(5));
+
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mod(a, symbolic::integer(4));
+
+    auto min = symbolic::minimum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(-3)));
+
+    auto max = symbolic::maximum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(3)));
+}
+
+TEST(ExtremeValuesNewTest, IMod_NegativeDividend_ExactMultiple) {
+    // a in [-6, -3], a % 3 (all are exact multiples or near)
+    // Values: -6%3=0, -5%3=-2, -4%3=-1, -3%3=0
+    // Expected: min = -2, max = 0
+    auto a = symbolic::symbol("a");
+
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(-6));
+    assum.add_upper_bound(symbolic::integer(-3));
+
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mod(a, symbolic::integer(3));
+
+    auto min = symbolic::minimum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(-2)));
+
+    auto max = symbolic::maximum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(0)));
+}
+
+TEST(ExtremeValuesNewTest, IDiv_NegativeDividend) {
+    // a in [-7, -1], a / 3 (C++ truncation toward zero)
+    // Values: -7/3=-2, -6/3=-2, -5/3=-1, -4/3=-1, -3/3=-1, -2/3=0, -1/3=0
+    // Expected: min = -2, max = 0
+    auto a = symbolic::symbol("a");
+
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(-7));
+    assum.add_upper_bound(symbolic::integer(-1));
+
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::div(a, symbolic::integer(3));
+
+    auto min = symbolic::minimum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(-2)));
+
+    auto max = symbolic::maximum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(0)));
+}
+
+TEST(ExtremeValuesNewTest, IDiv_CrossingZero) {
+    // a in [-5, 7], a / 3 (range crosses zero)
+    // Values: -5/3=-1, -4/3=-1, -3/3=-1, -2/3=0, -1/3=0, 0/3=0, 1/3=0, ..., 7/3=2
+    // Expected: min = -1, max = 2
+    auto a = symbolic::symbol("a");
+
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(-5));
+    assum.add_upper_bound(symbolic::integer(7));
+
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::div(a, symbolic::integer(3));
+
+    auto min = symbolic::minimum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(-1)));
+
+    auto max = symbolic::maximum_new(expr, {}, assums, false);
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(2)));
 }

@@ -286,6 +286,13 @@ Expression simplify(const Expression expr) {
             if (!eq(arg, simple_arg)) {
                 return zext_i64(simple_arg);
             }
+        } else if (func_id == "iabs") {
+            auto arg = func_sym->get_args()[0];
+            auto simple_arg = symbolic::simplify(arg);
+            if (SymEngine::is_a<SymEngine::Integer>(*simple_arg)) {
+                auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(simple_arg)->as_int();
+                return integer(val >= 0 ? val : -val);
+            }
         }
     }
 
