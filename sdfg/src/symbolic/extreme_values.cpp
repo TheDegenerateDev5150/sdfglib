@@ -468,6 +468,25 @@ Expression minimum_new(
                 return SymEngine::null;
             }
             return symbolic::div(numerator_lb, denominator_ub);
+        } else if (func_id == "imod") {
+            auto lhs = func_sym->get_args()[0];
+            auto rhs = func_sym->get_args()[1];
+            auto lhs_lb = minimum_new(lhs, parameters, assumptions, depth + 1, tight);
+            auto lhs_ub = maximum_new(lhs, parameters, assumptions, depth + 1, tight);
+            if (lhs_lb == SymEngine::null || lhs_ub == SymEngine::null) {
+                return SymEngine::null;
+            }
+
+            auto width = symbolic::sub(lhs_ub, lhs_lb);
+            if (symbolic::is_true(symbolic::Lt(width, rhs))) {
+                if (symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)))) {
+                    return symbolic::zero();
+                } else {
+                    return symbolic::mod(lhs_lb, rhs);
+                }
+            } else {
+                return symbolic::zero();
+            }
         }
     }
 
@@ -706,8 +725,8 @@ Expression maximum_new(
                 return SymEngine::null;
             }
 
-            auto numerator_ub = maximum(numerator, parameters, assumptions, depth + 1);
-            auto denominator_lb = minimum(denominator, parameters, assumptions, depth + 1);
+            auto numerator_ub = maximum_new(numerator, parameters, assumptions, depth + 1, tight);
+            auto denominator_lb = minimum_new(denominator, parameters, assumptions, depth + 1, tight);
             if (numerator_ub == SymEngine::null || denominator_lb == SymEngine::null) {
                 return SymEngine::null;
             }
@@ -716,6 +735,25 @@ Expression maximum_new(
                 return SymEngine::null;
             }
             return symbolic::div(numerator_ub, denominator_lb);
+        } else if (func_id == "imod") {
+            auto lhs = func_sym->get_args()[0];
+            auto rhs = func_sym->get_args()[1];
+            auto lhs_lb = minimum_new(lhs, parameters, assumptions, depth + 1, tight);
+            auto lhs_ub = maximum_new(lhs, parameters, assumptions, depth + 1, tight);
+            if (lhs_lb == SymEngine::null || lhs_ub == SymEngine::null) {
+                return SymEngine::null;
+            }
+
+            auto width = symbolic::sub(lhs_ub, lhs_lb);
+            if (symbolic::is_true(symbolic::Lt(width, rhs))) {
+                if (symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)))) {
+                    return symbolic::sub(rhs, symbolic::one());
+                } else {
+                    return symbolic::mod(lhs_ub, rhs);
+                }
+            } else {
+                return symbolic::sub(rhs, symbolic::one());
+            }
         }
     }
 
