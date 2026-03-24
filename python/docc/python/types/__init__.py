@@ -139,8 +139,13 @@ def promote_element_types(left_element_type, right_element_type):
     left_pt = left_element_type.primitive_type
     right_pt = right_element_type.primitive_type
 
-    # Check if types are floating point
-    float_types = {PrimitiveType.Double, PrimitiveType.Float}
+    # Check if types are floating point (includes half-precision types)
+    float_types = {
+        PrimitiveType.Double,
+        PrimitiveType.Float,
+        PrimitiveType.Half,
+        PrimitiveType.BFloat,
+    }
     int_types = {
         PrimitiveType.Int64,
         PrimitiveType.Int32,
@@ -159,7 +164,12 @@ def promote_element_types(left_element_type, right_element_type):
     if left_is_float and right_is_float:
         if left_pt == PrimitiveType.Double or right_pt == PrimitiveType.Double:
             return Scalar(PrimitiveType.Double)
-        return Scalar(PrimitiveType.Float)
+        if left_pt == PrimitiveType.Float or right_pt == PrimitiveType.Float:
+            return Scalar(PrimitiveType.Float)
+        # Half-precision types: same type stays, mixed promotes to Float
+        if left_pt == right_pt:
+            return Scalar(left_pt)  # BFloat+BFloat→BFloat, Half+Half→Half
+        return Scalar(PrimitiveType.Float)  # Mixed half types → float32
 
     # Both integers: return wider (simplified - always Int64 for now)
     if not left_is_float and not right_is_float:
@@ -174,12 +184,17 @@ def promote_element_types(left_element_type, right_element_type):
     # Mixed float + int: need a float that can represent the int
     # float32 can represent int16/int8, but not int32
     # float64 can represent int32 and smaller
+    # half types + int → promote to float32 (half can't represent ints well)
     float_type = left_pt if left_is_float else right_pt
     int_type = right_pt if left_is_float else left_pt
 
     # If float is already double, use double
     if float_type == PrimitiveType.Double:
         return Scalar(PrimitiveType.Double)
+
+    # Half-precision + any int → float32 (half types can't represent ints well)
+    if float_type in {PrimitiveType.Half, PrimitiveType.BFloat}:
+        return Scalar(PrimitiveType.Float)
 
     # float32 + (int32 or larger) → float64
     if int_type in {
