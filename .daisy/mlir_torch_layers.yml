@@ -35,10 +35,10 @@ steps:
     DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/batchnorm.py --n_runs=1 --docc --target=openmp
     DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/batchnorm.py --n_runs=1 --docc --target=cuda
 
-    # DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=none
-    # DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=sequential
-    # DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=openmp
-    # DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=cuda
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=none
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=sequential
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=openmp
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --n_runs=1 --docc --target=cuda
 
     DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/linear.py --n_runs=1 --docc --target=none
     DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/layers/linear.py --n_runs=1 --docc --target=sequential
