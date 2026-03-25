@@ -1,11 +1,19 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 
 namespace sdfg {
 namespace passes {
+
+inline constexpr const char* DOCC_STATISTICS_ENV = "DOCC_STATISTICS";
+
+inline bool statistics_enabled_by_env() {
+    const char* val = std::getenv(DOCC_STATISTICS_ENV);
+    return val != nullptr && std::string(val) == "1";
+}
 
 class PassStatistics {
 private:
