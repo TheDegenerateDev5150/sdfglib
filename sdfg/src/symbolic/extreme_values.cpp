@@ -468,33 +468,35 @@ Expression minimum_new(
             }
             return symbolic::div(numerator_lb, denominator_ub);
         } else if (func_id == "imod") {
-            auto lhs = func_sym->get_args()[0];
-            auto rhs = func_sym->get_args()[1];
-            auto lhs_lb = minimum_new(lhs, parameters, assumptions, depth + 1, tight);
-            auto lhs_ub = maximum_new(lhs, parameters, assumptions, depth + 1, tight);
-            if (lhs_lb == SymEngine::null || lhs_ub == SymEngine::null) {
-                return SymEngine::null;
-            }
+    auto lhs = func_sym->get_args()[0];
+    auto rhs = func_sym->get_args()[1];
+        if (!SymEngine::is_a<const SymEngine::Integer>(*rhs)) {
+        return SymEngine::null;
+    }
+    
+    auto lhs_lb = minimum_new(lhs, parameters, assumptions, depth + 1, tight);
+    auto lhs_ub = maximum_new(lhs, parameters, assumptions, depth + 1, tight);
+    if (lhs_lb == SymEngine::null || lhs_ub == SymEngine::null) {
+        return SymEngine::null;
+    }
 
-            auto width = symbolic::sub(lhs_ub, lhs_lb);
-            if (symbolic::is_true(symbolic::Lt(width, rhs))) {
-                if (symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)))) {
-                    if (symbolic::is_true(symbolic::Lt(lhs_lb, symbolic::zero())) ||
-                        symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()))) {
-                        return symbolic::
-                            mul(symbolic::sub(symbolic::simplify(symbolic::abs(rhs)), symbolic::one()),
-                                symbolic::integer(-1));
-                    }
-                    return symbolic::zero();
-                }
-                return symbolic::simplify(symbolic::mod(lhs_lb, rhs));
-            }
-            if (symbolic::is_true(symbolic::Lt(lhs_lb, symbolic::zero())) ||
-                symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()))) {
-                return symbolic::
-                    mul(symbolic::sub(symbolic::simplify(symbolic::abs(rhs)), symbolic::one()), symbolic::integer(-1));
-            }
-            return symbolic::zero();
+    // Handle negative cases: min can be -(|rhs| - 1)
+    bool has_negative = symbolic::is_true(symbolic::Lt(lhs_lb, symbolic::zero())) ||
+                        symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()));
+    auto neg_bound = symbolic::sub(symbolic::one(), symbolic::simplify(symbolic::abs(rhs)));
+
+    auto width = symbolic::sub(lhs_ub, lhs_lb);
+    if (symbolic::is_true(symbolic::Lt(width, rhs))) {
+        // Range doesn't span full modulus cycle
+        bool wraps = symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)));
+        if (wraps) {
+            return has_negative ? neg_bound : symbolic::zero();
+        }
+        return symbolic::simplify(symbolic::mod(lhs_lb, rhs));
+    }
+    
+    // Range spans full cycle
+    return has_negative ? neg_bound : symbolic::zero();
         }
     }
 
