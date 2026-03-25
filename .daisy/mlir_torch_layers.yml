@@ -99,18 +99,18 @@ steps:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --torch
       energy: true
       measurements: 3
-    conv2d_run_none:
-      command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --docc --target=none
-      energy: true
-      env:
-        DOCC_CI: regions
-        DOCC_REUSE_BINARIES: 1
-    conv2d_run_sequential:
-      command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --docc --target=sequential
-      energy: true
-      env:
-        DOCC_CI: regions
-        DOCC_REUSE_BINARIES: 1
+    # conv2d_run_none:
+    #   command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --docc --target=none
+    #   energy: true
+    #   env:
+    #     DOCC_CI: regions
+    #     DOCC_REUSE_BINARIES: 1
+    # conv2d_run_sequential:
+    #   command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --docc --target=sequential
+    #   energy: true
+    #   env:
+    #     DOCC_CI: regions
+    #     DOCC_REUSE_BINARIES: 1
     conv2d_run_openmp:
       command: venv/bin/python3 mlir/benchmarks/torch/layers/conv2d.py --docc --target=openmp
       energy: true
