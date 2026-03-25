@@ -21,7 +21,7 @@ std::string Pipeline::name() { return this->name_; };
 size_t Pipeline::size() const { return this->passes_.size(); };
 
 bool Pipeline::run(builder::SDFGBuilder& builder) {
-    std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds> start;
+    std::chrono::high_resolution_clock::time_point start;
     if (PipelineStatistics::instance().enabled()) {
         start = std::chrono::high_resolution_clock::now();
 #ifndef NDEBUG
@@ -56,7 +56,7 @@ bool Pipeline::run(builder::SDFGBuilder& builder) {
 };
 
 bool Pipeline::run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds> start;
+    std::chrono::high_resolution_clock::time_point start;
     if (PipelineStatistics::instance().enabled()) {
         start = std::chrono::high_resolution_clock::now();
 #ifndef NDEBUG

@@ -9,7 +9,7 @@ namespace sdfg {
 namespace passes {
 
 bool Pass::run(builder::SDFGBuilder& builder, bool create_report) {
-    std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds> start;
+    std::chrono::high_resolution_clock::time_point start;
     if (PassStatistics::instance().enabled()) {
         start = std::chrono::high_resolution_clock::now();
 #ifndef NDEBUG
@@ -36,7 +36,7 @@ bool Pass::run(builder::SDFGBuilder& builder, bool create_report) {
 };
 
 bool Pass::run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, bool create_report) {
-    std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds> start;
+    std::chrono::high_resolution_clock::time_point start;
     if (PassStatistics::instance().enabled()) {
         start = std::chrono::high_resolution_clock::now();
 #ifndef NDEBUG
