@@ -170,5 +170,55 @@ std::string PipelineStatistics::summary() {
     return stream.str();
 }
 
+
+void AnalysisStatistics::add_analysis(const std::string& name, uint64_t milliseconds) {
+    if (!count_.contains(name)) {
+        count_.insert({name, 1});
+    } else {
+        count_[name]++;
+    }
+    if (!time_.contains(name)) {
+        time_.insert({name, milliseconds});
+    } else {
+        time_[name] += milliseconds;
+    }
+}
+
+std::string AnalysisStatistics::summary() {
+    if (count_.empty()) {
+        return "";
+    }
+
+    auto compare_data_fn = [](const std::tuple<std::string, uint64_t, uint64_t>& a,
+                              const std::tuple<std::string, uint64_t, uint64_t>& b) {
+        auto [a_name, a_count, a_milliseconds] = a;
+        auto [b_name, b_count, b_milliseconds] = b;
+        return a_milliseconds > b_milliseconds || (a_milliseconds == b_milliseconds && a_count > b_count) ||
+               (a_milliseconds == b_milliseconds && a_count == b_count && a_name < b_name);
+    };
+    std::stringstream stream;
+    stream << "Analysis Statistics:" << std::endl;
+
+    std::vector<std::tuple<std::string, uint64_t, uint64_t>> data;
+    uint64_t time_sum = 0;
+    for (auto [name, count] : count_) {
+        if (time_.contains(name)) {
+            auto milliseconds = time_[name];
+            data.push_back({name, count, milliseconds});
+            time_sum += milliseconds;
+        }
+    }
+    std::sort(data.begin(), data.end(), compare_data_fn);
+
+    if (!data.empty()) {
+        stream << "  Analyses: " << time_sum << " ms" << std::endl;
+        for (auto [name, count, milliseconds] : data) {
+            stream << "    " << milliseconds << " ms  " << count << "  " << name << std::endl;
+        }
+    }
+
+    return stream.str();
+}
+
 } // namespace passes
 } // namespace sdfg

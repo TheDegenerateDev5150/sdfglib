@@ -551,8 +551,9 @@ PYBIND11_MODULE(_sdfg, m) {
         []() {
             sdfg::passes::PassStatistics::instance().enable();
             sdfg::passes::PipelineStatistics::instance().enable();
+            sdfg::passes::AnalysisStatistics::instance().enable();
         },
-        "Enable pass and pipeline statistics collection"
+        "Enable pass, pipeline, and analysis statistics collection"
     );
     m.def(
         "_statistics_enabled_by_env",
@@ -565,6 +566,7 @@ PYBIND11_MODULE(_sdfg, m) {
             std::string result;
             result += sdfg::passes::PassStatistics::instance().summary();
             result += sdfg::passes::PipelineStatistics::instance().summary();
+            result += sdfg::passes::AnalysisStatistics::instance().summary();
             return result;
         },
         "Get pass and pipeline statistics summary"

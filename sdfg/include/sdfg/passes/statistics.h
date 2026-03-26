@@ -57,5 +57,25 @@ public:
     std::string summary();
 };
 
+class AnalysisStatistics {
+private:
+    bool enabled_ = false;
+    std::unordered_map<std::string, uint64_t> count_, time_;
+
+public:
+    static AnalysisStatistics& instance() {
+        static AnalysisStatistics analysis_statistics;
+        return analysis_statistics;
+    }
+
+    bool enabled() { return enabled_; }
+    void enable() { enabled_ = true; }
+    void disable() { enabled_ = false; }
+
+    void add_analysis(const std::string& name, uint64_t milliseconds);
+
+    std::string summary();
+};
+
 } // namespace passes
 } // namespace sdfg

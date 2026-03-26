@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import sys
 from typing import Any, Optional
 import os
 
@@ -130,7 +131,7 @@ class DoccProgram(ABC):
 
         # Dump statistics before compile
         if _statistics_enabled_by_env():
-            print(_statistics_summary())
+            print(_statistics_summary(), file=sys.stderr)
 
         custom_compile_fn = get_target_compile_fn(self.target)
         if custom_compile_fn is not None:
