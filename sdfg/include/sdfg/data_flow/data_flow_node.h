@@ -69,6 +69,7 @@ class StructuredSDFGBuilder;
 namespace data_flow {
 
 class DataFlowGraph;
+class Memlet;
 
 /**
  * @class DataFlowNode
@@ -148,6 +149,13 @@ public:
      */
     virtual std::unique_ptr<DataFlowNode> clone(size_t element_id, const graph::Vertex vertex, DataFlowGraph& parent)
         const = 0;
+
+    /**
+     * Is the edge in question removable, or will this make the node its an output on invalid?
+     * Currently, some nodes may require every out connector to have at least 1 connection attached
+     * @return true, if required
+     */
+    virtual bool require_out_edge(const data_flow::DataFlowGraph& graph, const Memlet* memlet) const = 0;
 };
 } // namespace data_flow
 } // namespace sdfg

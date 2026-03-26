@@ -282,7 +282,9 @@ std::unique_ptr<DataFlowNode> Tasklet::clone(size_t element_id, const graph::Ver
     );
 };
 
-void Tasklet::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {};
+void Tasklet::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {}
+
+bool Tasklet::require_out_edge(const data_flow::DataFlowGraph& graph, const Memlet* memlet) const { return false; }
 
 } // namespace data_flow
 } // namespace sdfg

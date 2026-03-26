@@ -4,6 +4,7 @@
 
 #include "sdfg/builder/sdfg_builder.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
+#include "sdfg/data_flow/library_nodes/call_node.h"
 #include "sdfg/element.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg_debug_dump.h"
@@ -457,7 +458,12 @@ TEST(StructuredSDFGBuilderTest, ClearNode_AccessNode_Unused) {
     builder.add_computational_memlet(block, in_node, tasklet, "_in", {});
     builder.add_computational_memlet(block, tasklet, "_out", out_node, {});
 
+    dump_sdfg(builder.subject(), "0-before");
+
     builder.clear_node(block, out_node);
+
+    dump_sdfg(builder.subject(), "1-after");
+
     EXPECT_EQ(block.dataflow().nodes().size(), 0);
     EXPECT_EQ(block.dataflow().edges().size(), 0);
 }
@@ -552,4 +558,62 @@ TEST(StructuredSDFGBuilderTest, ClearNode_Dont_Remove_Write_Nodes) {
     dump_sdfg(builder.subject(), "1-after");
     EXPECT_EQ(block.dataflow().nodes().size(), 2);
     EXPECT_EQ(block.dataflow().edges().size(), 1);
+}
+
+TEST(StructuredSDFGBuilderTest, ClearNode_Leaves_Required_Out_Edges) {
+    builder::StructuredSDFGBuilder builder("sdfg_1", FunctionType_CPU);
+
+    types::Scalar desc(types::PrimitiveType::Int64);
+    types::Pointer desc_ptr(desc);
+    builder.add_container("a", desc, true);
+    builder.add_container("b", desc, true);
+    builder.add_container("result1", desc);
+    builder.add_container("result2", desc);
+
+
+    auto& root = builder.subject().root();
+    EXPECT_EQ(root.element_id(), 0);
+
+    auto& block = builder.add_block(root);
+
+    auto& in_a_node = builder.add_access(block, "a");
+    auto& in_b_node = builder.add_access(block, "b");
+    auto& res1_node = builder.add_access(block, "result1");
+    auto& res2_node = builder.add_access(block, "result2");
+    auto function_type = types::Function(types::Scalar(types::Void));
+    function_type.add_param(desc);
+    function_type.add_param(desc);
+
+    builder.add_external("blackbox_function", function_type, LinkageType_External);
+    auto& black_fun = builder.add_library_node<data_flow::CallNode>(
+        block,
+        DebugInfo(),
+        "blackbox_function",
+        std::vector<std::string>{"res1", "res2"},
+        std::vector<std::string>{"a", "b"}
+    );
+
+    builder.add_computational_memlet(block, in_a_node, black_fun, "a", {}, desc);
+    builder.add_computational_memlet(block, in_b_node, black_fun, "b", {}, desc);
+    builder.add_computational_memlet(block, black_fun, "res1", res1_node, {}, desc);
+    builder.add_computational_memlet(block, black_fun, "res2", res2_node, {}, desc);
+
+    builder.add_return(root, "result2");
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    builder.subject().validate();
+
+    builder.clear_node(block, res1_node);
+
+    dump_sdfg(builder.subject(), "1-after");
+
+    builder.subject().validate();
+
+    EXPECT_EQ(block.dataflow().nodes().size(), 5);
+    EXPECT_EQ(block.dataflow().edges().size(), 4);
+    EXPECT_EQ(black_fun.outputs().size(), 2);
+
+    auto& dflow = block.dataflow();
+    EXPECT_EQ(dflow.out_degree(black_fun), 2);
 }

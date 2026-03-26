@@ -1531,13 +1531,51 @@ void StructuredSDFGBuilder::clear_code_node_legacy(structured_control_flow::Bloc
             boost::remove_vertex(vertex, graph.graph_);
         }
     }
-};
-
-void StructuredSDFGBuilder::clear_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node) {
-    clear_node(block, node, {&node});
 }
 
-void StructuredSDFGBuilder::clear_node(
+void StructuredSDFGBuilder::
+    clear_access_node_legacy(structured_control_flow::Block& block, const data_flow::AccessNode& node) {
+    auto& graph = block.dataflow();
+
+    std::list<const data_flow::Memlet*> tmp;
+    std::list<const data_flow::DataFlowNode*> queue = {&node};
+    while (!queue.empty()) {
+        auto current = queue.front();
+        queue.pop_front();
+        if (current != &node) {
+            if (dynamic_cast<const data_flow::AccessNode*>(current)) {
+                if (graph.in_degree(*current) > 0 || graph.out_degree(*current) > 0) {
+                    continue;
+                }
+            }
+        }
+
+        tmp.clear();
+        for (auto& iedge : graph.in_edges(*current)) {
+            tmp.push_back(&iedge);
+        }
+        for (auto iedge : tmp) {
+            auto& src = iedge->src();
+            queue.push_back(&src);
+
+            auto edge = iedge->edge();
+            graph.edges_.erase(edge);
+            boost::remove_edge(edge, graph.graph_);
+        }
+
+        if (current != &node || graph.out_degree(*current) == 0) {
+            auto vertex = current->vertex();
+            graph.nodes_.erase(vertex);
+            boost::remove_vertex(vertex, graph.graph_);
+        }
+    }
+}
+
+int StructuredSDFGBuilder::clear_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node) {
+    return clear_node(block, node, {&node});
+}
+
+int StructuredSDFGBuilder::clear_node(
     structured_control_flow::Block& block,
     const data_flow::DataFlowNode& node,
     const std::unordered_set<const data_flow::DataFlowNode*>& ignore_side_effects
@@ -1546,42 +1584,53 @@ void StructuredSDFGBuilder::clear_node(
 
     std::list<const data_flow::Memlet*> tmp;
     std::list<const data_flow::DataFlowNode*> queue = {&node};
-    std::unordered_set<const data_flow::DataFlowNode*> remove_once_set = {&node};
+    std::unordered_set<const data_flow::DataFlowNode*> remove_once_set;
+    int removed_nodes = 0;
+
     do {
         auto current = queue.front();
         queue.pop_front();
 
-        bool no_more_consumers = graph.out_degree(*current) == 0; // cannot remove nodes still in use
+        if (!remove_once_set.contains(current)) {
+            bool no_more_consumers = graph.out_degree(*current) == 0; // cannot remove nodes still in use
 
-        auto* access_node = dynamic_cast<const data_flow::AccessNode*>(current);
+            auto* access_node = dynamic_cast<const data_flow::AccessNode*>(current);
 
-        // we can remove nodes without out-edges & side effects
-        if ((no_more_consumers && !current->side_effect()) ||
-            (ignore_side_effects.contains(current) && (no_more_consumers || access_node))) {
-            // Or for access-nodes on the ignore list, we can remove the write side (will not remove the node, only
-            // inputs) For any other node on the ignore list, we can ignore if it has side effects or not
-            tmp.clear();
-            for (auto& iedge : graph.in_edges(*current)) {
-                tmp.push_back(&iedge);
-            }
-            for (auto iedge : tmp) {
-                auto& src = iedge->src();
-                if (remove_once_set.insert(&src).second) {
-                    queue.push_back(&src);
+            // we can remove nodes without out-edges & side effects
+            if ((no_more_consumers && !current->side_effect()) ||
+                (ignore_side_effects.contains(current) && (no_more_consumers || access_node))) {
+                // Or for access-nodes on the ignore list, we can remove the write side (will not remove the node, only
+                // inputs) For any other node on the ignore list, we can ignore if it has side effects or not
+                tmp.clear();
+                for (auto& iedge : graph.in_edges(*current)) {
+                    tmp.push_back(&iedge);
+                }
+                bool no_in_edges = true;
+                for (auto iedge : tmp) {
+                    auto& src = iedge->src();
+
+                    if (!src.require_out_edge(graph, iedge)) {
+                        queue.push_back(&src);
+                        auto edge = iedge->edge();
+                        graph.edges_.erase(edge);
+                        boost::remove_edge(edge, graph.graph_);
+                    } else {
+                        no_in_edges = false;
+                    }
                 }
 
-                auto edge = iedge->edge();
-                graph.edges_.erase(edge);
-                boost::remove_edge(edge, graph.graph_);
-            }
-
-            if (no_more_consumers) {
-                auto vertex = current->vertex();
-                graph.nodes_.erase(vertex);
-                boost::remove_vertex(vertex, graph.graph_);
+                if (no_more_consumers && no_in_edges) {
+                    remove_once_set.insert(current);
+                    auto vertex = current->vertex();
+                    graph.nodes_.erase(vertex);
+                    boost::remove_vertex(vertex, graph.graph_);
+                    ++removed_nodes;
+                }
             }
         }
     } while (!queue.empty());
+
+    return removed_nodes;
 };
 
 void StructuredSDFGBuilder::add_dataflow(const data_flow::DataFlowGraph& from, Block& to) {
