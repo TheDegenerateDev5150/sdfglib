@@ -88,10 +88,11 @@ before-all = [
   "brew install cmake ninja uv",
 
   # Build dependencies (linked into the wheel)
-  "brew install boost gmp isl nlohmann-json",
+  "brew install boost gmp isl nlohmann-json llvm@19",
 ]
 
 # Ensure we build universal2 wheels for both Intel and Apple Silicon
 [tool.cibuildwheel.macos.environment]
 MACOSX_DEPLOYMENT_TARGET = "14.0"
 MAKEFLAGS = "-j$(sysctl -n hw.ncpu)"
+MLIR_DIR = "/opt/homebrew/opt/llvm@19/lib/cmake/mlir"
