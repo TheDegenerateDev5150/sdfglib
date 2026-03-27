@@ -497,6 +497,8 @@ public:
      * @param new_expression Replacement expression
      */
     void replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) override;
+
+    bool require_out_edge(const data_flow::DataFlowGraph& graph, const Memlet* memlet) const override;
 };
 } // namespace data_flow
 } // namespace sdfg

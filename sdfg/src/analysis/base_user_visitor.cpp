@@ -82,9 +82,8 @@ bool BaseUserVisitor::visit(sdfg::structured_control_flow::IfElse& node) {
             if (!symbolic::is_nullptr(atom)) {
                 use_as_symbol_read(atom->get_name(), &node, SymbolReadLocation::IfHeader, i, condition);
             }
-
-            dispatch(seq);
         }
+        dispatch(seq);
     }
     return true;
 }

@@ -108,6 +108,69 @@ TEST(DeadDataEliminationTest, WriteWithoutRead_Dataflow) {
     EXPECT_EQ(sdfg->containers().size(), 0);
 }
 
+TEST(DeadDataEliminationTest, Does_not_remove_some_libNode_outputs) {
+    builder::StructuredSDFGBuilder builder("sdfg_1", FunctionType_CPU);
+
+    types::Scalar desc(types::PrimitiveType::Int64);
+    types::Pointer desc_ptr(desc);
+    builder.add_container("a", desc, true);
+    builder.add_container("b", desc, true);
+    builder.add_container("result1", desc);
+    builder.add_container("result2", desc);
+
+
+    auto& root = builder.subject().root();
+    EXPECT_EQ(root.element_id(), 0);
+
+    auto& block = builder.add_block(root);
+
+    auto& in_a_node = builder.add_access(block, "a");
+    auto& in_b_node = builder.add_access(block, "b");
+    auto& res1_node = builder.add_access(block, "result1");
+    auto& res2_node = builder.add_access(block, "result2");
+    auto function_type = types::Function(types::Scalar(types::Void));
+    function_type.add_param(desc);
+    function_type.add_param(desc);
+
+    builder.add_external("blackbox_function", function_type, LinkageType_External);
+    auto& black_fun = builder.add_library_node<data_flow::CallNode>(
+        block,
+        DebugInfo(),
+        "blackbox_function",
+        std::vector<std::string>{"res1", "res2"},
+        std::vector<std::string>{"a", "b"}
+    );
+
+    builder.add_computational_memlet(block, in_a_node, black_fun, "a", {}, desc);
+    builder.add_computational_memlet(block, in_b_node, black_fun, "b", {}, desc);
+    builder.add_computational_memlet(block, black_fun, "res1", res1_node, {}, desc);
+    builder.add_computational_memlet(block, black_fun, "res2", res2_node, {}, desc);
+
+    builder.add_return(root, "result2");
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    builder.subject().validate();
+
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    passes::DeadDataElimination pass;
+    bool applied = true;
+    do {
+        applied = pass.run(builder, analysis_manager);
+    } while (applied);
+
+    dump_sdfg(builder.subject(), "1-after");
+
+    builder.subject().validate();
+
+    EXPECT_EQ(block.dataflow().nodes().size(), 5);
+    EXPECT_EQ(block.dataflow().edges().size(), 4);
+    EXPECT_EQ(black_fun.outputs().size(), 2);
+
+    auto& dflow = block.dataflow();
+    EXPECT_EQ(dflow.out_degree(black_fun), 2);
+}
+
 TEST(DeadDataEliminationTest, WriteAfterWrite_For) {
     builder::StructuredSDFGBuilder builder("sdfg", FunctionType_CPU);
 

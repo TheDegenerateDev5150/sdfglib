@@ -63,7 +63,12 @@ void AccessNode::replace(const symbolic::Expression old_expression, const symbol
             this->data_ = new_symbol->get_name();
         }
     }
-};
+}
+
+/**
+ * Every read can be removed
+ */
+bool AccessNode::require_out_edge(const data_flow::DataFlowGraph& graph, const Memlet* memlet) const { return false; };
 
 namespace {
 bool is_special_constant(const std::string& data) {

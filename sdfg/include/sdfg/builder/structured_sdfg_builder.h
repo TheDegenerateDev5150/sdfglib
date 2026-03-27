@@ -475,10 +475,35 @@ public:
 
     void remove_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node);
 
+    /**
+     * Removes an access node. To achieve this it will also remove its input and output edges and possibly the access
+     * nodes that they attach to
+     */
     void clear_code_node_legacy(structured_control_flow::Block& block, const data_flow::CodeNode& node);
+    /**
+     * Removes a code node and maybe some of its inputs as well.
+     */
+    void clear_access_node_legacy(structured_control_flow::Block& block, const data_flow::AccessNode& node);
 
-    void clear_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node);
-    void clear_node(
+    /**
+     * Shorthand for @ref clear_node with the node itself being the only one to ignore side-effects on
+     * @return number of removed nodes
+     */
+    int clear_node(structured_control_flow::Block& block, const data_flow::DataFlowNode& node);
+
+    /**
+     * New function to remove all unneeded edges and nodes transitively.
+     * Checks for side effects and other output uses. WARNING: it will remove output edges that are unused,
+     * but potentially leave the produce alive, if it has other uses. Do not use, until we support nodes with
+     * unpopulated outputs or are sure that it cannot happen as a result.
+     * @param block the dataflow graph in which to remove
+     * @param node the original node, where the start the removal process
+     * @param ignore_side_effects list of nodes, for which we can ignore side effects
+     *   (for access nodes, this would be writes, for code_nodes it would depend on their side_effect flag)
+     *   The original node itself must also be in that list, to ignore any of its side effects!
+     * @return number of removed nodes
+     */
+    int clear_node(
         structured_control_flow::Block& block,
         const data_flow::DataFlowNode& node,
         const std::unordered_set<const data_flow::DataFlowNode*>& ignore_side_effects

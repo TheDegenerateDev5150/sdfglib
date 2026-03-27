@@ -119,7 +119,7 @@ void AllocationManagement::apply_allocation(data_flow::DataFlowGraph& graph, dat
 
     // Remove allocation node
     auto& block = static_cast<structured_control_flow::Block&>(*graph.get_parent());
-    builder_.clear_node(block, dst, {&dst, &library_node});
+    builder_.clear_access_node_legacy(block, dst);
 }
 
 bool AllocationManagement::
@@ -198,7 +198,7 @@ void AllocationManagement::apply_deallocation(data_flow::DataFlowGraph& graph, d
 
     // Remove allocation node
     auto& block = static_cast<structured_control_flow::Block&>(*graph.get_parent());
-    builder_.clear_node(block, dst, {&dst, &library_node});
+    builder_.clear_access_node_legacy(block, dst);
 }
 
 bool AllocationManagement::accept(structured_control_flow::Block& node) {

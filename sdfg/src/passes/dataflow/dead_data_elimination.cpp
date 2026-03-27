@@ -93,13 +93,17 @@ private:
 void MemoryOwnershipAnalysis::OwnedArea::remove_from(builder::StructuredSDFGBuilder& builder) const {
     auto& malloc_write = this->producer->dst();
     auto& malloc_node = this->producer->src();
-    builder.clear_node(
-        *this->producer_block, dynamic_cast<data_flow::AccessNode&>(malloc_write), {&malloc_write, &malloc_node}
-    );
+    builder.clear_code_node_legacy(*this->producer_block, dynamic_cast<const data_flow::CodeNode&>(malloc_node));
+    // builder.clear_node(
+    //     *this->producer_block, dynamic_cast<data_flow::AccessNode&>(malloc_write), {&malloc_write, &malloc_node}
+    // );
 
     for (auto& free_cluster : this->free_clusters) {
         auto& memlet = *free_cluster.out;
-        builder.clear_node(*const_cast<Block*>(free_cluster.block), memlet.dst(), {&memlet.dst(), &memlet.src()});
+        builder.clear_code_node_legacy(
+            *const_cast<Block*>(free_cluster.block), dynamic_cast<const data_flow::CodeNode&>(memlet.src())
+        );
+        // builder.clear_node(*const_cast<Block*>(free_cluster.block), memlet.dst(), {&memlet.dst(), &memlet.src()});
     }
 }
 
@@ -184,7 +188,7 @@ bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Block& node) 
                         area.allocation_size = SymEngine::null;
                         area.producer_block = nullptr;
                         area.producer = nullptr;
-                        std::cerr << "Conflicting ownership of " << container << std::endl;
+                        // DEBUG_PRINTLN("Conflicting ownership of " << container);
                         continue;
                     }
                     originally_owned_data_.emplace(
@@ -364,18 +368,28 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
                 auto writes = remaining_indirects.writes_to_remove();
                 // [owned_area] is never read, no reference to it escapes our control. So any write of it is useless
                 auto writes_it = writes.find(owned_area_id);
+
+                bool all_removed = true;
                 if (writes_it != writes.end()) {
                     auto& to_remove = writes_it->second;
                     for (auto& [edge_to_remove, w_block] : to_remove) {
                         auto& write_node = dynamic_cast<const data_flow::AccessNode&>(edge_to_remove->dst());
-                        builder.clear_node(*const_cast<structured_control_flow::Block*>(w_block), write_node);
+                        int removed =
+                            builder.clear_node(*const_cast<structured_control_flow::Block*>(w_block), write_node);
+                        if (removed == 0) {
+                            all_removed = false;
+                        } else {
+                            applied = true;
+                        }
                     }
                 }
                 // This is the malloc. We can remove this because we understand what malloc does. Otherwise the
                 // sideeffect flag would stop us from removing a libNode
-                auto& area = ownership_analysis.owned_area(owned_area_id);
-                area.remove_from(builder);
-                applied = true;
+                if (all_removed) {
+                    auto& area = ownership_analysis.owned_area(owned_area_id);
+                    area.remove_from(builder);
+                    applied = true;
+                }
             }
         }
     }
@@ -432,9 +446,10 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
                     auto& graph = access_node->get_parent();
                     auto& block = dynamic_cast<structured_control_flow::Block&>(*graph.get_parent());
 
-                    builder.clear_node(block, *access_node);
-                    applied = true;
-                    could_eliminate_write = true;
+                    if (builder.clear_node(block, *access_node)) {
+                        applied = true;
+                        could_eliminate_write = true;
+                    }
                 }
 
                 completely_unused &= could_eliminate_write;

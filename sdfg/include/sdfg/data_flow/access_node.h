@@ -156,6 +156,8 @@ public:
      * replaces the data name with new_expression.
      */
     void replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) override;
+
+    bool require_out_edge(const DataFlowGraph& graph, const Memlet* memlet) const override;
 };
 
 /**
