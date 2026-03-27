@@ -65,39 +65,38 @@ def test_mlp(target):
     if target == "none":
         verifier = SDFGVerification(
             verification={
+                "Free": 11,
                 "CMath": 4,
-                "SEQUENTIAL": 14,
-                "FOR": 16,
-                "MAP": 14,
+                "SEQUENTIAL": 18,
+                "FOR": 20,
+                "MAP": 18,
                 "GEMM": 3,
-                "Malloc": 9,
+                "Malloc": 11,
             }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "Free": 9,
-                "HIGHWAY": 4,
+                "Free": 11,
                 "CMath": 4,
-                "SEQUENTIAL": 10,
-                "FOR": 16,
-                "MAP": 14,
+                "HIGHWAY": 6,
+                "SEQUENTIAL": 12,
+                "FOR": 20,
+                "MAP": 18,
                 "GEMM": 3,
-                "Malloc": 9,
+                "Malloc": 11,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "Free": 9,
-                "HIGHWAY": 2,
+                "Free": 11,
                 "CMath": 4,
-                "CPU_PARALLEL": 9,
-                "SEQUENTIAL": 3,
-                "FOR": 16,
-                "MAP": 14,
+                "CPU_PARALLEL": 11,
+                "FOR": 13,
+                "MAP": 11,
                 "GEMM": 3,
-                "Malloc": 9,
+                "Malloc": 11,
             }
         )
     elif target == "cuda":

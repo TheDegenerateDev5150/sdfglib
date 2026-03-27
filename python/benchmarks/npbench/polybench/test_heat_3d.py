@@ -58,21 +58,20 @@ def test_heat_3d(target):
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 32,
+                "HIGHWAY": 2,
                 "CPU_PARALLEL": 30,
-                "MAP": 92,
-                "SEQUENTIAL": 30,
-                "FOR": 97,
+                "MAP": 32,
+                "FOR": 37,
                 "Malloc": 30,
             }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
-            verification={"MAP": 92, "Malloc": 30, "SEQUENTIAL": 92, "FOR": 97}
+            verification={"MAP": 62, "Malloc": 30, "SEQUENTIAL": 62, "FOR": 67}
         )
     else:  # rocm
         verifier = SDFGVerification(
-            verification={"MAP": 92, "Malloc": 30, "SEQUENTIAL": 92, "FOR": 97}
+            verification={"MAP": 62, "Malloc": 30, "SEQUENTIAL": 62, "FOR": 67}
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

@@ -24,7 +24,6 @@ from docc.compiler.docc_program import DoccProgram
 from docc.compiler.compiled_sdfg import CompiledSDFG
 from docc.python.ast_parser import ASTParser
 from docc.python.types import element_type_from_sdfg_type
-from docc.python.target_registry import get_target_schedule_fn, get_target_compile_fn
 
 
 def _compile_wrapper(self, output_folder=None):
@@ -245,15 +244,18 @@ class PythonProgram(DoccProgram):
         signature = f"{type_sig}|{mapping_sig}|{equiv_sig}"
 
         if output_folder is None:
-            filename = inspect.getsourcefile(self.func)
-            hash_input = f"{filename}|{self.name}|{self.target}|{self.category}|{self.capture_args}|{self.instrumentation_mode}|{self.remote_tuning}|{signature}".encode(
+            source_path = inspect.getsourcefile(self.func)
+            hash_input = f"{source_path}|{self.name}|{self.target}|{self.category}|{self.capture_args}|{self.instrumentation_mode}|{signature}".encode(
                 "utf-8"
             )
             stable_id = hashlib.sha256(hash_input).hexdigest()[:16]
+            filename = os.path.basename(inspect.getsourcefile(self.func))
 
             docc_tmp = os.environ.get("DOCC_TMP")
             if docc_tmp:
-                output_folder = f"{docc_tmp}/{self.name}-{stable_id}"
+                output_folder = (
+                    f"{docc_tmp}/{filename}-{self.name}-{self.target}-{stable_id}"
+                )
             else:
                 user = os.getenv("USER")
                 if not user:
@@ -270,48 +272,10 @@ class PythonProgram(DoccProgram):
         sdfg, out_args, out_shapes, out_strides = self._build_sdfg(
             arg_types, args, arg_shape_mapping, shape_values, shape_to_scalar
         )
-        sdfg.validate()
 
-        # Tensor targets keep tensor nodes
-        if self.target != "onnx":
-            sdfg.expand()
-
-        # Simplify pipelines
-        sdfg.simplify()
-
-        # Normalization for scheduling
-        if self.target != "none":
-            sdfg.normalize()
-
-        sdfg.dump(output_folder)
-
-        # Schedule if target is specified
-        if self.target != "none":
-            # Check for custom registered target first
-            custom_schedule_fn = get_target_schedule_fn(self.target)
-            if custom_schedule_fn is not None:
-                custom_schedule_fn(
-                    sdfg, self.category, {"remote_tuning": self.remote_tuning}
-                )
-            else:
-                sdfg.schedule(self.target, self.category, self.remote_tuning)
-
-        self.last_sdfg = sdfg
-
-        sdfg.dump(output_folder, "post_sched")
-
-        custom_compile_fn = get_target_compile_fn(self.target)
-        if custom_compile_fn is not None:
-            lib_path = custom_compile_fn(
-                sdfg, output_folder, instrumentation_mode, capture_args, {}
-            )
-        else:
-            lib_path = sdfg._compile(
-                output_folder=output_folder,
-                target=self.target,
-                instrumentation_mode=instrumentation_mode,
-                capture_args=capture_args,
-            )
+        lib_path = self.sdfg_pipe(
+            sdfg, output_folder, instrumentation_mode, capture_args
+        )
 
         # Build ONNX model from JSON if target is onnx (after _compile creates the JSON)
         if self.target == "onnx":
@@ -643,6 +607,13 @@ class PythonProgram(DoccProgram):
 
                 offset = "0"
                 tensor_table[name] = Tensor(element_type, shapes, strides, offset)
+
+            elif isinstance(arg, np.generic):
+                # NumPy scalar types (np.float64, np.int32, etc.) should be treated
+                # as 0-d arrays for type promotion purposes - they trigger full
+                # promotion, unlike Python literals which adapt to the array dtype
+                element_type = element_type_from_sdfg_type(dtype)
+                tensor_table[name] = Tensor(element_type, [], [], "0")
 
         # Add unified shape arguments only for shapes without scalar equivalents
         # and skip size-1 dimensions (they use literal "1" instead)

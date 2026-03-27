@@ -49,6 +49,7 @@
 #include <sdfg/helpers/helpers.h>
 #include <sdfg/visualizer/dot_visualizer.h>
 
+#include "sdfg/passes/offloading/code_motion/block_hoisting.h"
 #include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_context.h"
 #include "sdfg/passes/rpc/rpc_scheduler.h"
@@ -232,8 +233,8 @@ void PyStructuredSDFG::simplify() {
     memlet_combine.run(builder_opt, analysis_manager);
 
     // Move code out of loops where possible
-    sdfg::passes::Pipeline code_motion = sdfg::passes::code_motion();
-    code_motion.run(builder_opt, analysis_manager);
+    sdfg::passes::BlockHoistingPass block_hoisting;
+    block_hoisting.run(builder_opt, analysis_manager);
 
     // Convert pointer-based iterators to indvar usage
     sdfg::passes::PointerEvolution pointer_evolution_pass;
@@ -254,7 +255,7 @@ void PyStructuredSDFG::simplify() {
     map_conversion_pass.run(builder_opt, analysis_manager);
 
     // Move code out of maps where possible
-    code_motion.run(builder_opt, analysis_manager);
+    block_hoisting.run(builder_opt, analysis_manager);
 
     // Dead code elimination
     dde.run(builder_opt, analysis_manager);
@@ -262,11 +263,13 @@ void PyStructuredSDFG::simplify() {
     dataflow_simplification.run(builder_opt, analysis_manager);
 
     // Fuse maps
-    auto map_fusion = sdfg::passes::Pipeline::map_fusion();
+    auto map_fusion = sdfg::passes::normalization::map_fusion();
     map_fusion.run(builder_opt, analysis_manager);
 }
 
-void PyStructuredSDFG::dump(const std::string& path, const std::string& type) {
+void PyStructuredSDFG::dump(
+    const std::string& path, const std::string& type, bool dump_dot, bool dump_json, bool record_for_instrumentation
+) {
     fs::path build_path(path);
     if (!fs::exists(build_path)) {
         fs::create_directories(build_path);
@@ -274,27 +277,36 @@ void PyStructuredSDFG::dump(const std::string& path, const std::string& type) {
 
     // Add metadata to SDFG
     auto typeSuffix = type.empty() ? "" : ("." + type);
-    fs::path sdfg_file = build_path / (sdfg_->name() + typeSuffix + ".json");
-    fs::path features_file = build_path / (sdfg_->name() + typeSuffix + ".npz");
-    fs::path arg_captures_path = build_path / ("arg_captures" + typeSuffix);
-    sdfg_->add_metadata("sdfg_file", sdfg_file.string());
-    sdfg_->add_metadata("arg_capture_path", arg_captures_path.string());
-    sdfg_->add_metadata("features_file", features_file.string());
-    sdfg_->add_metadata("opt_report_file", (build_path / (sdfg_->name() + typeSuffix + ".opt_report.json")).string());
+    auto suffixedName = sdfg_->name() + typeSuffix;
 
-    // Dump json
-    sdfg::serializer::JSONSerializer serializer;
-    nlohmann::json j = serializer.serialize(*this->sdfg_);
+    if (dump_json) {
+        fs::path sdfg_file = build_path / (suffixedName + ".json");
 
-    std::ofstream ofs(sdfg_file);
-    if (!ofs.is_open()) {
-        throw std::runtime_error("Failed to open file: " + sdfg_file.string());
+        // Dump json
+        sdfg::serializer::JSONSerializer serializer;
+        nlohmann::json j = serializer.serialize(*this->sdfg_);
+
+        std::ofstream ofs(sdfg_file);
+        if (!ofs.is_open()) {
+            throw std::runtime_error("Failed to open file: " + sdfg_file.string());
+        }
+        ofs << j.dump(2);
+        ofs.close();
+
+        if (record_for_instrumentation) {
+            fs::path features_file = build_path / (suffixedName + ".npz");
+            fs::path arg_captures_path = build_path / "arg_captures";
+            sdfg_->add_metadata("sdfg_file", sdfg_file.string());
+            sdfg_->add_metadata("arg_capture_path", arg_captures_path.string());
+            sdfg_->add_metadata("features_file", features_file.string());
+            sdfg_->add_metadata("opt_report_file", (build_path / (suffixedName + ".opt_report.json")).string());
+        }
     }
-    ofs << j.dump(2);
-    ofs.close();
 
-    auto dot_file = build_path / (sdfg_->name() + typeSuffix + ".dot");
-    sdfg::visualizer::DotVisualizer::writeToFile(*sdfg_, &dot_file);
+    if (dump_dot) {
+        auto dot_file = build_path / (suffixedName + ".dot");
+        sdfg::visualizer::DotVisualizer::writeToFile(*sdfg_, &dot_file);
+    }
 }
 
 void PyStructuredSDFG::normalize() {
@@ -302,7 +314,7 @@ void PyStructuredSDFG::normalize() {
     sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
 
     // Fuse maps
-    auto map_fusion = sdfg::passes::Pipeline::map_fusion();
+    auto map_fusion = sdfg::passes::normalization::map_fusion();
     map_fusion.run(builder, analysis_manager);
 
     // Distribute and permute
@@ -469,7 +481,11 @@ std::string PyStructuredSDFG::compile(
         std::string name = lib_path.stem().string();
         std::string object_file = build_path.string() + "/" + name + ".o";
         std::stringstream cmd;
-        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3  -march=native -mtune=native -funroll-loops";
+#if defined(__APPLE__)
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -Xpreprocessor -fopenmp -march=native -mtune=native -funroll-loops";
+#else
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
+#endif
         if (!package_path_str.empty()) {
             cmd << " -L" << package_lib_path_str;
             cmd << " -I" << package_include_path_str;
@@ -500,7 +516,11 @@ std::string PyStructuredSDFG::compile(
     // Compile
     {
         std::stringstream cmd;
-        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -march=native -mtune=native -funroll-loops";
+#if defined(__APPLE__)
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -Xpreprocessor -fopenmp -march=native -mtune=native -funroll-loops";
+#else
+        cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
+#endif
         if (!package_path_str.empty()) {
             cmd << " -L" << package_lib_path_str;
             cmd << " -I" << package_include_path_str;
