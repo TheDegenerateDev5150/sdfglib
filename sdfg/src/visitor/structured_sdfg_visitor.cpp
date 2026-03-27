@@ -175,7 +175,7 @@ ActualStructuredSDFGVisitor::ActualStructuredSDFGVisitor() {}
 bool ActualStructuredSDFGVisitor::visit(Block& node) { return false; }
 bool ActualStructuredSDFGVisitor::visit(Sequence& node) {
     for (int i = 0; i < node.size(); ++i) {
-        visit(node.at(i).first);
+        dispatch(node.at(i).first);
     }
 
     return true;
