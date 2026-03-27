@@ -1596,9 +1596,10 @@ int StructuredSDFGBuilder::clear_node(
 
             auto* access_node = dynamic_cast<const data_flow::AccessNode*>(current);
 
+            bool ignore_side_effects_on_current = ignore_side_effects.contains(current);
             // we can remove nodes without out-edges & side effects
             if ((no_more_consumers && !current->side_effect()) ||
-                (ignore_side_effects.contains(current) && (no_more_consumers || access_node))) {
+                (ignore_side_effects_on_current && (no_more_consumers || access_node))) {
                 // Or for access-nodes on the ignore list, we can remove the write side (will not remove the node, only
                 // inputs) For any other node on the ignore list, we can ignore if it has side effects or not
                 tmp.clear();
