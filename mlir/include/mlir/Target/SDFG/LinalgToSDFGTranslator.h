@@ -1,6 +1,6 @@
 #pragma once
 
-#include <llvm-19/llvm/Support/LogicalResult.h>
+#include <llvm/Support/LogicalResult.h>
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Support/LLVM.h"

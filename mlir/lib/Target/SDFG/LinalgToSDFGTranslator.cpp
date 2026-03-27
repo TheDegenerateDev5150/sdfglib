@@ -1,7 +1,7 @@
 #include "mlir/Target/SDFG/LinalgToSDFGTranslator.h"
 
-#include <llvm-19/llvm/Support/Casting.h>
 #include <llvm/ADT/TypeSwitch.h>
+#include <llvm/Support/Casting.h>
 #include <llvm/Support/LogicalResult.h>
 #include <string>
 #include <vector>
