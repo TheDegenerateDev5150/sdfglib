@@ -13,17 +13,26 @@ set_target_properties(sdfg-mlir PROPERTIES
     OUTPUT_NAME "_sdfg_mlir"
 )
 
-# Link against MLIR libraries
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
-get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
-
+# Link against only the MLIR libraries we need (reduces wheel size significantly)
 target_link_libraries(sdfg-mlir PRIVATE
-    ${dialect_libs}
-    ${conversion_libs}
-    ${translation_libs}
-    MLIRPass
+    # Core MLIR
+    MLIRIR
+    MLIRSupport
     MLIRParser
+    MLIRPass
+
+    # Only the dialects we use
+    MLIRArithDialect
+    MLIRControlFlowDialect
+    MLIRFuncDialect
+    MLIRLinalgDialect
+    MLIRMathDialect
+    MLIRTensorDialect
+
+    # Linalg passes (for convert())
+    MLIRLinalgTransforms
+
+    # SDFG target and libraries
     MLIRTargetSDFG
     sdfg::sdfg
     sdfg::opt
