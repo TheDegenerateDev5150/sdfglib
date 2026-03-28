@@ -6,9 +6,9 @@ from typing import Any, Optional
 import time
 
 from docc.compiler import CompiledSDFG, DoccProgram
+from docc.compiler.target_registry import reset_target_registry
 from docc.sdfg import StructuredSDFG
 from docc.mlir import MLIRModule
-from docc.compiler.target_registry import reset_target_registry
 
 
 class TorchProgram(DoccProgram):
