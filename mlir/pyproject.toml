@@ -80,7 +80,16 @@ before-all = [
   "cmake --install /tmp/nlohmann_json/build",
   "curl -L https://libisl.sourceforge.io/isl-0.27.tar.xz | tar -xJ -C /tmp",
   "cd /tmp/isl-0.27 && ./configure && make -j$(nproc) && make install",
+
+  # Build LLVM 19 + MLIR from source with RTTI enabled (required for SymEngine)
+  "curl -L https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/llvm-project-19.1.0.src.tar.xz | tar -xJ -C /tmp",
+  "cmake -G Ninja -S /tmp/llvm-project-19.1.0.src/llvm -B /tmp/llvm-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/llvm19 -DLLVM_ENABLE_PROJECTS=mlir -DLLVM_ENABLE_RTTI=ON -DLLVM_BUILD_EXAMPLES=OFF -DLLVM_TARGETS_TO_BUILD=host -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF",
+  "cmake --build /tmp/llvm-build --target install -j$(nproc)",
+  "rm -rf /tmp/llvm-project-19.1.0.src /tmp/llvm-build",
 ]
+
+[tool.cibuildwheel.linux.environment]
+MLIR_DIR = "/opt/llvm19/lib/cmake/mlir"
 
 [tool.cibuildwheel.macos]
 before-all = [
