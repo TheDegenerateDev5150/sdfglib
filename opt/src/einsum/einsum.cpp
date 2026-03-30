@@ -262,6 +262,9 @@ bool EinsumNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analy
     for (size_t i = 0; i < this->dims().size(); i++) {
         auto indvar = this->indvar(i);
         auto indvar_name = SymEngine::rcp_static_cast<const SymEngine::Symbol>(indvar)->get_name();
+        if (builder.subject().exists(indvar_name)) {
+            continue;
+        }
         builder.add_container(indvar_name, types::Scalar(types::PrimitiveType::Int64));
     }
 
