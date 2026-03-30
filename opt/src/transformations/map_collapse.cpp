@@ -63,6 +63,15 @@ bool MapCollapse::can_be_applied(builder::StructuredSDFGBuilder& builder, analys
         indvars.insert(map->indvar());
     }
 
+    for (auto* map : maps) {
+        auto init = map->init();
+        for (auto& iv : indvars) {
+            if (symbolic::uses(init, iv)) {
+                return false;
+            }
+        }
+    }
+
     // Criterion: Map bounds may not depend on any of the loop induction variables
     // of the maps being collapsed
     for (auto* map : maps) {
