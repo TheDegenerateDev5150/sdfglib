@@ -20,7 +20,6 @@
 #include "sdfg/targets/cuda/cuda_data_offloading_node.h"
 #include "sdfg/targets/offloading/data_offloading_node.h"
 #include "sdfg/targets/offloading/external_offloading_node.h"
-#include "sdfg/targets/tenstorrent/tenstorrent_offloading_node.h"
 
 namespace sdfg {
 namespace passes {
@@ -286,16 +285,7 @@ long long ReadonlyTransferHoistingPass::find_matching_free_block(
             continue;
         }
 
-        if (dynamic_cast<cuda::CUDADataOffloadingNode*>(offloading_node) &&
-            dynamic_cast<cuda::CUDADataOffloadingNode*>(other_offloading_node)) {
-            return other_block->element_id();
-        }
-        if (dynamic_cast<tenstorrent::TTDataOffloadingNode*>(offloading_node) &&
-            dynamic_cast<tenstorrent::TTDataOffloadingNode*>(other_offloading_node)) {
-            return other_block->element_id();
-        }
-        if (dynamic_cast<offloading::ExternalDataOffloadingNode*>(offloading_node) &&
-            dynamic_cast<offloading::ExternalDataOffloadingNode*>(other_offloading_node)) {
+        if (offloading_node->is_same_target(*other_offloading_node)) {
             return other_block->element_id();
         }
     }

@@ -15,7 +15,6 @@
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
-#include "sdfg/targets/tenstorrent/library_node_mapping.h"
 #include "sdfg/transformations/transformation.h"
 #include "sdfg/types/type.h"
 #include "sdfg/types/utils.h"
@@ -29,7 +28,7 @@ Einsum2Dot::Einsum2Dot(einsum::EinsumNode& einsum_node, const std::string& targe
 std::string Einsum2Dot::name() const { return "Einsum2Dot"; }
 
 std::optional<sdfg::data_flow::ImplementationType> Einsum2Dot::get_impl_type(types::PrimitiveType data_type) {
-    std::optional<sdfg::data_flow::ImplementationType> impl_type;
+    std::optional<sdfg::data_flow::ImplementationType> impl_type; // TODO make generic for any target
     if (target_tune_ == "sequential") {
         impl_type = sdfg::data_flow::ImplementationType_NONE;
     } else if (target_tune_ == "openmp") {
@@ -37,7 +36,9 @@ std::optional<sdfg::data_flow::ImplementationType> Einsum2Dot::get_impl_type(typ
     } else if (target_tune_ == "cuda") {
         impl_type = sdfg::cuda::blas::ImplementationType_CUBLASWithTransfers;
     } else if (target_tune_ == "tenstorrent") {
-        impl_type = tenstorrent::try_map_library_node_implementation(math::blas::LibraryNodeType_DOT, data_type);
+        if (data_type == types::PrimitiveType::Float) {
+            impl_type = data_flow::ImplementationType{"TENSTORRENT_WithTransfers"};
+        }
     }
 
     if (impl_type) {

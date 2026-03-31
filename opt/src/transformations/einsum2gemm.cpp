@@ -15,7 +15,6 @@
 #include "sdfg/data_flow/library_nodes/math/math.h"
 #include "sdfg/einsum/einsum.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/tenstorrent/library_node_mapping.h"
 #include "sdfg/transformations/transformation.h"
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/type.h"
@@ -38,11 +37,13 @@ Einsum2Gemm::Einsum2Gemm(einsum::EinsumNode& einsum_node, const std::string& tar
 std::string Einsum2Gemm::name() const { return "Einsum2Gemm"; }
 
 std::optional<sdfg::data_flow::ImplementationType> Einsum2Gemm::get_impl_type(types::PrimitiveType data_type) {
-    std::optional<sdfg::data_flow::ImplementationType> impl_type = std::nullopt;
+    std::optional<sdfg::data_flow::ImplementationType> impl_type = std::nullopt; // TODO make generic for any target
     if (this->target_tune_ == "openmp") {
         impl_type = std::make_optional(sdfg::math::blas::ImplementationType_BLAS);
     } else if (this->target_tune_ == "tenstorrent") {
-        impl_type = tenstorrent::try_map_library_node_implementation(math::blas::LibraryNodeType_GEMM, data_type);
+        if (data_type == types::PrimitiveType::Float) {
+            impl_type = data_flow::ImplementationType{"TENSTORRENT_WithTransfers"};
+        }
     }
     // TODO: Implement GEMM dispatcher for CUBLAS
 

@@ -16,10 +16,8 @@
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/control_flow_node.h"
 #include "sdfg/structured_control_flow/sequence.h"
-#include "sdfg/targets/cuda/cuda_data_offloading_node.h"
 #include "sdfg/targets/offloading/data_offloading_node.h"
 #include "sdfg/targets/offloading/external_offloading_node.h"
-#include "sdfg/targets/tenstorrent/tenstorrent_offloading_node.h"
 
 namespace sdfg {
 namespace passes {
@@ -37,11 +35,7 @@ std::pair<data_flow::AccessNode*, data_flow::AccessNode*> ExtendedDataTransferMi
         );
     }
     data_flow::AccessNode *src, *dst;
-    if (dynamic_cast<cuda::CUDADataOffloadingNode*>(offloading_node) ||
-        dynamic_cast<tenstorrent::TTDataOffloadingNode*>(offloading_node)) {
-        src = this->get_in_access(offloading_node, "_src");
-        dst = this->get_out_access(offloading_node, "_dst");
-    } else if (auto* external_offload = dynamic_cast<offloading::ExternalDataOffloadingNode*>(offloading_node)) {
+    if (auto* external_offload = dynamic_cast<offloading::ExternalDataOffloadingNode*>(offloading_node)) {
         if (external_offload->is_d2h()) {
             src = this->get_in_access(offloading_node, external_offload->inputs().back());
             dst = this->get_out_access(offloading_node, external_offload->input(external_offload->transfer_index()));
@@ -50,9 +44,8 @@ std::pair<data_flow::AccessNode*, data_flow::AccessNode*> ExtendedDataTransferMi
             dst = this->get_out_access(offloading_node, "_ret");
         }
     } else {
-        throw InvalidSDFGException(
-            "ExtendedDataTransferMinimization: Unknown offloading node encountered: " + offloading_node->code().value()
-        );
+        src = this->get_in_access(offloading_node, "_src");
+        dst = this->get_out_access(offloading_node, "_dst");
     }
     return {src, dst};
 }

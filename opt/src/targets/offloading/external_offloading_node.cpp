@@ -139,6 +139,13 @@ bool ExternalDataOffloadingNode::equal_with(const offloading::DataOffloadingNode
     return true;
 }
 
+bool ExternalDataOffloadingNode::is_same_target(const offloading::DataOffloadingNode& other) const {
+    auto* other_node = dynamic_cast<const ExternalDataOffloadingNode*>(&other);
+    return other_node != nullptr;
+    // TODO this is not precise enough, as many different targets could use External Nodes at the same time. Require
+    // some "target-id"
+}
+
 ExternalDataOffloadingNodeDispatcher::ExternalDataOffloadingNodeDispatcher(
     codegen::LanguageExtension& language_extension,
     const Function& function,
