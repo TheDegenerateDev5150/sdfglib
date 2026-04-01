@@ -63,6 +63,7 @@ set(TEST_FILES
     data_flow/library_nodes/math/tensor/pooling_test.cpp
     data_flow/library_nodes/math/tensor/tasklet_node_test.cpp
     deepcopy/structured_sdfg_deep_copy_test.cpp
+    einsum/einsum_test.cpp
     element_test.cpp
     graph/graph_algorithms_test.cpp
     helpers/helpers_test.cpp

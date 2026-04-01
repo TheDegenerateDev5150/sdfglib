@@ -20,6 +20,7 @@
 #include "sdfg/types/pointer.h"
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/type.h"
+#include "sdfg_debug_dump.h"
 
 using namespace sdfg;
 
@@ -70,6 +71,8 @@ TEST(EinsumNodeTest, SimpleGEMM) {
     builder.add_computational_memlet(block, B, libnode, "_in2", {}, desc_m);
     builder.add_computational_memlet(block, C1, libnode, "__einsum_out", {}, desc_m);
     builder.add_computational_memlet(block, libnode, "__einsum_out", C2, {}, desc_m);
+
+    dump_sdfg(sdfg, "0.before");
 
     // Check
     auto* einsum_node = dynamic_cast<einsum::EinsumNode*>(&libnode);
@@ -175,12 +178,16 @@ TEST(EinsumNodeTest, ExpandGEMM) {
     builder.add_computational_memlet(block, C1, libnode, "__einsum_out", {}, desc_m);
     builder.add_computational_memlet(block, libnode, "__einsum_out", C2, {}, desc_m);
 
+    dump_sdfg(sdfg, "0.before");
+
     // Check
     auto* einsum_node = dynamic_cast<einsum::EinsumNode*>(&libnode);
     ASSERT_TRUE(einsum_node);
 
     analysis::AnalysisManager analysis_manager(builder.subject());
     EXPECT_TRUE(einsum_node->expand(builder, analysis_manager));
+
+    dump_sdfg(sdfg, "1.after");
 
     EXPECT_NO_THROW(sdfg.validate());
 

@@ -6,13 +6,14 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+option(DOCC_TESTS_ENABLE_DUMP "Enable dumping intermediary files of test cases" OFF)
+
 set(TEST_FILES
     analysis/scop_analysis_test.cpp
     cuda/blas/cublas_test.cpp
     cuda/cuda_kernel_test.cpp
     cuda/cuda_library_nodes_test.cpp
-  einsum/einsum_test.cpp
-  passes/einsum_test.cpp
+    passes/einsum_test.cpp
     passes/normalization/perfect_loop_distribution_test.cpp
     passes/normalization/stride_minimization_test.cpp
     passes/offloading/code_motion/block_hoisting_test.cpp
@@ -62,6 +63,11 @@ if(SDFG_ENABLE_COVERAGE)
   target_link_options(sdfgopt_test PRIVATE
     -fprofile-instr-generate
   )
+endif()
+if(DOCC_TESTS_ENABLE_DUMP)
+    target_compile_definitions(sdfgopt_test PRIVATE
+        DOCC_TESTS_ENABLE_DUMP
+    )
 endif()
 
 add_test(NAME sdfgopt_test_test COMMAND sdfgopt_test)
