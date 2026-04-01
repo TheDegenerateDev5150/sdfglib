@@ -130,6 +130,7 @@ set(SOURCE_FILES
     src/data_flow/library_nodes/stdlib/unreachable.cpp
     src/deepcopy/structured_sdfg_deep_copy.cpp
     src/graph/graph.cpp
+    src/offloading/data_offloading_node.cpp
     src/optimization_report/optimization_report.cpp
     src/passes/pass.cpp
     src/passes/pipeline.cpp
