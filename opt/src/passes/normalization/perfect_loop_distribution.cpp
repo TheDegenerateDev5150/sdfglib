@@ -69,6 +69,11 @@ bool PerfectLoopDistributionPass::
         loop_tree_paths.splice(loop_tree_paths.end(), loop_analysis.loop_tree_paths(loop));
     }
 
+    if (loop_tree_paths.empty()) {
+        // No loops to process, so we can exit early
+        return false;
+    }
+
     // sort paths by depth (deepest first)
     loop_tree_paths.sort([](const std::vector<sdfg::structured_control_flow::ControlFlowNode*>& a,
                             const std::vector<sdfg::structured_control_flow::ControlFlowNode*>& b) {
