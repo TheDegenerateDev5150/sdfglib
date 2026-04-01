@@ -373,15 +373,15 @@ class TorchProgram(DoccProgram):
         )
         torch_mlir = str(torch_mlir)
 
-        # Translate to Structured SDFG
-        mlir_module = MLIRModule(torch_mlir)
-        mlir_module.convert()
-
         # Dump the MLIR code to a file for inspection
         if self.debug_dump and output_folder is not None:
             os.makedirs(output_folder, exist_ok=True)
             with open(f"{output_folder}/{self.name}_imported.mlir", "w") as f:
                 f.write(torch_mlir)
+
+        # Translate to Structured SDFG
+        mlir_module = MLIRModule(torch_mlir)
+        mlir_module.convert()
         sdfg_str = mlir_module.translate()
         try:
             sdfg = StructuredSDFG.parse(sdfg_str)
