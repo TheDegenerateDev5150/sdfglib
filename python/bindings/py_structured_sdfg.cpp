@@ -51,6 +51,7 @@
 #include <sdfg/helpers/helpers.h>
 #include <sdfg/visualizer/dot_visualizer.h>
 
+#include "docc/util/docc_paths.h"
 #include "sdfg/passes/offloading/code_motion/block_hoisting.h"
 #include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_context.h"
@@ -123,10 +124,6 @@ pybind11::dict PyStructuredSDFG::containers() const {
     }
     return result;
 }
-
-namespace {
-void _anchor() {}
-} // namespace
 
 void PyStructuredSDFG::validate() { sdfg_->validate(); }
 
@@ -464,18 +461,7 @@ std::string PyStructuredSDFG::compile(
     }
 
     // Find libraries relative to the module location
-    Dl_info info;
-    fs::path package_path;
-    std::string package_path_str;
-    std::string package_lib_path_str;
-    std::string package_include_path_str;
-    if (dladdr((void*) &_anchor, &info)) {
-        fs::path lib_path = fs::canonical(info.dli_fname);
-        package_path = lib_path.parent_path().parent_path();
-        package_path_str = package_path.string();
-        package_lib_path_str = (package_path / "lib").string();
-        package_include_path_str = (package_path / "include").string();
-    }
+    auto paths = docc::util::DefaultDoccPaths::from_lib_location(docc::util::find_lib_location());
 
     bool has_highway = false;
     std::unordered_set<std::string> object_files;
@@ -488,7 +474,7 @@ std::string PyStructuredSDFG::compile(
 
 #ifdef DOCC_HAS_TARGET_ET
         if (extension == docc::target::et::ETSOC_KERNEL_FILE_EXT) {
-            docc::target::et::EtBuildArgs args{.build_dir = build_path, .plugin_rt_dir = package_path};
+            docc::target::et::EtBuildArgs args{.build_dir = build_path, .plugin_rt_dir = paths->bin_root()};
             auto et_k_file = docc::target::et::et_build_kernel(*sdfg_, *snippet_factory, lib_file, args);
             DEBUG_PRINTLN("Generated ET Kernel to: " << et_k_file);
             continue;
@@ -502,10 +488,13 @@ std::string PyStructuredSDFG::compile(
 #else
         cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
 #endif
-        if (!package_path_str.empty()) {
-            cmd << " -L" << package_lib_path_str;
-            cmd << " -I" << package_include_path_str;
+        for (auto& inc_path : paths->get_default_include_paths()) {
+            cmd << " -I" << inc_path;
         }
+        for (auto& ld_path : paths->get_default_library_paths()) {
+            cmd << " -L" << ld_path;
+        }
+
 #if defined(__APPLE__)
         cmd << " -I/opt/homebrew/include";
 #endif
@@ -537,9 +526,8 @@ std::string PyStructuredSDFG::compile(
 #else
         cmd << DOCC_CXX_COMPILER << " -c -fPIC -O3 -fopenmp -march=native -mtune=native -funroll-loops";
 #endif
-        if (!package_path_str.empty()) {
-            cmd << " -L" << package_lib_path_str;
-            cmd << " -I" << package_include_path_str;
+        for (auto& inc_path : paths->get_default_include_paths()) {
+            cmd << " -I" << inc_path;
         }
         if (target == "cuda") {
             cmd << " -x cuda -lcuda";
@@ -571,9 +559,8 @@ std::string PyStructuredSDFG::compile(
 #else
     cmd << DOCC_CXX_COMPILER << " -shared -fopenmp -fPIC -O3";
 #endif
-    if (!package_path_str.empty()) {
-        cmd << " -L" << package_lib_path_str;
-        cmd << " -I" << package_include_path_str;
+    for (auto& ld_path : paths->get_default_library_paths()) {
+        cmd << " -L" << ld_path;
     }
     // cmd << " " << source_path.string();
     for (const auto& object_file : object_files) {
