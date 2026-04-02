@@ -175,7 +175,7 @@ bool BatchNormNode::expand(builder::StructuredSDFGBuilder& builder, analysis::An
     );
 
     auto& var_elem_in = builder.add_access(inter_block, var_in.name);
-    auto& epsilon_const = builder.add_constant(inter_block, eps_in.name, scalar_type);
+    auto& epsilon_const = builder.add_access(inter_block, eps_in.name);
 
     auto& add_eps_op = builder.add_tasklet(inter_block, data_flow::fp_add, "_out", {"var", "eps"}, debug_info());
 
