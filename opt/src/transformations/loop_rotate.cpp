@@ -106,8 +106,6 @@ void LoopRotate::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
     } else {
         builder.add_block(loop_.root(), control_flow::Assignments{{rotated_var, rotated_value}});
     }
-
-    analysis_manager.invalidate_all();
 }
 
 void LoopRotate::to_json(nlohmann::json& j) const {

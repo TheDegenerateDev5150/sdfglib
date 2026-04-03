@@ -34,6 +34,11 @@ LoopShift::LoopShift(structured_control_flow::StructuredLoop& loop, const symbol
 std::string LoopShift::name() const { return "LoopShift"; }
 
 bool LoopShift::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+    if (symbolic::eq(offset_, symbolic::zero())) {
+        // No shift needed
+        return false;
+    }
+
     for (auto& atom : symbolic::atoms(offset_)) {
         if (symbolic::eq(atom, loop_.indvar())) {
             // Offset cannot contain the induction variable itself
@@ -44,11 +49,6 @@ bool LoopShift::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
 }
 
 void LoopShift::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    if (symbolic::eq(offset_, symbolic::zero())) {
-        // No shift needed
-        return;
-    }
-
     auto indvar = loop_.indvar();
     auto old_init = loop_.init();
     auto old_condition = loop_.condition();
@@ -90,8 +90,6 @@ void LoopShift::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     } else {
         builder.add_block(loop_.root(), control_flow::Assignments{{shifted_var, shifted_value}});
     }
-
-    analysis_manager.invalidate_all();
 }
 
 void LoopShift::to_json(nlohmann::json& j) const {
