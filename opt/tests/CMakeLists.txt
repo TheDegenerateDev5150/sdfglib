@@ -50,6 +50,7 @@ set(TEST_FILES
     transformations/loop_unit_stride_test.cpp
     transformations/map_fusion_test.cpp
     transformations/tile_fusion_test.cpp
+    transformations/diamond_tiling_test.cpp
     transformations/out_local_storage_test.cpp
     transformations/recorder_test.cpp
     test.cpp
