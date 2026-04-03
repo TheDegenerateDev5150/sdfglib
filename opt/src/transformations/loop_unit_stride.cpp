@@ -117,8 +117,6 @@ void LoopUnitStride::apply(builder::StructuredSDFGBuilder& builder, analysis::An
     } else {
         builder.add_block(loop_.root(), control_flow::Assignments{{strided_var, strided_expr}});
     }
-
-    analysis_manager.invalidate_all();
 }
 
 void LoopUnitStride::to_json(nlohmann::json& j) const {

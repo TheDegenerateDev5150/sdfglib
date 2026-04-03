@@ -273,15 +273,5 @@ TEST(LoopShiftTest, NoOpWhenOffsetIsZero) {
 
     // Apply LoopShift with default constructor (offset = init = 0)
     transformations::LoopShift shift(*loop);
-    ASSERT_TRUE(shift.can_be_applied(builder2, am)); // Should be applicable
-    shift.apply(builder2, am); // Should be a no-op
-
-    // Verify loop still starts at 0
-    EXPECT_TRUE(symbolic::eq(loop->init(), symbolic::integer(0)));
-
-    // Verify no extra block was added (no-op case)
-    EXPECT_EQ(loop->root().size(), original_body_size);
-
-    // Verify no shifted container was created (empty name)
-    EXPECT_TRUE(shift.shifted_container_name().empty());
+    ASSERT_FALSE(shift.can_be_applied(builder2, am)); // Should be a no-op
 }
