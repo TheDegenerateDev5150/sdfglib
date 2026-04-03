@@ -163,7 +163,6 @@ set(SOURCE_FILES
     src/passes/structured_control_flow/dead_cfg_elimination.cpp
     src/passes/structured_control_flow/for2map.cpp
     src/passes/structured_control_flow/pointer_evolution.cpp
-    src/passes/structured_control_flow/loop_normalization.cpp
     src/passes/structured_control_flow/sequence_fusion.cpp
     src/passes/structured_control_flow/unify_loop_exits.cpp
     src/passes/structured_control_flow/while_to_for_conversion.cpp
