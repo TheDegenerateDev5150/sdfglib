@@ -41,6 +41,7 @@ set(TEST_FILES
     transformations/einsum_expand_test.cpp
     transformations/einsum_extend_test.cpp
     transformations/einsum_lift_test.cpp
+    transformations/loop_condition_normalize_test.cpp
     transformations/loop_distribute_test.cpp
     transformations/loop_interchange_test.cpp
     transformations/loop_rotate_test.cpp

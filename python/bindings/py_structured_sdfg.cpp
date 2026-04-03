@@ -25,6 +25,7 @@
 #include <sdfg/passes/dot_expansion_pass.h>
 #include <sdfg/passes/einsum.h>
 #include <sdfg/passes/gemm_expansion_pass.h>
+#include <sdfg/passes/normalization/loop_normal_form.h>
 #include <sdfg/passes/normalization/normalization.h>
 #include <sdfg/passes/offloading/cuda_library_node_rewriter_pass.h>
 #include <sdfg/passes/opt_pipeline.h>
@@ -38,7 +39,6 @@
 #include <sdfg/passes/structured_control_flow/common_assignment_elimination.h>
 #include <sdfg/passes/structured_control_flow/condition_elimination.h>
 #include <sdfg/passes/structured_control_flow/for2map.h>
-#include <sdfg/passes/structured_control_flow/loop_normalization.h>
 #include <sdfg/passes/structured_control_flow/pointer_evolution.h>
 #include <sdfg/passes/structured_control_flow/while_to_for_conversion.h>
 #include <sdfg/passes/symbolic/symbol_evolution.h>
@@ -226,18 +226,21 @@ void PyStructuredSDFG::simplify() {
     }
 
     // Normalize loop condition and update (run twice)
-    sdfg::passes::LoopNormalizationPass loop_normalization_pass;
+    sdfg::passes::normalization::LoopNormalFormPass loop_normalization_pass;
     loop_normalization_pass.run(builder_opt, analysis_manager);
-    loop_normalization_pass.run(builder_opt, analysis_manager);
-
-    // Eliminate symbols correlated to loop iterators
-    // sdfg::passes::SymbolEvolution symbol_evolution_pass;
-    // symbol_evolution_pass.run(builder_opt, analysis_manager);
 
     // Dead code elimination
     symbol_propagation_pass.run(builder_opt, analysis_manager);
     dde.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
+
+    // Eliminate symbols correlated to loop iterators
+    // sdfg::passes::SymbolEvolution symbol_evolution_pass;
+    // symbol_evolution_pass.run(builder_opt, analysis_manager);
+    // symbol_propagation_pass.run(builder_opt, analysis_manager);
+    // dde.run(builder_opt, analysis_manager);
+    // dce.run(builder_opt, analysis_manager);
+
 
     /***** Data Parallelism *****/
 
