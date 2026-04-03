@@ -62,6 +62,10 @@ protected:
         symbolic::Condition condition
     );
 
+    symbolic::Expression canonical_bound_upper();
+
+    symbolic::Expression canonical_bound_lower();
+
 public:
     virtual ~StructuredLoop() = default;
 
@@ -106,6 +110,39 @@ public:
      * @param new_expression Expression to replace with
      */
     void replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) override;
+
+    /**
+     * @brief Describes the stride of a loop's update as a constant.
+     *
+     * @return The stride of the loop's update as a constant, otherwise null.
+     */
+    symbolic::Integer stride();
+
+    /**
+     * @brief Describes the bound of a loop as a closed-form expression.
+     *
+     * Example: i <= N && i < M -> i < min(N + 1, M)
+     *
+     * @return The bound of the loop as a closed-form expression, otherwise null.
+     */
+    symbolic::Expression canonical_bound();
+
+    /**
+     * @brief Describes the number of iterations of a loop as a closed-form expression.
+     *
+     * @return The number of iterations of the loop as a closed-form expression, otherwise null.
+     */
+    symbolic::Expression num_iterations();
+
+    /**
+     * @brief Checks if the loop is in a normal form.
+     *
+     * Criteria:
+     *      - Loop starts from zero
+     *      - Loop has positive unit stride (i + 1)
+     *      - Loop has canonical bound
+     */
+    bool is_loop_normal_form();
 };
 
 } // namespace structured_control_flow
