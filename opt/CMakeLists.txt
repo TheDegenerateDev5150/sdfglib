@@ -76,6 +76,7 @@ set(SOURCE_FILES
     src/transformations/loop_shift.cpp
     src/transformations/loop_skewing.cpp
     src/transformations/loop_tiling.cpp
+    src/transformations/loop_unit_stride.cpp
     src/transformations/map_fusion.cpp
     src/transformations/tile_fusion.cpp
     src/transformations/out_local_storage.cpp
