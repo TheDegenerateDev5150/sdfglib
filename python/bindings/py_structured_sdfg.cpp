@@ -27,7 +27,6 @@
 #include <sdfg/passes/gemm_expansion_pass.h>
 #include <sdfg/passes/normalization/normalization.h>
 #include <sdfg/passes/offloading/cuda_library_node_rewriter_pass.h>
-#include <sdfg/passes/offloading/onnx_library_node_rewriter_pass.h>
 #include <sdfg/passes/opt_pipeline.h>
 #include <sdfg/passes/pipeline.h>
 #include <sdfg/passes/scheduler/cuda_scheduler.h>
@@ -375,8 +374,6 @@ void PyStructuredSDFG::schedule(const std::string& target, const std::string& ca
     // GPU Opt Pipeline
     else if (target == "cuda" || target == "rocm") {
         schedulers.push_back(target);
-    } else if (target == "onnx") {
-        // nothing
     } else if (target == "etsoc") {
 #ifdef DOCC_HAS_TARGET_ET
 
@@ -586,10 +583,6 @@ std::string PyStructuredSDFG::compile(
         cmd << " /opt/rocm/lib/libamdhip64.so";
         cmd << " /opt/rocm/lib/libhiprtc.so";
         cmd << " /opt/rocm/lib/libhipblas.so";
-    } else if (target == "onnx") {
-        cmd << " -L/usr/local/onnxruntime/lib";
-        cmd << " -lonnxruntime";
-        cmd << " -ldl"; // Required for dladdr()
     } else if (target == "etsoc") {
 #ifdef DOCC_HAS_TARGET_ET
         cmd << " " << docc::target::et::et_get_host_additional_link_args(*sdfg_, *snippet_factory);
