@@ -42,6 +42,7 @@ set(TEST_FILES
     transformations/einsum_lift_test.cpp
     transformations/loop_distribute_test.cpp
     transformations/loop_interchange_test.cpp
+    transformations/loop_shift_test.cpp
     transformations/loop_skewing_test.cpp
     transformations/loop_tiling_test.cpp
     transformations/map_fusion_test.cpp

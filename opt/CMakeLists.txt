@@ -72,6 +72,7 @@ set(SOURCE_FILES
     src/transformations/einsum_extend.cpp
     src/transformations/einsum_lift.cpp
     src/transformations/loop_interchange.cpp
+    src/transformations/loop_shift.cpp
     src/transformations/loop_skewing.cpp
     src/transformations/loop_tiling.cpp
     src/transformations/map_fusion.cpp
