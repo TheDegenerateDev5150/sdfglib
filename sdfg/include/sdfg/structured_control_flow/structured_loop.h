@@ -62,10 +62,6 @@ protected:
         symbolic::Condition condition
     );
 
-    symbolic::Expression canonical_bound_upper();
-
-    symbolic::Expression canonical_bound_lower();
-
 public:
     virtual ~StructuredLoop() = default;
 
@@ -126,6 +122,29 @@ public:
      * @return The bound of the loop as a closed-form expression, otherwise null.
      */
     symbolic::Expression canonical_bound();
+
+    /**
+     * @brief Describes the upper bound of a loop (for positive stride).
+     *
+     * Extracts the exclusive upper bound from conditions like:
+     *   - i < N -> N
+     *   - i <= N -> N + 1
+     *   - i + offset < N -> N - offset
+     *
+     * @return The upper bound expression, or null if not extractable.
+     */
+    symbolic::Expression canonical_bound_upper();
+
+    /**
+     * @brief Describes the lower bound of a loop (for negative stride).
+     *
+     * Extracts the exclusive lower bound from conditions like:
+     *   - bound < i -> bound
+     *   - bound <= i -> bound - 1
+     *
+     * @return The lower bound expression, or null if not extractable.
+     */
+    symbolic::Expression canonical_bound_lower();
 
     /**
      * @brief Describes the number of iterations of a loop as a closed-form expression.
