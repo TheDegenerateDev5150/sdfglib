@@ -464,3 +464,71 @@ TEST(LoopRotateTest, JsonRoundTrip) {
     auto rotate2 = transformations::LoopRotate::from_json(builder2, j);
     EXPECT_EQ(rotate2.name(), "LoopRotate");
 }
+
+// Test: IndvarFinalValueAfterLoop - verify reconstruction after loop
+// Original: for(i=10; 0<i; i--) body(); // exits with i=0
+// After rotate: for(i=1; i<11; i++) body();  // exits with i=11
+// Reconstruction: i = 10 + 1 - i = 11 - i  // restores i=0 after loop
+TEST(LoopRotateTest, IndvarFinalValueAfterLoop) {
+    builder::StructuredSDFGBuilder builder("test_sdfg", FunctionType_CPU);
+
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+    builder.add_container("i", sym_desc);
+
+    types::Scalar elem_desc(types::PrimitiveType::Double);
+    types::Array arr_desc(elem_desc, symbolic::integer(100));
+    builder.add_container("A", arr_desc, true);
+
+    auto& root = builder.subject().root();
+
+    // for i = 10; 0 < i; i-- (exits with i=0)
+    auto& for_loop = builder.add_for(
+        root,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::integer(0), symbolic::symbol("i")),
+        symbolic::integer(10),
+        symbolic::sub(symbolic::symbol("i"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(for_loop.root());
+    auto& a_node = builder.add_access(block, "A");
+    auto& const_node = builder.add_constant(block, "1.0", elem_desc);
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in1"});
+    builder.add_computational_memlet(block, const_node, tasklet, "_in1", {});
+    builder.add_computational_memlet(block, tasklet, "_out", a_node, {symbolic::symbol("i")});
+
+    auto sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder2(sdfg);
+    analysis::AnalysisManager am(builder2.subject());
+
+    auto& sdfg_root = builder2.subject().root();
+    ASSERT_EQ(sdfg_root.size(), 1); // Just the loop
+
+    auto* loop = dynamic_cast<structured_control_flow::For*>(&sdfg_root.at(0).first);
+    ASSERT_NE(loop, nullptr);
+
+    // Apply LoopRotate
+    transformations::LoopRotate rotate(*loop);
+    ASSERT_TRUE(rotate.can_be_applied(builder2, am));
+    rotate.apply(builder2, am);
+
+    // After transformation, root should have: loop + reconstruction block
+    ASSERT_EQ(sdfg_root.size(), 2);
+
+    // Verify the second element is a block (reconstruction)
+    auto* post_loop_block = dynamic_cast<structured_control_flow::Block*>(&sdfg_root.at(1).first);
+    ASSERT_NE(post_loop_block, nullptr);
+
+    // Check the reconstruction block's transition contains the reconstruction assignment
+    // (add_block_after puts assignments in the new block's transition)
+    auto& post_loop_transition = sdfg_root.at(1).second;
+    ASSERT_EQ(post_loop_transition.assignments().size(), 1);
+
+    // Assignment should be: i = 10 + 1 - i = 11 - i
+    // (old_init=10, new_init=0+1=1, so reconstruction is 10+1-i)
+    auto indvar = symbolic::symbol("i");
+    ASSERT_TRUE(post_loop_transition.assignments().count(indvar) > 0);
+    auto reconstruction = post_loop_transition.assignments().at(indvar);
+    auto expected = symbolic::sub(symbolic::integer(11), indvar);
+    EXPECT_TRUE(symbolic::eq(reconstruction, expected));
+}

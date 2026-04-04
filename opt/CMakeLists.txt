@@ -73,6 +73,7 @@ set(SOURCE_FILES
     src/transformations/einsum_extend.cpp
     src/transformations/einsum_lift.cpp
     src/transformations/loop_condition_normalize.cpp
+    src/transformations/loop_indvar_finalize.cpp
     src/transformations/loop_interchange.cpp
     src/transformations/loop_rotate.cpp
     src/transformations/loop_shift.cpp

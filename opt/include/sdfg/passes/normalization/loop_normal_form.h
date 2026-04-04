@@ -7,20 +7,21 @@ namespace sdfg {
 namespace passes {
 namespace normalization {
 
-class LoopNormalForm : public visitor::NonStoppingStructuredSDFGVisitor {
-    bool apply(structured_control_flow::StructuredLoop& node);
+class LoopNormalFormPass : public passes::Pass {
+private:
+    bool apply(
+        builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
+        structured_control_flow::StructuredLoop& loop
+    );
 
 public:
-    LoopNormalForm(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
+    LoopNormalFormPass();
 
-    static std::string name() { return "LoopNormalForm"; };
+    std::string name() override { return "LoopNormalForm"; };
 
-    bool accept(structured_control_flow::For& node) override;
-
-    bool accept(structured_control_flow::Map& node) override;
+    virtual bool run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
 };
-
-typedef VisitorPass<LoopNormalForm> LoopNormalFormPass;
 
 } // namespace normalization
 } // namespace passes
