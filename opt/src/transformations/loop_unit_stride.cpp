@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 
+#include "sdfg/analysis/scope_analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/symbolic/symbolic.h"
@@ -116,6 +117,15 @@ void LoopUnitStride::apply(builder::StructuredSDFGBuilder& builder, analysis::An
         builder.add_block_before(loop_.root(), first_child, control_flow::Assignments{{strided_var, strided_expr}});
     } else {
         builder.add_block(loop_.root(), control_flow::Assignments{{strided_var, strided_expr}});
+    }
+
+    // Reconstruct original indvar value after loop exit
+    // After loop, indvar holds transformed final value; we restore: indvar = |stride| * indvar
+    auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
+    auto parent_node = scope_analysis.parent_scope(&loop_);
+    auto* parent = dynamic_cast<structured_control_flow::Sequence*>(parent_node);
+    if (parent) {
+        builder.add_block_after(*parent, loop_, {{indvar, strided_expr}}, loop_.debug_info());
     }
 }
 
