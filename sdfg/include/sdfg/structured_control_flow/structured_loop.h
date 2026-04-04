@@ -115,6 +115,20 @@ public:
     symbolic::Integer stride();
 
     /**
+     * @brief Checks if the loop has a positive unit stride (i.e., update is indvar + 1).
+     *
+     * @return True if the loop has a positive unit stride, false otherwise.
+     */
+    bool is_contiguous();
+
+    /**
+     * @brief Checks if the loop is monotonic (i.e., stride is a positive integer).
+     *
+     * @return True if the loop is monotonic, false otherwise.
+     */
+    bool is_monotonic();
+
+    /**
      * @brief Describes the bound of a loop as a closed-form expression.
      *
      * Example: i <= N && i < M -> i < min(N + 1, M)

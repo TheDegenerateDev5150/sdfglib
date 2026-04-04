@@ -249,8 +249,8 @@ bool TileFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysi
         return false;
     }
 
-    auto first_stride = analysis::LoopAnalysis::stride(&first_map_);
-    auto second_stride = analysis::LoopAnalysis::stride(&second_map_);
+    auto first_stride = first_map_.stride();
+    auto second_stride = second_map_.stride();
     if (first_stride.is_null() || second_stride.is_null()) {
         return false;
     }
@@ -446,7 +446,7 @@ void TileFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
     auto tile_update = first_map_.update();
 
     // Extract tile size
-    auto stride = analysis::LoopAnalysis::stride(&first_map_);
+    auto stride = first_map_.stride();
     auto tile_size_expr = stride;
 
     // Get references to inner maps before moving
@@ -515,7 +515,7 @@ void TileFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
             symbolic::Lt(first_inner_indvar, symbolic::add(new_tile_indvar, symbolic::add(tile_size_expr, radius_expr)));
 
         // Get the original non-tile bound from the canonical bound of the original inner map
-        auto canonical = analysis::LoopAnalysis::canonical_bound(first_inner_map, assumptions_analysis);
+        auto canonical = first_inner_map->canonical_bound();
         if (!canonical.is_null()) {
             auto original_bound = symbolic::Lt(first_inner_indvar, canonical);
             new_first_inner_condition = symbolic::And(extended_tile_bound, original_bound);
