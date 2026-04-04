@@ -337,7 +337,7 @@ void ScopBuilder::
             constraints.push_back(literal_str);
         }
     }
-    auto stride = analysis::LoopAnalysis::stride(&loop);
+    auto stride = loop.stride();
     if (stride.is_null()) {
         this->scop_ = nullptr;
         return;

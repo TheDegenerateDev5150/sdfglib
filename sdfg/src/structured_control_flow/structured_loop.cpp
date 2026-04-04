@@ -95,6 +95,24 @@ symbolic::Integer StructuredLoop::stride() {
     return SymEngine::integer(int_add_coeff);
 };
 
+bool StructuredLoop::is_contiguous() {
+    auto stride = this->stride();
+    if (stride.is_null()) {
+        return false;
+    }
+    auto stride_int = stride->as_int();
+    return stride_int == 1;
+}
+
+bool StructuredLoop::is_monotonic() {
+    auto stride = this->stride();
+    if (stride.is_null()) {
+        return false;
+    }
+    auto stride_int = stride->as_int();
+    return stride_int > 0;
+}
+
 symbolic::Expression StructuredLoop::canonical_bound() {
     auto stride = this->stride();
     if (stride.is_null()) {
