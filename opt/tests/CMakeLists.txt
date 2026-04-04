@@ -54,6 +54,7 @@ set(TEST_FILES
     transformations/tile_fusion_test.cpp
     transformations/diamond_tiling_test.cpp
     transformations/out_local_storage_test.cpp
+    transformations/in_local_storage_test.cpp
     transformations/recorder_test.cpp
     test.cpp
 )
