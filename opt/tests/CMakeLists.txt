@@ -43,6 +43,7 @@ set(TEST_FILES
     transformations/einsum_lift_test.cpp
     transformations/loop_condition_normalize_test.cpp
     transformations/loop_distribute_test.cpp
+    transformations/loop_indvar_finalize_test.cpp
     transformations/loop_interchange_test.cpp
     transformations/loop_rotate_test.cpp
     transformations/loop_shift_test.cpp
