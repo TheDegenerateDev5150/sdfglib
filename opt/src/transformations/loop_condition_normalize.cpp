@@ -17,11 +17,17 @@
  *    - `false == (relational)` → negated relational
  *    - `true == (relational)` → relational
  *
- * 2. Main normalization: Convert `!=` to `<` or `>` based on stride
+ * 2. Indvar isolation: Ensure bare indvar on LHS of all relationals
+ *    - `i + offset < bound` → `i < bound - offset`
+ *    - `bound < i + offset` → `bound - offset < i`
+ *    (No stride requirement - pure algebraic transformation)
+ *
+ * 3. Main normalization: Convert `!=` to `<` or `>` based on stride
  *    - stride = +1: `i != N` → `i < N`
  *    - stride = -1: `i != N` → `i > N`
+ *    (Requires unit stride ±1)
  *
- * 3. Post-normalization: Simplify trivial max/min in bounds
+ * 4. Post-normalization: Simplify trivial max/min in bounds
  *    - `i < max(init, N)` with loop init=init → `i < N`
  *
  * The transformation assumes LLVM-style well-formed loops where the bound is
@@ -269,6 +275,234 @@ bool has_boolean_comparison_pattern(const symbolic::Condition& cond) {
 }
 
 /**
+ * Try to isolate indvar in a relational expression.
+ * Transforms: (indvar + offset) <relop> bound → indvar <relop> (bound - offset)
+ *             bound <relop> (indvar + offset) → (bound - offset) <relop> indvar
+ * Returns the original condition if isolation is not applicable.
+ */
+symbolic::Condition isolate_indvar_in_relational(const symbolic::Condition& cond, const symbolic::Symbol& indvar) {
+    // Helper to extract offset from affine expression with indvar coefficient = 1
+    auto extract_offset = [&indvar](const symbolic::Expression& expr) -> std::optional<symbolic::Expression> {
+        symbolic::SymbolVec syms = {indvar};
+        auto poly = symbolic::polynomial(expr, syms);
+        if (poly.is_null()) {
+            return std::nullopt;
+        }
+
+        auto coeffs = symbolic::affine_coefficients(poly, syms);
+        if (coeffs.empty() || coeffs.find(indvar) == coeffs.end()) {
+            return std::nullopt;
+        }
+
+        auto coeff = coeffs.at(indvar);
+        if (!SymEngine::is_a<SymEngine::Integer>(*coeff)) {
+            return std::nullopt;
+        }
+        auto coeff_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(coeff)->as_int();
+        if (coeff_int != 1) {
+            return std::nullopt;
+        }
+
+        symbolic::Expression offset = symbolic::zero();
+        if (coeffs.count(symbolic::symbol("__daisy_constant__"))) {
+            offset = coeffs.at(symbolic::symbol("__daisy_constant__"));
+        }
+        return offset;
+    };
+
+    // Helper to process a binary relational
+    auto process_relational =
+        [&](const symbolic::Expression& lhs, const symbolic::Expression& rhs, auto make_same_rel, auto make_flipped_rel
+        ) -> symbolic::Condition {
+        bool lhs_has_indvar = symbolic::uses(lhs, indvar->get_name());
+        bool rhs_has_indvar = symbolic::uses(rhs, indvar->get_name());
+
+        // Skip if indvar not present or on both sides
+        if ((!lhs_has_indvar && !rhs_has_indvar) || (lhs_has_indvar && rhs_has_indvar)) {
+            return cond;
+        }
+
+        if (lhs_has_indvar) {
+            // (indvar + offset) <relop> rhs → indvar <relop> (rhs - offset)
+            if (auto offset = extract_offset(lhs)) {
+                if (!symbolic::eq(*offset, symbolic::zero())) {
+                    auto new_bound = symbolic::expand(symbolic::sub(rhs, *offset));
+                    return make_same_rel(indvar, new_bound);
+                }
+            }
+        } else {
+            // lhs <relop> (indvar + offset) → (lhs - offset) <relop> indvar
+            if (auto offset = extract_offset(rhs)) {
+                if (!symbolic::eq(*offset, symbolic::zero())) {
+                    auto new_bound = symbolic::expand(symbolic::sub(lhs, *offset));
+                    return make_flipped_rel(new_bound, indvar);
+                }
+            }
+        }
+        return cond;
+    };
+
+    // Handle StrictLessThan: a < b
+    if (SymEngine::is_a<SymEngine::StrictLessThan>(*cond)) {
+        auto lt = SymEngine::rcp_static_cast<const SymEngine::StrictLessThan>(cond);
+        return process_relational(
+            lt->get_arg1(),
+            lt->get_arg2(),
+            [](auto a, auto b) { return symbolic::Lt(a, b); },
+            [](auto a, auto b) { return symbolic::Lt(a, b); }
+        );
+    }
+
+    // Handle LessThan (<=): a <= b
+    if (SymEngine::is_a<SymEngine::LessThan>(*cond)) {
+        auto le = SymEngine::rcp_static_cast<const SymEngine::LessThan>(cond);
+        return process_relational(
+            le->get_arg1(),
+            le->get_arg2(),
+            [](auto a, auto b) { return symbolic::Le(a, b); },
+            [](auto a, auto b) { return symbolic::Le(a, b); }
+        );
+    }
+
+    // Handle Unequality: a != b
+    if (SymEngine::is_a<SymEngine::Unequality>(*cond)) {
+        auto ne = SymEngine::rcp_static_cast<const SymEngine::Unequality>(cond);
+        return process_relational(
+            ne->get_arg1(),
+            ne->get_arg2(),
+            [](auto a, auto b) { return symbolic::Ne(a, b); },
+            [](auto a, auto b) { return symbolic::Ne(a, b); }
+        );
+    }
+
+    // Note: > and >= are typically represented as < and <= with swapped args in SymEngine
+    // but handle them for completeness
+
+    return cond;
+}
+
+/**
+ * Recursively isolate indvar in all relationals within a condition
+ */
+symbolic::Condition isolate_indvar_in_condition(const symbolic::Condition& cond, const symbolic::Symbol& indvar) {
+    // Try isolation on this condition first
+    auto isolated = isolate_indvar_in_relational(cond, indvar);
+    if (!symbolic::eq(isolated, cond)) {
+        return isolated;
+    }
+
+    // Handle And recursively
+    if (SymEngine::is_a<SymEngine::And>(*cond)) {
+        auto and_cond = SymEngine::rcp_static_cast<const SymEngine::And>(cond);
+        auto args = and_cond->get_args();
+        std::vector<symbolic::Condition> new_args;
+        for (const auto& arg : args) {
+            auto bool_arg = SymEngine::rcp_dynamic_cast<const SymEngine::Boolean>(arg);
+            new_args.push_back(isolate_indvar_in_condition(bool_arg, indvar));
+        }
+        symbolic::Condition result = new_args[0];
+        for (size_t i = 1; i < new_args.size(); ++i) {
+            result = symbolic::And(result, new_args[i]);
+        }
+        return result;
+    }
+
+    // Handle Or recursively
+    if (SymEngine::is_a<SymEngine::Or>(*cond)) {
+        auto or_cond = SymEngine::rcp_static_cast<const SymEngine::Or>(cond);
+        auto args = or_cond->get_args();
+        std::vector<symbolic::Condition> new_args;
+        for (const auto& arg : args) {
+            auto bool_arg = SymEngine::rcp_dynamic_cast<const SymEngine::Boolean>(arg);
+            new_args.push_back(isolate_indvar_in_condition(bool_arg, indvar));
+        }
+        symbolic::Condition result = new_args[0];
+        for (size_t i = 1; i < new_args.size(); ++i) {
+            result = symbolic::Or(result, new_args[i]);
+        }
+        return result;
+    }
+
+    return cond;
+}
+
+/**
+ * Check if a relational has non-isolated indvar (i + offset <relop> bound)
+ */
+bool has_non_isolated_indvar(const symbolic::Condition& cond, const symbolic::Symbol& indvar) {
+    auto check_expr = [&indvar](const symbolic::Expression& expr) -> bool {
+        if (!symbolic::uses(expr, indvar->get_name())) {
+            return false;
+        }
+        // If it uses indvar but isn't just the indvar, it needs isolation
+        if (!symbolic::eq(expr, indvar)) {
+            // Verify it's affine with coeff=1 (otherwise we can't isolate)
+            symbolic::SymbolVec syms = {indvar};
+            auto poly = symbolic::polynomial(expr, syms);
+            if (poly.is_null()) {
+                return false;
+            }
+            auto coeffs = symbolic::affine_coefficients(poly, syms);
+            if (coeffs.find(indvar) == coeffs.end()) {
+                return false;
+            }
+            auto coeff = coeffs.at(indvar);
+            if (!SymEngine::is_a<SymEngine::Integer>(*coeff)) {
+                return false;
+            }
+            auto coeff_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(coeff)->as_int();
+            if (coeff_int != 1) {
+                return false;
+            }
+            // Has non-zero offset
+            if (coeffs.count(symbolic::symbol("__daisy_constant__"))) {
+                auto offset = coeffs.at(symbolic::symbol("__daisy_constant__"));
+                if (!symbolic::eq(offset, symbolic::zero())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    // Check relationals
+    if (SymEngine::is_a<SymEngine::StrictLessThan>(*cond)) {
+        auto lt = SymEngine::rcp_static_cast<const SymEngine::StrictLessThan>(cond);
+        return check_expr(lt->get_arg1()) || check_expr(lt->get_arg2());
+    }
+    if (SymEngine::is_a<SymEngine::LessThan>(*cond)) {
+        auto le = SymEngine::rcp_static_cast<const SymEngine::LessThan>(cond);
+        return check_expr(le->get_arg1()) || check_expr(le->get_arg2());
+    }
+    if (SymEngine::is_a<SymEngine::Unequality>(*cond)) {
+        auto ne = SymEngine::rcp_static_cast<const SymEngine::Unequality>(cond);
+        return check_expr(ne->get_arg1()) || check_expr(ne->get_arg2());
+    }
+
+    // Check recursively in And/Or
+    if (SymEngine::is_a<SymEngine::And>(*cond)) {
+        auto and_cond = SymEngine::rcp_static_cast<const SymEngine::And>(cond);
+        for (const auto& arg : and_cond->get_args()) {
+            auto bool_arg = SymEngine::rcp_dynamic_cast<const SymEngine::Boolean>(arg);
+            if (has_non_isolated_indvar(bool_arg, indvar)) {
+                return true;
+            }
+        }
+    }
+    if (SymEngine::is_a<SymEngine::Or>(*cond)) {
+        auto or_cond = SymEngine::rcp_static_cast<const SymEngine::Or>(cond);
+        for (const auto& arg : or_cond->get_args()) {
+            auto bool_arg = SymEngine::rcp_dynamic_cast<const SymEngine::Boolean>(arg);
+            if (has_non_isolated_indvar(bool_arg, indvar)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Check if condition contains max(init, bound) patterns in bounds
  */
 bool has_max_init_pattern(const symbolic::Condition& cond, const symbolic::Expression& loop_init) {
@@ -345,7 +579,10 @@ bool LoopConditionNormalize::
     // Check for pattern 2: max(init, bound) in bounds
     bool has_max_pattern = has_max_init_pattern(condition, init);
 
-    // Check for pattern 3: != involving indvar (requires unit stride)
+    // Check for pattern 3: non-isolated indvar (i + offset <relop> bound)
+    bool has_isolation_pattern = has_non_isolated_indvar(condition, loop_.indvar());
+
+    // Check for pattern 4: != involving indvar (requires unit stride)
     bool has_unequality_pattern = false;
     if (has_unit_stride) {
         symbolic::CNF cnf;
@@ -407,7 +644,7 @@ bool LoopConditionNormalize::
         }
     }
 
-    return has_boolean_pattern || has_max_pattern || has_unequality_pattern;
+    return has_boolean_pattern || has_max_pattern || has_isolation_pattern || has_unequality_pattern;
 }
 
 void LoopConditionNormalize::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
@@ -419,7 +656,11 @@ void LoopConditionNormalize::apply(builder::StructuredSDFGBuilder& builder, anal
     // e.g., (false == (a < b)) → (a >= b)
     symbolic::Condition condition = simplify_boolean_comparisons(loop_.condition());
 
-    // Step 2: Main normalization - convert != to < or > based on stride
+    // Step 2: Isolate indvar in all relationals (no stride requirement)
+    // e.g., (i + offset < bound) → (i < bound - offset)
+    condition = isolate_indvar_in_condition(condition, indvar);
+
+    // Step 3: Main normalization - convert != to < or > based on stride
     // Only if stride is unit (±1)
     if (!stride.is_null()) {
         auto stride_int = stride->as_int();
@@ -492,20 +733,14 @@ void LoopConditionNormalize::apply(builder::StructuredSDFGBuilder& builder, anal
                         continue;
                     }
 
-                    symbolic::Expression offset = symbolic::zero();
-                    if (coeffs.count(symbolic::symbol("__daisy_constant__"))) {
-                        offset = coeffs.at(symbolic::symbol("__daisy_constant__"));
-                    }
-
-                    // i + offset != rhs → i != (rhs - offset)
-                    auto normalized_bound = symbolic::expand(symbolic::sub(rhs, offset));
-
+                    // At this point, indvar should already be isolated by step 2
+                    // Just convert != to </>
                     // Convert: stride > 0 → i < bound, stride < 0 → i > bound
                     symbolic::Condition new_literal;
                     if (stride_int > 0) {
-                        new_literal = symbolic::Lt(indvar, normalized_bound);
+                        new_literal = symbolic::Lt(indvar, rhs);
                     } else {
-                        new_literal = symbolic::Gt(indvar, normalized_bound);
+                        new_literal = symbolic::Gt(indvar, rhs);
                     }
                     new_clause.push_back(new_literal);
                 }
@@ -528,7 +763,7 @@ void LoopConditionNormalize::apply(builder::StructuredSDFGBuilder& builder, anal
         }
     }
 
-    // Step 3: Post-normalization - simplify max(init, bound) → bound
+    // Step 4: Post-normalization - simplify max(init, bound) → bound
     condition = simplify_max_bounds(condition, init);
 
     // Update the loop condition
