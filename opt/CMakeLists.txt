@@ -84,6 +84,7 @@ set(SOURCE_FILES
     src/transformations/tile_fusion.cpp
     src/transformations/out_local_storage.cpp
     src/transformations/in_local_storage.cpp
+    src/transformations/accumulator_tile.cpp
     src/transformations/recorder.cpp
     src/transformations/replayer.cpp
     src/transformations/utils.cpp

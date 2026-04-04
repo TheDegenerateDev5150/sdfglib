@@ -54,6 +54,18 @@ public:
         std::vector<symbolic::Expression> bases;
         /// The representative access subset (first encountered)
         data_flow::Subset representative_subset;
+        /// Determines copy loop placement based on which loops contribute to buffer dimensions:
+        ///
+        /// - false (simple case): Target loop's indvar contributes to access indices.
+        ///   Copy happens ONCE before target loop.
+        ///   Example: for i: A[i] → copy A[0..N] before loop, then A_local[i]
+        ///
+        /// - true (tiled case): Only descendant loops contribute, not the target.
+        ///   Copy happens PER ITERATION inside target loop.
+        ///   Example: for i_tile: for i: A[i] → copy A[i_tile..i_tile+TILE] each iteration
+        ///
+        /// Logic: copy_inside_loop = descendant_loops_contribute && !target_loop_contributes
+        bool copy_inside_loop = false;
     };
 
 private:
