@@ -62,9 +62,8 @@ TEST(LoopNormalFormTest, ShiftsNonZeroInit) {
 
     // After LoopShift: init should be 0
     EXPECT_TRUE(symbolic::eq(loop->init(), symbolic::integer(0)));
-    // Condition: i + 5 < 15 (substituted)
-    auto expected_cond =
-        symbolic::Lt(symbolic::add(symbolic::symbol("i"), symbolic::integer(5)), symbolic::integer(15));
+    // Condition: i < 10 (shifted and normalized: i + 5 < 15 → i < 15 - 5)
+    auto expected_cond = symbolic::Lt(symbolic::symbol("i"), symbolic::integer(10));
     EXPECT_TRUE(symbolic::eq(loop->condition(), expected_cond));
     // Stride still +1
     auto stride = loop->stride();
@@ -431,9 +430,8 @@ TEST(LoopNormalFormTest, NestedLoops) {
     auto outer_stride = outer->stride();
     ASSERT_FALSE(outer_stride.is_null());
     EXPECT_EQ(outer_stride->as_int(), 1);
-    // Outer condition: (i + 1) < 10
-    auto expected_outer_cond =
-        symbolic::Lt(symbolic::add(symbolic::symbol("i"), symbolic::integer(1)), symbolic::integer(10));
+    // Outer condition: i < 9 (shifted and normalized: i + 1 < 10 → i < 9)
+    auto expected_outer_cond = symbolic::Lt(symbolic::symbol("i"), symbolic::integer(9));
     EXPECT_TRUE(symbolic::eq(outer->condition(), expected_outer_cond));
     // Outer update: i + 1
     auto expected_outer_update = symbolic::add(symbolic::symbol("i"), symbolic::integer(1));

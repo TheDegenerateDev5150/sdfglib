@@ -66,9 +66,14 @@ void LoopRotate::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
 
     // New init: start at lower_bound + 1
     auto new_init = symbolic::add(lower_bound, symbolic::one());
+    new_init = symbolic::expand(new_init);
+    new_init = symbolic::simplify(new_init);
 
     // New condition: indvar < old_init + 1
-    auto new_condition = symbolic::Lt(indvar, symbolic::add(old_init, symbolic::one()));
+    auto new_rhs = symbolic::add(old_init, symbolic::one());
+    new_rhs = symbolic::expand(new_rhs);
+    new_rhs = symbolic::simplify(new_rhs);
+    auto new_condition = symbolic::Lt(indvar, new_rhs);
 
     // New update: indvar + 1 (positive unit stride)
     auto new_update = symbolic::add(indvar, symbolic::one());
@@ -93,6 +98,8 @@ void LoopRotate::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
     //           i' = new_init+1 to original_i = old_init - 1
     //           etc.
     auto rotated_value = symbolic::sub(symbolic::add(old_init, new_init), indvar);
+    rotated_value = symbolic::expand(rotated_value);
+    rotated_value = symbolic::simplify(rotated_value);
 
     // Update the loop parameters
     builder.update_loop(loop_, indvar, new_condition, new_init, new_update);

@@ -57,6 +57,8 @@ void LoopShift::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
 
     // Compute the new init: new_init = old_init - offset
     auto new_init = symbolic::sub(old_init, offset_);
+    new_init = symbolic::expand(new_init);
+    new_init = symbolic::simplify(new_init);
 
     // Create a new container for the shifted (original) value
     // Use a unique name based on the original indvar
@@ -74,9 +76,11 @@ void LoopShift::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
 
     auto shifted_var = symbolic::symbol(shifted_container_name_);
     auto shifted_value = symbolic::add(indvar, offset_);
+    shifted_value = symbolic::expand(shifted_value);
+    shifted_value = symbolic::simplify(shifted_value);
 
     // We use symbolic substitution: replace old indvar with (indvar + shift) in condition
-    auto new_condition = symbolic::subs(old_condition, indvar, symbolic::add(indvar, offset_));
+    auto new_condition = symbolic::subs(old_condition, indvar, shifted_value);
 
     // Update the loop
     builder.update_loop(loop_, indvar, new_condition, new_init, old_update);

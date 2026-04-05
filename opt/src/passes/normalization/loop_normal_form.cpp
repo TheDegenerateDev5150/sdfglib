@@ -54,6 +54,12 @@ bool LoopNormalFormPass::apply(
             loop_shift.apply(builder, analysis_manager);
             applied = true;
         }
+
+        transformations::LoopConditionNormalize loop_cond_normalize(loop);
+        if (loop_cond_normalize.can_be_applied(builder, analysis_manager)) {
+            loop_cond_normalize.apply(builder, analysis_manager);
+            applied = true;
+        }
     }
 
     // Step 5: Simplify reconstruction blocks with closed-form expression

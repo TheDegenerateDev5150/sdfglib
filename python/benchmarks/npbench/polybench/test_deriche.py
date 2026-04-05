@@ -97,8 +97,8 @@ def test_deriche(target):
         verifier = SDFGVerification(
             verification={
                 "Free": 10,
-                "MAP": 21,
-                "SEQUENTIAL": 21,
+                "MAP": 23,
+                "SEQUENTIAL": 23,
                 "FOR": 31,
                 "CMath": 9,
                 "Malloc": 10,
@@ -109,8 +109,8 @@ def test_deriche(target):
             verification={
                 "Free": 10,
                 "HIGHWAY": 9,
-                "MAP": 21,
-                "SEQUENTIAL": 12,
+                "MAP": 23,
+                "SEQUENTIAL": 14,
                 "FOR": 31,
                 "CMath": 9,
                 "Malloc": 10,
@@ -120,10 +120,9 @@ def test_deriche(target):
         verifier = SDFGVerification(
             verification={
                 "Free": 10,
-                "MAP": 16,
-                "SEQUENTIAL": 2,
+                "MAP": 18,
                 "FOR": 26,
-                "CPU_PARALLEL": 14,
+                "CPU_PARALLEL": 18,
                 "CMath": 9,
                 "Malloc": 10,
             }
