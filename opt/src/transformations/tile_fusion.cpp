@@ -15,6 +15,7 @@
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/for.h"
 #include "sdfg/structured_control_flow/map.h"
+#include "sdfg/symbolic/delinearization.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/symbolic/utils.h"
 
@@ -69,9 +70,12 @@ int TileFusion::compute_radius(
     }
 
     // Delinearize the producer write subset
-    auto producer_sub = symbolic::delinearize(producer_write_subset, producer_assumptions);
-    if (producer_sub.empty()) {
-        return -1;
+    auto producer_sub = producer_write_subset;
+    if (producer_sub.size() == 1) {
+        auto producer_result = symbolic::delinearize(producer_write_subset.at(0), producer_assumptions);
+        if (producer_result.success) {
+            producer_sub = producer_result.indices;
+        }
     }
 
     // Extract the innermost producer loop indvar (the spatial iteration variable)
@@ -85,8 +89,13 @@ int TileFusion::compute_radius(
     int max_radius = 0;
 
     for (const auto& consumer_read_subset : consumer_read_subsets) {
-        auto consumer_sub = symbolic::delinearize(consumer_read_subset, consumer_assumptions);
-
+        auto consumer_sub = consumer_read_subset;
+        if (consumer_sub.size() == 1) {
+            auto consumer_result = symbolic::delinearize(consumer_read_subset.at(0), consumer_assumptions);
+            if (consumer_result.success) {
+                consumer_sub = consumer_result.indices;
+            }
+        }
         if (consumer_sub.size() != producer_sub.size()) {
             return -1;
         }

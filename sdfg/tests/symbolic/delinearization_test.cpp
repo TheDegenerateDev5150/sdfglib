@@ -2,7 +2,7 @@
 
 #include <gtest/gtest.h>
 
-#include "sdfg/symbolic/utils.h"
+#include "sdfg/symbolic/delinearization.h"
 #include "sdfg/types/scalar.h"
 
 using namespace sdfg;
@@ -40,10 +40,13 @@ TEST(DelinearizeTest, Delinearize2D) {
 
     auto expr = symbolic::add(symbolic::mul(x, M), y);
 
-    auto expr_delinearized = symbolic::delinearize({expr}, assums);
-    EXPECT_EQ(expr_delinearized.size(), 2);
-    EXPECT_TRUE(symbolic::eq(expr_delinearized.at(0), x));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized.at(1), y));
+    auto result = symbolic::delinearize(expr, assums);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 1);
+    EXPECT_EQ(result.indices.size(), 2);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), x));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(1), y));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), M));
 }
 
 TEST(DelinearizeTest, Delinearize3D) {
@@ -91,12 +94,24 @@ TEST(DelinearizeTest, Delinearize3D) {
     assums.insert({K, assum_K});
 
     auto expr = symbolic::add(symbolic::add(symbolic::mul(x, symbolic::mul(M, K)), symbolic::mul(y, K)), z);
-    auto expr_delinearized = symbolic::delinearize({expr}, assums);
-    EXPECT_EQ(expr_delinearized.size(), 3);
-    EXPECT_TRUE(symbolic::eq(expr_delinearized.at(0), x));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized.at(1), y));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized.at(2), z));
+    auto result = symbolic::delinearize(expr, assums);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 2);
+    EXPECT_EQ(result.indices.size(), 3);
+    for (auto& dim : result.dimensions) {
+        std::cout << dim->__str__() << std::endl;
+    }
+    for (auto& idx : result.indices) {
+        std::cout << idx->__str__() << std::endl;
+    }
+
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), x));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(1), y));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(2), z));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), M));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(1), K));
 }
+
 
 TEST(DelinearizeTest, Delinearize4D) {
     types::Scalar desc_i64(types::PrimitiveType::Int64);
@@ -162,12 +177,17 @@ TEST(DelinearizeTest, Delinearize4D) {
     expr = symbolic::add(expr, symbolic::mul(symbolic::mul(_3, _2), _24));
     expr = symbolic::add(expr, symbolic::mul(symbolic::mul(symbolic::mul(_3, _2), _1), _13));
 
-    auto expr_delinearized = symbolic::delinearize({expr}, assums);
-    EXPECT_EQ(expr_delinearized.size(), 4);
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[0], _13));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[1], _24));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[2], _28));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[3], _32));
+    auto result = symbolic::delinearize(expr, assums);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 3);
+    EXPECT_EQ(result.indices.size(), 4);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), _13));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(1), _24));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(2), _28));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(3), _32));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), _1));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(1), _2));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(2), _3));
 }
 
 TEST(DelinearizeTest, Delinearize4D_WithOffsets) {
@@ -241,12 +261,17 @@ TEST(DelinearizeTest, Delinearize4D_WithOffsets) {
     expr = symbolic::add(expr, symbolic::mul(symbolic::mul(stride_3, stride_2), offset_24));
     expr = symbolic::add(expr, symbolic::mul(symbolic::mul(symbolic::mul(stride_3, stride_2), stride_1), _13));
 
-    auto expr_delinearized = symbolic::delinearize({expr}, assums);
-    EXPECT_EQ(expr_delinearized.size(), 4);
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[0], _13));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[1], symbolic::add(_24, symbolic::one())));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[2], symbolic::add(_28, symbolic::one())));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[3], symbolic::add(_32, symbolic::one())));
+    auto result = symbolic::delinearize(expr, assums);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 3);
+    EXPECT_EQ(result.indices.size(), 4);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), _13));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(1), offset_24));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(2), offset_28));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(3), offset_32));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), stride_1));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(1), stride_2));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(2), stride_3));
 }
 
 TEST(DelinearizeTest, Delinearize4D_WithOffsets_Symbolic) {
@@ -337,12 +362,17 @@ TEST(DelinearizeTest, Delinearize4D_WithOffsets_Symbolic) {
                 stride_1)
     );
 
-    auto expr_delinearized = symbolic::delinearize({expr}, assums);
-    EXPECT_EQ(expr_delinearized.size(), 4);
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[0], symbolic::add(symbolic::sub(_13, _4), symbolic::mul(_4, _5))));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[1], symbolic::add(_24, symbolic::one())));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[2], symbolic::add(_28, symbolic::one())));
-    EXPECT_TRUE(symbolic::eq(expr_delinearized[3], symbolic::add(_32, symbolic::one())));
+    auto result = symbolic::delinearize({expr}, assums);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 3);
+    EXPECT_EQ(result.indices.size(), 4);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), symbolic::add(symbolic::sub(_13, _4), symbolic::mul(_4, _5))));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(1), offset_24));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(2), offset_28));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(3), offset_32));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), stride_1));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(1), stride_2));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(2), stride_3));
 }
 
 TEST(DelinearizeTest, Delinearize4D_PowStride) {
@@ -395,20 +425,24 @@ TEST(DelinearizeTest, Delinearize4D_PowStride) {
     assum_s1.constant(true);
     assums.insert({s1, assum_s1});
 
-    // _i6 + _s1*_i5 + _s1**2*_i4 + _s0*_s1**2*_i3
+    // _i3 + _s1*_i2 + _s1**2*_i1 + _s0*_s1**2*_i0
     auto s1_2 = symbolic::pow(s1, symbolic::integer(2));
     auto expr = symbolic::mul(symbolic::mul(s0, s1_2), i0);
     expr = symbolic::add(expr, symbolic::mul(s1_2, i1));
     expr = symbolic::add(expr, symbolic::mul(s1, i2));
     expr = symbolic::add(expr, i3);
-    std::cout << "Original expression: " << expr->__str__() << std::endl;
 
-    auto result = symbolic::delinearize({expr}, assums);
-    ASSERT_EQ(result.size(), 4);
-    EXPECT_TRUE(symbolic::eq(result[0], i0));
-    EXPECT_TRUE(symbolic::eq(result[1], i1));
-    EXPECT_TRUE(symbolic::eq(result[2], i2));
-    EXPECT_TRUE(symbolic::eq(result[3], i3));
+    auto result = symbolic::delinearize(expr, assums);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 3);
+    EXPECT_EQ(result.indices.size(), 4);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), i0));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(1), i1));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(2), i2));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(3), i3));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), s0));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(1), s1));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(2), s1));
 }
 
 TEST(DelinearizeTest, ZeroStride) {
@@ -444,9 +478,11 @@ TEST(DelinearizeTest, ZeroStride) {
 
     auto expr = symbolic::add(symbolic::mul(x, M), y);
 
-    auto expr_delinearized = symbolic::delinearize({expr}, assums);
-    EXPECT_EQ(expr_delinearized.size(), 1);
-    EXPECT_TRUE(symbolic::eq(expr_delinearized.at(0), expr));
+    auto result = symbolic::delinearize({expr}, assums);
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 0);
+    EXPECT_EQ(result.indices.size(), 1);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), expr));
 }
 
 TEST(DelinearizeTest, NegativeStride) {
@@ -482,7 +518,9 @@ TEST(DelinearizeTest, NegativeStride) {
 
     auto expr = symbolic::add(symbolic::mul(x, M), y);
 
-    auto expr_delinearized = symbolic::delinearize({expr}, assums);
-    EXPECT_EQ(expr_delinearized.size(), 1);
-    EXPECT_TRUE(symbolic::eq(expr_delinearized.at(0), expr));
+    auto result = symbolic::delinearize({expr}, assums);
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.dimensions.size(), 0);
+    EXPECT_EQ(result.indices.size(), 1);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), expr));
 }
