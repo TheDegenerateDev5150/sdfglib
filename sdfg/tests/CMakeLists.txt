@@ -104,7 +104,7 @@ set(TEST_FILES
     symbolic/polynomials_test.cpp
     symbolic/symbolic_test.cpp
     symbolic/sets_test.cpp
-    symbolic/utils_test.cpp
+    symbolic/delinearization_test.cpp
     types/array_test.cpp
     types/function_test.cpp
     types/pointer_test.cpp

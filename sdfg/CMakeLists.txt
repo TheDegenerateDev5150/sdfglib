@@ -179,6 +179,7 @@ set(SOURCE_FILES
     src/structured_control_flow/while.cpp
     src/symbolic/assumptions.cpp
     src/symbolic/conjunctive_normal_form.cpp
+    src/symbolic/delinearization.cpp
     src/symbolic/extreme_values.cpp
     src/symbolic/maps.cpp
     src/symbolic/polynomials.cpp
