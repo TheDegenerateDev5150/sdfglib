@@ -34,7 +34,6 @@
 #include <sdfg/passes/scheduler/highway_scheduler.h>
 #include <sdfg/passes/scheduler/loop_scheduling_pass.h>
 #include <sdfg/passes/scheduler/omp_scheduler.h>
-#include <sdfg/passes/scheduler/polly_scheduler.h>
 #include <sdfg/passes/scheduler/scheduler_registry.h>
 #include <sdfg/passes/structured_control_flow/common_assignment_elimination.h>
 #include <sdfg/passes/structured_control_flow/condition_elimination.h>

@@ -9,7 +9,6 @@ FetchContent_MakeAvailable(googletest)
 option(DOCC_TESTS_ENABLE_DUMP "Enable dumping intermediary files of test cases" OFF)
 
 set(TEST_FILES
-    analysis/scop_analysis_test.cpp
     cuda/blas/cublas_test.cpp
     cuda/cuda_kernel_test.cpp
     cuda/cuda_library_nodes_test.cpp
@@ -24,18 +23,15 @@ set(TEST_FILES
     transformations/offloading/cuda_parallelize_nested_map_test.cpp
     transformations/offloading/gpu_tiling_test.cpp
     transformations/offloading/kernel_local_storage_test.cpp
-    transformations/polly_transform_test.cpp
     passes/scheduler/cuda_scheduler_test.cpp
     passes/scheduler/highway_scheduler_test.cpp
     passes/scheduler/omp_scheduler_test.cpp
-    passes/scheduler/polly_scheduler_test.cpp
     targets/omp/codegen/omp_map_dispatcher_test.cpp
     targets/omp/schedule_test.cpp
     targets/highway/codegen/highway_map_dispatcher_test.cpp
     transformations/collapse_to_depth_test.cpp
     transformations/highway_transform_test.cpp
     transformations/omp_transform_test.cpp
-    transformations/polly_transform_test.cpp
     transformations/map_collapse_test.cpp
     transformations/einsum2gemm_test.cpp
     transformations/einsum_expand_test.cpp

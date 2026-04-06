@@ -19,7 +19,6 @@
 #include <sdfg/transformations/offloading/rocm_transform.h>
 #include <sdfg/transformations/omp_transform.h>
 #include <sdfg/transformations/out_local_storage.h>
-#include <sdfg/transformations/polly_transform.h>
 #include <sdfg/transformations/replayer.h>
 #include <sdfg/transformations/tile_fusion.h>
 
@@ -58,8 +57,6 @@ void Replayer::replay(
             this->apply<transformations::OMPTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "HighwayTransform") {
             this->apply<transformations::HighwayTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
-        } else if (transformation_name == "PollyTransform") {
-            this->apply<transformations::PollyTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "CUDATransform") {
             this->apply<cuda::CUDATransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "CUDAParallelizeNestedMap") {

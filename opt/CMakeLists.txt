@@ -8,7 +8,6 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(ISL REQUIRED IMPORTED_TARGET isl)
 
 set(SOURCE_FILES
-    src/analysis/scop_analysis.cpp
     src/passes/einsum.cpp
     src/passes/normalization/loop_normal_form.cpp
     src/passes/normalization/perfect_loop_distribution.cpp
@@ -32,7 +31,6 @@ set(SOURCE_FILES
     src/passes/scheduler/highway_scheduler.cpp
     src/passes/scheduler/loop_scheduling_pass.cpp
     src/passes/scheduler/omp_scheduler.cpp
-    src/passes/scheduler/polly_scheduler.cpp
     src/passes/scheduler/scheduler_registry.cpp
     src/targets/cuda/blas/dot.cpp
     src/targets/cuda/blas/gemm.cpp
@@ -64,7 +62,6 @@ set(SOURCE_FILES
     src/transformations/highway_transform.cpp
     src/transformations/omp_transform.cpp
     src/transformations/offloading/offload_transform.cpp
-    src/transformations/polly_transform.cpp
     src/transformations/map_collapse.cpp
     src/transformations/loop_distribute.cpp
     src/transformations/einsum2dot.cpp
