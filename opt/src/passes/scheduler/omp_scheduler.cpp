@@ -2,6 +2,7 @@
 
 #include "sdfg/passes/collapse_pass.h"
 #include "sdfg/passes/dataflow/dead_data_elimination.h"
+#include "sdfg/passes/dataflow/memlet_simplification.h"
 #include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
 #include "sdfg/passes/symbolic/symbol_propagation.h"
 #include "sdfg/transformations/omp_transform.h"
@@ -96,6 +97,8 @@ void OMPScheduler::pre_schedule(
     ddead_pass.run(builder, analysis_manager);
     passes::DeadCFGElimination dcfg_pass;
     dcfg_pass.run(builder, analysis_manager);
+    passes::MemletSimplificationPass subset_simplification_pass;
+    subset_simplification_pass.run(builder, analysis_manager);
     analysis_manager.invalidate_all();
 
     applicable_loops.clear();
