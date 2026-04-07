@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRLinalgCustomTransforms
+    CustomRemoveRedundant.cpp
     CustomSpecialize.cpp
     CustomSpecializeBatchNorm.cpp
 
