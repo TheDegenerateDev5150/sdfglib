@@ -2,6 +2,7 @@
 
 #include "sdfg/passes/collapse_pass.h"
 #include "sdfg/passes/dataflow/dead_data_elimination.h"
+#include "sdfg/passes/dataflow/memlet_simplification.h"
 #include "sdfg/passes/offloading/gpu_loop_reordering_pass.h"
 #include "sdfg/passes/offloading/gpu_nested_parallelization_pass.h"
 #include "sdfg/passes/offloading/gpu_tiling_pass.h"
@@ -103,6 +104,8 @@ void ROCMScheduler::pre_schedule(
     ddead_pass.run(builder, analysis_manager);
     passes::DeadCFGElimination dcfg_pass;
     dcfg_pass.run(builder, analysis_manager);
+    passes::MemletSimplificationPass subset_simplification_pass;
+    subset_simplification_pass.run(builder, analysis_manager);
     analysis_manager.invalidate_all();
 
     applicable_loops.clear();
