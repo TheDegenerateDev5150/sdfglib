@@ -18,9 +18,13 @@ set(SOURCE_FILES
     src/passes/offloading/code_motion/block_hoisting.cpp
     src/passes/offloading/code_motion/block_sorting.cpp
     src/passes/offloading/data_transfer_minimization_pass.cpp
+    src/passes/offloading/gpu_loop_reordering_pass.cpp
+    src/passes/offloading/gpu_nested_parallelization_pass.cpp
+    src/passes/offloading/gpu_tiling_pass.cpp
     src/passes/offloading/remove_redundant_transfers_pass.cpp
     src/passes/offloading/rocm_library_node_rewriter_pass.cpp
     src/passes/offloading/sync_condition_propagation.cpp
+    src/passes/collapse_pass.cpp
     src/passes/extended_data_transfer_minimization_pass.cpp
     src/passes/readonly_transfer_hoisting_pass.cpp
     src/passes/dot_expansion_pass.cpp
