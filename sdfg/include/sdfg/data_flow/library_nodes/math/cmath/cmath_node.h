@@ -414,6 +414,8 @@ public:
     virtual symbolic::Expression flop() const override;
 
     std::string toStr() const override;
+
+    virtual bool require_out_edge(const data_flow::DataFlowGraph& graph, const data_flow::Memlet* memlet) const override;
 };
 
 class CMathNodeSerializer : public serializer::LibraryNodeSerializer {
