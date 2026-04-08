@@ -317,6 +317,11 @@ std::string CMathNode::toStr() const {
     return LibraryNode::toStr() + "(" + get_cmath_intrinsic_name(this->function_, this->primitive_type_) + ")";
 }
 
+bool CMathNode::require_out_edge(const data_flow::DataFlowGraph& graph, const data_flow::Memlet* memlet) const {
+    // CMathNode always requires its output memlet to be present, as it represents a computation that produces a result.
+    return false;
+}
+
 nlohmann::json CMathNodeSerializer::serialize(const data_flow::LibraryNode& library_node) {
     const CMathNode& node = static_cast<const CMathNode&>(library_node);
     nlohmann::json j;
