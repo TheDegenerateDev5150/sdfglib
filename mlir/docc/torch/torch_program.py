@@ -4,6 +4,7 @@ import hashlib
 import shutil
 from typing import Any, Optional, List
 import time
+import numpy as np
 
 from docc.compiler import CompiledSDFG, DoccProgram
 from docc.compiler.target_registry import reset_target_registry
@@ -423,7 +424,6 @@ class TorchProgram(DoccProgram):
 
     def _convert_outputs(self, result: Any, original_args: tuple) -> Any:
         import torch
-        import numpy as np
 
         # Determine target device from input
         device = torch.device("cpu")
@@ -432,18 +432,28 @@ class TorchProgram(DoccProgram):
                 device = arg.device
                 break
 
+        # Fast path: check if we're on CPU (avoid device transfer overhead)
+        is_cpu = device.type == "cpu"
+
         def convert_single(val):
             if isinstance(val, np.ndarray):
-                return torch.from_numpy(val.copy()).to(device)
+                # torch.from_numpy shares memory - this is fast
+                # For non-CPU devices, .to(device) creates a copy anyway
+                # For CPU, the shared memory is fine since CompiledSDFG
+                # allocates new buffers on each call
+                t = torch.from_numpy(val)
+                if not is_cpu:
+                    t = t.to(device)
+                return t
             elif isinstance(val, torch.Tensor):
-                return val.to(device)
+                return val if is_cpu else val.to(device)
             elif isinstance(val, (int, float)):
                 return torch.tensor(val, device=device)
             else:
                 return val
 
         if isinstance(result, tuple):
-            converted = list(convert_single(r) for r in result)
+            converted = [convert_single(r) for r in result]
         else:
             converted = [convert_single(result)]
 
