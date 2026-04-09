@@ -246,6 +246,8 @@ LogicalResult translateTensorExtractOp(SDFGTranslator& translator, tensor::Extra
     auto& tasklet = builder.add_tasklet(block, ::sdfg::data_flow::TaskletCode::assign, "_out", {"_in"}, deb_info);
     builder.add_computational_memlet(block, tensor_access, tasklet, "_in", subset, *sdfg_tensor, deb_info);
     builder.add_computational_memlet(block, tasklet, "_out", result_access, {}, deb_info);
+
+    return success();
 }
 
 LogicalResult translateTensorInsertSliceOp(SDFGTranslator& translator, tensor::InsertSliceOp* insert_slice_op) {
