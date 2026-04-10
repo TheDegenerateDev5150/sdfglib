@@ -70,6 +70,11 @@ public:
      * @param new_expression Expression to replace with
      */
     void replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) override;
+
+    template<typename T>
+    T* is_a_library_node() {
+        return this->dataflow().is_a_library_node<T>();
+    }
 };
 
 } // namespace structured_control_flow
