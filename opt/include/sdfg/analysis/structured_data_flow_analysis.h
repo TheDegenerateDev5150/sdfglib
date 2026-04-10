@@ -39,11 +39,9 @@ typedef size_t ElementId;
 template<typename T, typename I>
 struct ElementIdMapDataFlowState : public DataFlowState<std::unordered_map<ElementId, T>> {
     using ExposedType = DataFlowState<std::unordered_map<ElementId, T>>::ExposedType;
-    using InternalType = std::unordered_map<ElementId, std::unique_ptr<I>>;
 
 protected:
     ExposedType incoming_;
-    InternalType generated_;
     ExposedType forward_exposed_;
     bool ran_ = false;
 
@@ -59,14 +57,9 @@ public:
 
         ExposedType exposed = incoming_;
         apply_kills_and_changes(exposed);
-        for (auto& [id, gen] : generated_) {
-            exposed.insert({id, expose(*gen)});
-        }
 
         return update_forward_exposed(exposed);
     }
-
-    virtual T expose(I& internal) = 0;
 
     bool update_incoming(const ExposedType& incoming) override {
         bool any_changes = false;

@@ -6,6 +6,11 @@
 
 namespace sdfg::analysis {
 
+void OffloadHolder::remove_host_side() {
+    host_data = nullptr;
+    host_access = nullptr;
+}
+
 OffloadState::OffloadState(DataTransferEliminationCandidateCollector& collector) : collector_(collector) {}
 
 void OffloadState::found_escape(const std::string& container) { kills_containers_.insert(container); }
@@ -25,21 +30,47 @@ void OffloadState::found_full_barrier(ControlFlowNode& node) {
 }
 
 /**
- * @return { candidate_for_elimination, killing node }
+ * @return { type, killing node }
  */
-std::pair<bool, const OffloadHolder*> OffloadState::find_killing_entry_node(const OffloadHolder& exit_node) const {
-    auto& host_access_type = exit_node.host_access->base_type();
-    for (const auto& entry_node : kernel_entry_nodes_ | std::views::values) {
-        if (entry_node.host_data->data() == exit_node.host_data->data()) {
-            bool is_elim_candidate = exit_node.node->redundant_with(*entry_node.node);
-            return {is_elim_candidate, &entry_node};
-        } else if (host_access_type == entry_node.host_access->base_type()) { // aliases
+std::pair<OffloadState::KillingType, OffloadHolder*> OffloadState::find_killing_entry_node(const ExposedOffload&
+                                                                                               in_flight) const {
+    auto& holder = *in_flight.offload;
+    auto& host_access_type = holder.host_access->base_type();
+
+    auto* offload_node = holder.offload_node;
+    auto* malloc_node = holder.malloc_node;
+
+    for (const auto& entry_node : h2d_nodes_ | std::views::values) {
+        auto& entry_holder = *entry_node;
+        if (entry_holder.host_data->data() == holder.host_data->data()) {
+            if (offload_node) {
+                bool is_elim_candidate = holder.offload_node->redundant_with(*entry_holder.offload_node);
+                return {is_elim_candidate ? KillingType::DeviceReuse : KillingType::Basic, &entry_holder};
+            } else if (malloc_node) { // mallocs should only be in flight as long as they are untouched
+                bool can_be_removed = entry_holder.offload_node->is_alloc() && entry_holder.offload_node->is_h2d();
+                return {can_be_removed ? KillingType::EmptyHostMalloc : KillingType::Basic, &entry_holder};
+            }
+        } else if (host_access_type == entry_holder.host_access->base_type()) { // aliases
             // return &entry_node; // TODO left unhandled for now, because then most situations like a matmul could
             // never be eliminated
         }
     }
 
-    return {false, nullptr};
+    return {KillingType::None, nullptr};
+}
+
+void OffloadState::found_malloc(Block& block, stdlib::MallocNode& malloc) {
+    auto& dflow = block.dataflow();
+
+    auto out_edges = dflow.out_edges_for_connector(malloc, malloc.output(0));
+    if (out_edges.size() != 1) {
+        throw std::runtime_error(
+            "Unsupported: malloc node " + std::to_string(malloc.element_id()) + " with other than 1 output"
+        );
+    }
+    auto* memlet = out_edges.at(0);
+    auto* access_node = dynamic_cast<const data_flow::AccessNode*>(&memlet->dst());
+    generated_.emplace(malloc.element_id(), std::make_unique<OffloadHolder>(&malloc, access_node, memlet));
 }
 
 void OffloadState::found_offload_node(Block& block, offloading::DataOffloadingNode& offload) {
@@ -108,11 +139,9 @@ void OffloadState::found_offload_node(Block& block, offloading::DataOffloadingNo
 }
 
 void OffloadState::add_h2d_entry(const OffloadHolder& entry) {
-    kernel_entry_nodes_.emplace(entry.node->element_id(), entry);
+    h2d_nodes_.emplace(entry.offload_node->element_id(), std::make_unique<OffloadHolder>(entry));
     // todo also need to remove generated ones killed by this. But right now
 }
-
-ExposedOffload OffloadState::expose(OffloadHolder& holder) { return ExposedOffload{&holder, 0}; }
 
 void OffloadState::apply_kills_and_changes(ExposedType& exposed) const {
     if (full_kill_) {
@@ -121,28 +150,45 @@ void OffloadState::apply_kills_and_changes(ExposedType& exposed) const {
     }
     for (auto it = exposed.begin(); it != exposed.end();) {
         auto& [id, exposedOffload] = *it;
+        auto& holder = *exposedOffload.offload;
+
         auto* host = exposedOffload.offload->host_data;
         auto& host_container = host->data();
 
         auto host_reads = reads_.find(host_container);
         if (host_reads != reads_.end() && host_reads->second.size() > 0) {
-            ++exposedOffload.read_count;
+            if (holder.offload_node) {
+                ++exposedOffload.read_count;
+            } else if (holder.malloc_node) { // mallocs are just killed on first
+                DEBUG_PRINTLN(
+                    "In-flight malloc area of #" << holder.malloc_node->element_id()
+                                                 << " is read without being initialized!"
+                );
+                it = exposed.erase(it);
+                continue;
+            }
         }
 
-        if (host && kills_containers_.contains(host_container)) {
+        if (kills_containers_.contains(host_container)) {
             it = exposed.erase(it);
             continue;
         }
 
-        auto [is_elim_candidate, killing_entry] = find_killing_entry_node(*exposedOffload.offload);
-        if (killing_entry) {
-            if (is_elim_candidate) {
-                collector_.found_candidate_pair(exposedOffload, *killing_entry);
+        auto [kill_type, killing_entry] = find_killing_entry_node(exposedOffload);
+        if (kill_type != KillingType::None) {
+            if (kill_type == KillingType::DeviceReuse) {
+                collector_.found_transfer_reuse_pair(exposedOffload, *killing_entry);
+            } else if (kill_type == KillingType::EmptyHostMalloc) {
+                collector_.found_empty_host_malloc(exposedOffload, *killing_entry);
             }
             it = exposed.erase(it);
             continue;
         }
         ++it;
+    }
+
+    for (auto& [id, gen] : generated_) {
+        exposed.insert({id, ExposedOffload{gen.get(), 0}});
     }
 }
 
@@ -152,6 +198,8 @@ void DataTransferEliminationAnalysis::handle_lib_node(Block& block, data_flow::L
 
     if (auto* offload_node = dynamic_cast<offloading::DataOffloadingNode*>(&node)) {
         get_or_create_state(block).found_offload_node(block, *offload_node);
+    } else if (auto* malloc_node = dynamic_cast<stdlib::MallocNode*>(&node)) {
+        get_or_create_state(block).found_malloc(block, *malloc_node);
     }
 }
 
