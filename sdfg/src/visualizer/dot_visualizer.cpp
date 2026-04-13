@@ -157,8 +157,9 @@ void DotVisualizer::visualizeBlock(const StructuredSDFG& sdfg, const structured_
                 auto it = unused_connectors.find(in_conn);
                 if (it != unused_connectors.end()) {
                     auto literal_id = escapeDotId(node->element_id(), "id") + "_" + escapeDotId(i, "in");
-                    this->stream_ << literal_id << " [style=\"dotted\", label=\"" << in_conn << "\"];" << std::endl;
-                    this->stream_ << literal_id << " -> " << nodeId << " [label=\"" << i << "\"]" << ";" << std::endl;
+                    this->stream_ << literal_id << " [style=\"invis\", label=\"\"];" << std::endl;
+                    this->stream_ << literal_id << " -> " << nodeId << " [style=\"dotted\", label=\"" << i << ":"
+                                  << in_conn << "\"]" << ";" << std::endl;
                 }
             }
         }

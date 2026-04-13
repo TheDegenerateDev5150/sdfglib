@@ -33,10 +33,29 @@ namespace passes {
 
 DataTransferMinimizationPass::DataTransferMinimizationPass() {}
 
-bool DataTransferMinimizationPass::eliminate_transfer(
+bool DataTransferMinimizationPass::eliminate_malloc_first_transfer(
+    builder::StructuredSDFGBuilder& builder, analysis::OffloadHolder& malloc_holder, analysis::OffloadHolder& copy_in
+) {
+    // Get all relevant information
+    std::string copy_in_device_container = copy_in.dev_data->data();
+    DebugInfo copy_in_dst_debinfo = copy_in.dev_data->debug_info();
+
+    // leave the malloc itself, because we have not proven yet that there is no more d2H transfer that needs it
+    // DDE needs to be able to find it
+
+    auto* h2d_block = dynamic_cast<structured_control_flow::Block*>(copy_in.offload_node->get_parent().get_parent());
+    builder.remove_memlet(*h2d_block, *copy_in.host_access);
+    builder.remove_node(*h2d_block, *copy_in.host_data);
+    copy_in.remove_host_side();
+    copy_in.offload_node->remove_h2d();
+
+    return true;
+}
+
+bool DataTransferMinimizationPass::eliminate_transfer_pair(
     builder::StructuredSDFGBuilder& builder,
-    const analysis::OffloadHolder& copy_out,
-    const analysis::OffloadHolder& copy_in,
+    analysis::OffloadHolder& copy_out,
+    analysis::OffloadHolder& copy_in,
     bool remove_d2h
 ) {
     // Get all relevant information
@@ -46,14 +65,16 @@ bool DataTransferMinimizationPass::eliminate_transfer(
     DebugInfo copy_in_dst_debinfo = copy_in.dev_data->debug_info();
 
     // Remove what you can remove
-    if (!remove_d2h && copy_out.node->is_free()) {
-        copy_out.node->remove_free();
+    if (!remove_d2h && copy_out.offload_node->is_free()) {
+        copy_out.offload_node->remove_free();
     } else if (remove_d2h) {
-        auto* copy_out_block = dynamic_cast<structured_control_flow::Block*>(copy_out.node->get_parent().get_parent());
-        builder.clear_code_node_legacy(*copy_out_block, *copy_out.node);
+        auto* copy_out_block =
+            dynamic_cast<structured_control_flow::Block*>(copy_out.offload_node->get_parent().get_parent());
+        builder.clear_code_node_legacy(*copy_out_block, *copy_out.offload_node);
     }
-    auto* copy_in_block = dynamic_cast<structured_control_flow::Block*>(copy_in.node->get_parent().get_parent());
-    builder.clear_code_node_legacy(*copy_in_block, *copy_in.node);
+    auto* copy_in_block = dynamic_cast<structured_control_flow::Block*>(copy_in.offload_node->get_parent().get_parent()
+    );
+    builder.clear_code_node_legacy(*copy_in_block, *copy_in.offload_node);
 
     // Maps the device pointers if necessary
     if (copy_out_device_container != copy_in_device_container) {
@@ -67,7 +88,7 @@ bool DataTransferMinimizationPass::eliminate_transfer(
             out_access,
             {symbolic::zero()},
             *ref_type,
-            DebugInfo::merge(copy_out.node->debug_info(), copy_in.node->debug_info())
+            DebugInfo::merge(copy_out.offload_node->debug_info(), copy_in.offload_node->debug_info())
         );
     }
 
@@ -78,13 +99,32 @@ bool DataTransferMinimizationPass::
     run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     analysis::DataTransferEliminationAnalysis transfer_analysis(builder.subject(), analysis_manager);
     transfer_analysis.run();
-    auto& candidates = transfer_analysis.candidates();
-
-    auto& users = analysis_manager.get<analysis::Users>();
 
     int removed = 0;
 
-    for (auto& candidate : candidates) {
+    auto& useless_mallocs = transfer_analysis.empty_malloc_candidates();
+    for (auto& [malloc_cand, first_h2d] : useless_mallocs) {
+        auto& malloc_holder = *malloc_cand.offload;
+
+        DEBUG_PRINTLN(
+            "  Elim malloc: " << "#" << malloc_holder.malloc_node->element_id() << " -> "
+                              << (malloc_holder.host_data ? malloc_holder.host_data->data() : "-") << " / "
+                              << "h2d+malloc: #" << first_h2d.offload_node->element_id() << " "
+                              << (first_h2d.host_data ? first_h2d.host_data->data() : "-") << " -> "
+                              << first_h2d.dev_data->data()
+        );
+
+        bool success = eliminate_malloc_first_transfer(builder, malloc_holder, first_h2d);
+
+        if (success) {
+            ++removed;
+        }
+    }
+
+    auto& transfer_reuse_candidates = transfer_analysis.transfer_reuse_candidates();
+    auto& users = analysis_manager.get<analysis::Users>();
+
+    for (auto& candidate : transfer_reuse_candidates) {
         auto reads = candidate.first.read_count;
         auto& copy_out = *candidate.first.offload;
         auto& copy_in = candidate.second;
@@ -106,18 +146,18 @@ bool DataTransferMinimizationPass::
         }
 
 #ifndef NDEBUG
-        std::cerr << "  Elim candidate "
-                  << "copy-out: #" << copy_out.node->element_id() << " " << copy_out.dev_data->data() << " -> "
+        std::cerr << "  Elim transfer "
+                  << "copy-out: #" << copy_out.offload_node->element_id() << " " << copy_out.dev_data->data() << " -> "
                   << (copy_out.host_data ? copy_out.host_data->data() : "-") << " / ";
         if (reads) {
             std::cerr << reads << " reads / ";
         }
-        std::cerr << "copy-in: #" << copy_in.node->element_id() << " "
+        std::cerr << "copy-in: #" << copy_in.offload_node->element_id() << " "
                   << (copy_in.host_data ? copy_in.host_data->data() : "-") << " -> " << copy_in.dev_data->data()
                   << std::endl;
 #endif
 
-        bool success = eliminate_transfer(builder, copy_out, copy_in, reads == 0);
+        bool success = eliminate_transfer_pair(builder, copy_out, copy_in, reads == 0);
 
         if (success) {
             ++removed;

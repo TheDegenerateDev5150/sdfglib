@@ -95,6 +95,8 @@ public:
     bool is_alloc() const;
 
     void remove_free();
+
+    void remove_h2d();
 };
 
 } // namespace offloading

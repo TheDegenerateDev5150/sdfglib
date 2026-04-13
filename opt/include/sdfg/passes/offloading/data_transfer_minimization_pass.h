@@ -29,11 +29,16 @@ public:
     static bool available(analysis::AnalysisManager& AM) { return true; }
 
 protected:
-    bool eliminate_transfer(
+    bool eliminate_transfer_pair(
         builder::StructuredSDFGBuilder& builder,
-        const analysis::OffloadHolder& copy_out,
-        const analysis::OffloadHolder& copy_in,
+        analysis::OffloadHolder& copy_out,
+        analysis::OffloadHolder& copy_in,
         bool remove_d2h = false
+    );
+    bool eliminate_malloc_first_transfer(
+        builder::StructuredSDFGBuilder& builder,
+        analysis::OffloadHolder& malloc_holder,
+        analysis::OffloadHolder& copy_in
     );
 };
 

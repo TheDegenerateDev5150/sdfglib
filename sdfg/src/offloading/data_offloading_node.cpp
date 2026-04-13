@@ -135,6 +135,16 @@ bool DataOffloadingNode::is_free() const { return is_FREE(this->buffer_lifecycle
 
 bool DataOffloadingNode::is_alloc() const { return is_ALLOC(this->buffer_lifecycle()); }
 
+void DataOffloadingNode::remove_h2d() {
+    if (this->is_h2d()) {
+        if (!this->is_alloc()) {
+            throw InvalidSDFGException("DataOffloadingNode: Tried removing h2d but node has no other purpose");
+        }
+        this->transfer_direction_ = DataTransferDirection::NONE;
+        this->inputs_.erase(this->inputs_.begin()); // Standard nodes only have one, others need to override
+    }
+}
+
 void DataOffloadingNode::remove_free() {
     if (this->is_free()) {
         if (!this->has_transfer()) {

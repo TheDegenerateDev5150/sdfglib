@@ -69,7 +69,7 @@ def test_heat_3d(target):
         verifier = SDFGVerification(
             verification={
                 "CUDA": 20,
-                "CUDAOffloading": 40,
+                "CUDAOffloading": 32,
                 "MAP": 62,
                 "SEQUENTIAL": 42,
                 "FOR": 67,
@@ -80,7 +80,7 @@ def test_heat_3d(target):
         verifier = SDFGVerification(
             verification={
                 "ROCM": 20,
-                "ROCMOffloading": 40,
+                "ROCMOffloading": 32,
                 "MAP": 62,
                 "SEQUENTIAL": 42,
                 "FOR": 67,
