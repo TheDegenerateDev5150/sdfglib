@@ -161,6 +161,21 @@ bool MemoryOwnershipAnalysis::excusedEscape(const Element* element, const OwnedA
             return true;
         }
     }
+
+    auto* memlet = dynamic_cast<const data_flow::Memlet*>(element);
+    if (memlet) {
+        auto* libNode = dynamic_cast<const data_flow::LibraryNode*>(&memlet->dst());
+        if (libNode) {
+            auto conns = libNode->inputs();
+            auto idx = std::find(conns.begin(), conns.end(), memlet->dst_conn()) - conns.begin();
+            auto access_type = libNode->pointer_access_type(idx);
+            auto maybe_rd_only = std::get_if<data_flow::PointerReadOnly>(&access_type);
+            if (maybe_rd_only && maybe_rd_only->no_ptr_escape()) {
+                return true;
+            }
+        }
+    }
+
     return false;
 }
 
