@@ -22,8 +22,8 @@ void DotNodeDispatcher_CUBLASWithTransfers::dispatch_code(
 ) {
     auto& dot_node = static_cast<const math::blas::DotNode&>(this->node_);
 
-    globals_stream << "#include <cuda.h>" << std::endl;
-    globals_stream << "#include <cublas_v2.h>" << std::endl;
+    library_snippet_factory.add_global("#include <cuda.h>");
+    library_snippet_factory.add_global("#include <cublas_v2.h>");
 
     std::string type, type2;
     switch (dot_node.precision()) {
@@ -91,8 +91,8 @@ void DotNodeDispatcher_CUBLASWithoutTransfers::dispatch_code(
     codegen::CodeSnippetFactory& library_snippet_factory
 ) {
     auto& dot_node = static_cast<const math::blas::DotNode&>(this->node_);
-    globals_stream << "#include <cuda.h>" << std::endl;
-    globals_stream << "#include <cublas_v2.h>" << std::endl;
+    library_snippet_factory.add_global("#include <cuda.h>");
+    library_snippet_factory.add_global("#include <cublas_v2.h>");
 
     setup_blas_handle(library_snippet_factory, this->language_extension_);
 

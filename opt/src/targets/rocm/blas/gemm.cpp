@@ -37,8 +37,8 @@ void GEMMNodeDispatcher_ROCMBLASWithTransfers::dispatch_code(
 ) {
     auto& gemm_node = static_cast<const math::blas::GEMMNode&>(this->node_);
 
-    globals_stream << "#include <hip/hip_runtime.h>" << std::endl;
-    globals_stream << "#include <hipblas/hipblas.h>" << std::endl;
+    library_snippet_factory.add_global("#include <hip/hip_runtime.h>");
+    library_snippet_factory.add_global("#include <hipblas/hipblas.h>");
 
     std::string type, type2;
     switch (gemm_node.precision()) {
@@ -113,8 +113,8 @@ void GEMMNodeDispatcher_ROCMBLASWithoutTransfers::dispatch_code(
 ) {
     auto& gemm_node = static_cast<const math::blas::GEMMNode&>(this->node_);
 
-    globals_stream << "#include <hip/hip_runtime.h>" << std::endl;
-    globals_stream << "#include <hipblas/hipblas.h>" << std::endl;
+    library_snippet_factory.add_global("#include <hip/hip_runtime.h>");
+    library_snippet_factory.add_global("#include <hipblas/hipblas.h>");
 
     add_guard_clause(stream, this->language_extension_, gemm_node);
 

@@ -40,6 +40,7 @@ protected:
 
     std::unordered_set<std::string> setup_snippets_;
     std::unordered_set<std::string> teardown_snippets_;
+    std::unordered_set<std::string> globals_snippets_;
 
 public:
     CodeSnippetFactory(const std::pair<std::filesystem::path, std::filesystem::path>* config = nullptr);
@@ -57,8 +58,10 @@ public:
 
     void add_setup(const std::string& snippet);
     void add_teardown(const std::string& snippet);
+    void add_global(const std::string& snippet);
     const std::unordered_set<std::string>& setup_snippets() const;
     const std::unordered_set<std::string>& teardown_snippets() const;
+    const std::unordered_set<std::string>& globals_snippets() const;
 };
 
 

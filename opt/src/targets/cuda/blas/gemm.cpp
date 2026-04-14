@@ -37,8 +37,8 @@ void GEMMNodeDispatcher_CUBLASWithTransfers::dispatch_code(
 ) {
     auto& gemm_node = static_cast<const math::blas::GEMMNode&>(this->node_);
 
-    globals_stream << "#include <cuda.h>" << std::endl;
-    globals_stream << "#include <cublas_v2.h>" << std::endl;
+    library_snippet_factory.add_global("#include <cuda.h>");
+    library_snippet_factory.add_global("#include <cublas_v2.h>");
 
     std::string type, type2;
     switch (gemm_node.precision()) {
@@ -113,8 +113,8 @@ void GEMMNodeDispatcher_CUBLASWithoutTransfers::dispatch_code(
 ) {
     auto& gemm_node = static_cast<const math::blas::GEMMNode&>(this->node_);
 
-    globals_stream << "#include <cuda.h>" << std::endl;
-    globals_stream << "#include <cublas_v2.h>" << std::endl;
+    library_snippet_factory.add_global("#include <cuda.h>");
+    library_snippet_factory.add_global("#include <cublas_v2.h>");
 
     add_guard_clause(stream, this->language_extension_, gemm_node);
 
