@@ -89,8 +89,18 @@ std::string DataOffloadingNode::toStr() const {
 
 symbolic::Expression DataOffloadingNode::flop() const { return symbolic::zero(); }
 
-bool DataOffloadingNode::redundant_with(const DataOffloadingNode& other) const {
+bool DataOffloadingNode::is_compatible_with(const DataOffloadingNode& other) const {
     if (code() != other.code()) {
+        return false;
+    }
+    if (!symbolic::null_safe_eq(size(), other.size())) {
+        return false;
+    }
+    return true;
+}
+
+bool DataOffloadingNode::redundant_with(const DataOffloadingNode& other) const {
+    if (!is_compatible_with(other)) {
         return false;
     }
     if ((static_cast<int8_t>(transfer_direction()) + static_cast<int8_t>(other.transfer_direction())) != 0) {
@@ -100,25 +110,17 @@ bool DataOffloadingNode::redundant_with(const DataOffloadingNode& other) const {
         return false;
     }
 
-    if (!symbolic::null_safe_eq(size(), other.size())) {
-        return false;
-    }
-
     return true; // add more checks in sub-classes
 }
 
 bool DataOffloadingNode::equal_with(const DataOffloadingNode& other) const {
-    if (code() != other.code()) {
+    if (!is_compatible_with(other)) {
         return false;
     }
     if (this->transfer_direction() != other.transfer_direction()) {
         return false;
     }
     if (this->buffer_lifecycle() != other.buffer_lifecycle()) {
-        return false;
-    }
-
-    if (!symbolic::null_safe_eq(size(), other.size())) {
         return false;
     }
 
