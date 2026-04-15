@@ -254,6 +254,10 @@ bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Block& node) 
                 auto* access_node = dynamic_cast<data_flow::AccessNode*>(&oedge.dst());
                 if (access_node && oedge.is_dst_write()) {
                     auto container = access_node->data();
+                    if (sdfg_.is_external(container)) {
+                        // was never ours to begin with, even if weird that we run malloc on it
+                        continue;
+                    }
                     auto it = originally_owned_data_.find(container);
                     if (it != originally_owned_data_.end()) {
                         auto& area = it->second;
@@ -443,7 +447,9 @@ bool DeadDataElimination::run_pass(builder::StructuredSDFGBuilder& builder, anal
                     auto& area = ownership_analysis.owned_area(owned_area_id);
                     area.remove_from(builder);
                     applied = true;
-                    dead_containers.insert(owned_area_id);
+                    if (sdfg.is_transient(owned_area_id)) {
+                        dead_containers.insert(owned_area_id);
+                    }
                 }
             }
         }

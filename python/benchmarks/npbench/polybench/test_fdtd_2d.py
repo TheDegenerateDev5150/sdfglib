@@ -59,7 +59,7 @@ def test_fdtd_2d(target):
             verification={
                 "CUDA": 25,
                 "MAP": 25,
-                "CUDAOffloading": 42,
+                "CUDAOffloading": 38,
                 "FOR": 26,
                 "Malloc": 0,
             }
@@ -69,7 +69,7 @@ def test_fdtd_2d(target):
             verification={
                 "ROCM": 25,
                 "MAP": 25,
-                "ROCMOffloading": 42,
+                "ROCMOffloading": 38,
                 "FOR": 26,
                 "Malloc": 0,
             }

@@ -24,27 +24,38 @@ struct OffloadHolder {
     const data_flow::AccessNode* host_data;
     const data_flow::Memlet* host_access;
     const data_flow::AccessNode* dev_data;
+    bool starts_dev_lifetime;
+    bool ends_dev_lifetime;
+    bool updates_on_dev;
+    bool updates_on_host;
 
     OffloadHolder(
         offloading::DataOffloadingNode* offload_node,
         const data_flow::AccessNode* host_data,
         const data_flow::Memlet* host_access,
-        const data_flow::AccessNode* dev_data
+        const data_flow::AccessNode* dev_data,
+        bool starts_dev_lifetime,
+        bool ends_dev_lifetime,
+        bool updates_on_dev,
+        bool updates_on_host
     )
         : offload_node(offload_node), malloc_node(nullptr), host_data(host_data), host_access(host_access),
-          dev_data(dev_data) {}
+          dev_data(dev_data), starts_dev_lifetime(starts_dev_lifetime), ends_dev_lifetime(ends_dev_lifetime),
+          updates_on_dev(updates_on_dev), updates_on_host(updates_on_host) {}
 
     OffloadHolder(
         stdlib::MallocNode* malloc_node, const data_flow::AccessNode* host_data, const data_flow::Memlet* host_access
     )
         : offload_node(nullptr), malloc_node(malloc_node), host_data(host_data), host_access(host_access),
-          dev_data(nullptr) {}
+          dev_data(nullptr), starts_dev_lifetime(false), ends_dev_lifetime(false), updates_on_dev(false),
+          updates_on_host(false) {}
 
     void remove_host_side();
 };
 
 struct ExposedOffload {
     OffloadHolder* offload;
+    std::string container;
     int read_count = 0;
 };
 
@@ -88,7 +99,18 @@ protected:
     bool full_kill_ = false;
     DataTransferEliminationCandidateCollector& collector_;
 
-    enum class KillingType { None, Basic, DeviceReuse, EmptyHostMalloc };
+    enum class KillingType {
+        // No match
+        None,
+        // kill the current node from live-set
+        Basic,
+        // the killing node is a H2D after a D2H of same data -> can elide H2D
+        DeviceReuse,
+        // the killing node is a H2D with alloc that is the first use of host malloc. Can elide H2D
+        EmptyHostMalloc,
+        // the killing node is a device free of a device alloc of clean data -> can treat it similar to D2H
+        DeviceFree
+    };
 
 public:
     OffloadState(DataTransferEliminationCandidateCollector& collector);
