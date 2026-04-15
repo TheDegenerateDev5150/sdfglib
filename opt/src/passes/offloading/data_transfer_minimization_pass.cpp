@@ -64,14 +64,23 @@ bool DataTransferMinimizationPass::eliminate_transfer_pair(
     DebugInfo copy_out_src_debinfo = copy_out.dev_data->debug_info();
     DebugInfo copy_in_dst_debinfo = copy_in.dev_data->debug_info();
 
+    bool remove_entirely = false;
     // Remove what you can remove
     if (!remove_d2h && copy_out.offload_node->is_free()) {
-        copy_out.offload_node->remove_free();
+        if (copy_out.offload_node->is_d2h()) {
+            copy_out.offload_node->remove_free();
+        } else {
+            remove_entirely = true;
+        }
     } else if (remove_d2h) {
+        remove_entirely = true;
+    }
+    if (remove_entirely) {
         auto* copy_out_block =
             dynamic_cast<structured_control_flow::Block*>(copy_out.offload_node->get_parent().get_parent());
         builder.clear_code_node_legacy(*copy_out_block, *copy_out.offload_node);
     }
+
     auto* copy_in_block = dynamic_cast<structured_control_flow::Block*>(copy_in.offload_node->get_parent().get_parent()
     );
     builder.clear_code_node_legacy(*copy_in_block, *copy_in.offload_node);
