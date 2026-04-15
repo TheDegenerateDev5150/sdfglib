@@ -254,6 +254,10 @@ bool MemoryOwnershipAnalysis::visit(sdfg::structured_control_flow::Block& node) 
                 auto* access_node = dynamic_cast<data_flow::AccessNode*>(&oedge.dst());
                 if (access_node && oedge.is_dst_write()) {
                     auto container = access_node->data();
+                    if (!sdfg_.is_transient(container)) {
+                        // was never ours to begin with, even if weird that we run malloc on it
+                        continue;
+                    }
                     auto it = originally_owned_data_.find(container);
                     if (it != originally_owned_data_.end()) {
                         auto& area = it->second;
