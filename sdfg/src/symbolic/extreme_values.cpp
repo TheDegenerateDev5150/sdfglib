@@ -268,14 +268,14 @@ Expression minimum(
         auto add = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
         const auto& args = add->get_args();
 
-        // Collect variable symbols (non-constant OR loop variables with map) from the expression
-        // Loop variables have constant=true but map != null
+        // Collect loop variables (symbols with a non-null map) from the expression
+        // Loop variables have constant=true AND map != null
         SymbolVec vars;
         for (const auto& atom : symbolic::atoms(expr)) {
             auto it = assumptions.find(atom);
             if (it != assumptions.end()) {
-                // Include if: not constant OR has a map (loop variable)
-                if (!it->second.constant() || !it->second.map().is_null()) {
+                // Only include symbols with a map (actual loop variables)
+                if (!it->second.map().is_null()) {
                     vars.push_back(atom);
                 }
             }
@@ -634,14 +634,14 @@ Expression maximum(
         auto add = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
         const auto& args = add->get_args();
 
-        // Collect variable symbols (non-constant OR loop variables with map) from the expression
-        // Loop variables have constant=true but map != null
+        // Collect loop variables (symbols with a non-null map) from the expression
+        // Loop variables have constant=true AND map != null
         SymbolVec vars;
         for (const auto& atom : symbolic::atoms(expr)) {
             auto it = assumptions.find(atom);
             if (it != assumptions.end()) {
-                // Include if: not constant OR has a map (loop variable)
-                if (!it->second.constant() || !it->second.map().is_null()) {
+                // Only include symbols with a map (actual loop variables)
+                if (!it->second.map().is_null()) {
                     vars.push_back(atom);
                 }
             }
