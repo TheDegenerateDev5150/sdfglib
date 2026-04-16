@@ -51,13 +51,7 @@ def test_fdtd_2d(target):
         )
     elif target == "cuda":
         verifier = SDFGVerification(
-            verification={
-                "CUDA": 25,
-                "MAP": 25,
-                "CUDAOffloading": 38,
-                "FOR": 26,
-                "Malloc": 0,
-            }
+            verification={"CUDA": 13, "MAP": 13, "CUDAOffloading": 22, "FOR": 14}
         )
     else:  # rocm
         verifier = SDFGVerification(

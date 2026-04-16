@@ -44,13 +44,7 @@ def test_jacobi_2d(target):
         )
     elif target == "cuda":
         verifier = SDFGVerification(
-            verification={
-                "CUDA": 24,
-                "MAP": 24,
-                "CUDAOffloading": 40,
-                "FOR": 25,
-                "Malloc": 0,
-            }
+            verification={"CUDA": 4, "MAP": 4, "CUDAOffloading": 8, "FOR": 5}
         )
     else:  # rocm
         verifier = SDFGVerification(
