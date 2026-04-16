@@ -121,6 +121,7 @@ Expression minimum(
                 }
                 return minimum(assumptions.at(sym).tight_lower_bound(), parameters, assumptions, depth + 1, tight);
             }
+            // Try lower_bounds() first
             symbolic::Expression new_lb = SymEngine::null;
             for (auto& lb : assumptions.at(sym).lower_bounds()) {
                 auto new_min = minimum(lb, parameters, assumptions, depth + 1, tight);
@@ -132,6 +133,10 @@ Expression minimum(
                     continue;
                 }
                 new_lb = symbolic::max(new_lb, new_min);
+            }
+            // Fall back to tight_lower_bound if lower_bounds didn't yield a result
+            if (new_lb.is_null() && !assumptions.at(sym).tight_lower_bound().is_null()) {
+                return assumptions.at(sym).tight_lower_bound();
             }
             return new_lb;
         }
@@ -400,6 +405,7 @@ Expression maximum(
                 }
                 return maximum(assumptions.at(sym).tight_upper_bound(), parameters, assumptions, depth + 1, tight);
             }
+            // Try upper_bounds() first
             symbolic::Expression new_ub = SymEngine::null;
             for (auto& ub : assumptions.at(sym).upper_bounds()) {
                 auto new_max = maximum(ub, parameters, assumptions, depth + 1, tight);
@@ -411,6 +417,10 @@ Expression maximum(
                     continue;
                 }
                 new_ub = symbolic::min(new_ub, new_max);
+            }
+            // Fall back to tight_upper_bound if upper_bounds didn't yield a result
+            if (new_ub.is_null() && !assumptions.at(sym).tight_upper_bound().is_null()) {
+                return assumptions.at(sym).tight_upper_bound();
             }
             return new_ub;
         }

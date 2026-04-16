@@ -76,7 +76,11 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
     // Check if more than two symbols are involved
     SymbolVec symbols;
     for (auto& sym : atoms(dim)) {
-        if (!assums.at(sym).constant() || !assums.at(sym).map().is_null()) {
+        auto it = assums.find(sym);
+        if (it == assums.end()) {
+            continue;
+        }
+        if (!it->second.constant() || !it->second.map().is_null()) {
             symbols.push_back(sym);
         }
     }
@@ -193,13 +197,44 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         }
 
         // remaining must be less than stride
-        auto ub_stride = (best_ub == SymEngine::null) ? maximum(stride, {}, assums, false) : best_ub;
+        // Try to prove this symbolically: ub_remaining < stride
+        // If ub_remaining = stride - 1 (common case), this is trivially true
         auto ub_remaining = maximum(remaining, {}, assums, false);
-        if (ub_stride == SymEngine::null || ub_remaining == SymEngine::null) {
-            break;
+
+        bool stride_check_passed = false;
+        if (ub_remaining != SymEngine::null) {
+            // Direct symbolic check: is ub_remaining < stride provable?
+            auto diff = symbolic::expand(symbolic::sub(stride, ub_remaining));
+
+            // If diff simplifies to a positive constant, we're good
+            if (SymEngine::is_a<SymEngine::Integer>(*diff)) {
+                auto int_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(diff);
+                if (int_val->is_positive()) {
+                    stride_check_passed = true;
+                }
+            }
+
+            // Also try: is stride > ub_remaining provable via Gt?
+            if (!stride_check_passed) {
+                auto cond = symbolic::Gt(stride, ub_remaining);
+                if (symbolic::is_true(cond)) {
+                    stride_check_passed = true;
+                }
+            }
+
+            // Fallback: check numeric upper bounds if available
+            if (!stride_check_passed) {
+                auto ub_stride = (best_ub == SymEngine::null) ? maximum(stride, {}, assums, false) : best_ub;
+                if (ub_stride != SymEngine::null) {
+                    auto cond_stride = symbolic::Ge(ub_stride, ub_remaining);
+                    if (symbolic::is_true(cond_stride)) {
+                        stride_check_passed = true;
+                    }
+                }
+            }
         }
-        auto cond_stride = symbolic::Ge(ub_stride, ub_remaining);
-        if (!symbolic::is_true(cond_stride)) {
+
+        if (!stride_check_passed) {
             break;
         }
 

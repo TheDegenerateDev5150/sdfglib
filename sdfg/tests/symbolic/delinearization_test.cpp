@@ -585,3 +585,62 @@ TEST(DelinearizeTest, Jacobi2D_SlicePattern) {
     EXPECT_TRUE(symbolic::eq(result_B.indices.at(1), offset_iter1));
     EXPECT_TRUE(symbolic::eq(result_B.dimensions.at(0), _s0));
 }
+
+// Test for simple 2D linearized access like _tmp_3[_i1 + _s0*_i0]
+// Both loops iterate 0 to _s0 with the same bound
+TEST(DelinearizeTest, Simple2D_SameBounds) {
+    types::Scalar desc(types::PrimitiveType::Int64);
+
+    // Symbolic stride
+    auto _s0 = symbolic::symbol("_s0");
+    auto assum_s0 = symbolic::Assumption::create(_s0, desc);
+    assum_s0.add_lower_bound(symbolic::integer(1));
+    assum_s0.constant(true);
+
+    // Loop induction variables with bounds [0, _s0-1]
+    auto _i0 = symbolic::symbol("_i0");
+    auto assum_i0 = symbolic::Assumption::create(_i0, desc);
+    assum_i0.add_lower_bound(symbolic::zero());
+    assum_i0.add_upper_bound(symbolic::sub(_s0, symbolic::one()));
+    assum_i0.tight_lower_bound(symbolic::zero());
+    assum_i0.tight_upper_bound(symbolic::sub(_s0, symbolic::one()));
+
+    auto _i1 = symbolic::symbol("_i1");
+    auto assum_i1 = symbolic::Assumption::create(_i1, desc);
+    assum_i1.add_lower_bound(symbolic::zero());
+    assum_i1.add_upper_bound(symbolic::sub(_s0, symbolic::one()));
+    assum_i1.tight_lower_bound(symbolic::zero());
+    assum_i1.tight_upper_bound(symbolic::sub(_s0, symbolic::one()));
+
+    symbolic::Assumptions assums;
+    assums.insert({_s0, assum_s0});
+    assums.insert({_i0, assum_i0});
+    assums.insert({_i1, assum_i1});
+
+    // Pattern: _i1 + _s0*_i0
+    auto expr = symbolic::add(_i1, symbolic::mul(_s0, _i0));
+
+    std::cout << "Delinearizing: " << expr->__str__() << std::endl;
+    for (auto& [sym, a] : assums) {
+        std::cout << "  " << sym->get_name() << ": constant=" << a.constant() << ", map.is_null=" << a.map().is_null()
+                  << std::endl;
+    }
+
+    auto result = symbolic::delinearize(expr, assums);
+
+    std::cout << "Result: success=" << result.success << ", indices=" << result.indices.size()
+              << ", dims=" << result.dimensions.size() << std::endl;
+    for (auto& idx : result.indices) {
+        std::cout << "  index: " << idx->__str__() << std::endl;
+    }
+    for (auto& dim : result.dimensions) {
+        std::cout << "  dim: " << dim->__str__() << std::endl;
+    }
+
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.indices.size(), 2);
+    EXPECT_EQ(result.dimensions.size(), 1);
+    EXPECT_TRUE(symbolic::eq(result.indices.at(0), _i0));
+    EXPECT_TRUE(symbolic::eq(result.indices.at(1), _i1));
+    EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), _s0));
+}

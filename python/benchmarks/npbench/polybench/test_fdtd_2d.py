@@ -33,26 +33,21 @@ def kernel(TMAX, ex, ey, hz, _fict_):
 def test_fdtd_2d(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"Malloc": 9, "MAP": 25, "SEQUENTIAL": 25, "FOR": 26}
+            verification={"MAP": 13, "SEQUENTIAL": 13, "FOR": 14, "Malloc": 3}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 13,
-                "MAP": 25,
-                "SEQUENTIAL": 12,
-                "FOR": 26,
-                "Malloc": 9,
+                "HIGHWAY": 7,
+                "MAP": 13,
+                "SEQUENTIAL": 6,
+                "FOR": 14,
+                "Malloc": 3,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
-            verification={
-                "CPU_PARALLEL": 13,
-                "MAP": 13,
-                "FOR": 14,
-                "Malloc": 9,
-            }
+            verification={"CPU_PARALLEL": 7, "MAP": 7, "FOR": 8, "Malloc": 3}
         )
     elif target == "cuda":
         verifier = SDFGVerification(
