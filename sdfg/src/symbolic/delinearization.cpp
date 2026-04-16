@@ -111,8 +111,8 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         size_t best_complexity = 0;
         size_t max_atom_count = 0;
         for (const auto& [sym, coeff] : aff_coeffs) {
-            auto lb = minimum(coeff, {}, assums);
-            auto ub = maximum(coeff, {}, assums);
+            auto lb = minimum(coeff, {}, assums, false);
+            auto ub = maximum(coeff, {}, assums, false);
             size_t complexity = stride_complexity_score(coeff);
             size_t atom_count = symbolic::atoms(coeff).size();
 
@@ -152,7 +152,7 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         }
 
         // Symbol must be nonnegative
-        auto sym_lb = minimum(new_dim, {}, assums);
+        auto sym_lb = minimum(new_dim, {}, assums, false);
         if (sym_lb.is_null()) {
             break;
         }
@@ -165,7 +165,7 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         Expression stride = best_coeff;
         auto stride_lb = best_lb;
         if (stride_lb == SymEngine::null) {
-            stride_lb = minimum(stride, {}, assums);
+            stride_lb = minimum(stride, {}, assums, false);
         }
         if (stride_lb.is_null()) {
             break;
@@ -183,7 +183,7 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         // Check if remainder is within bounds
 
         // remaining must be nonnegative
-        auto rem_lb = minimum(remaining, {}, assums);
+        auto rem_lb = minimum(remaining, {}, assums, false);
         if (rem_lb.is_null()) {
             break;
         }
@@ -193,8 +193,8 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         }
 
         // remaining must be less than stride
-        auto ub_stride = (best_ub == SymEngine::null) ? maximum(stride, {}, assums) : best_ub;
-        auto ub_remaining = maximum(remaining, {}, assums);
+        auto ub_stride = (best_ub == SymEngine::null) ? maximum(stride, {}, assums, false) : best_ub;
+        auto ub_remaining = maximum(remaining, {}, assums, false);
         if (ub_stride == SymEngine::null || ub_remaining == SymEngine::null) {
             break;
         }

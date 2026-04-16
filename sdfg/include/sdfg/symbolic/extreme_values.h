@@ -46,40 +46,6 @@ namespace sdfg {
 namespace symbolic {
 
 /**
- * @brief Compute the minimum of an expression
- *
- * @param expr The expression to compute the minimum of
- * @param parameters A set of symbols to treat as parameters (with unknown but bounded values)
- * @param assumptions A set of assumptions about bounds of symbols
- * @return The minimum of the expression, or null if the expression is not bounded
- *
- * Computes the minimum value that the expression can take given the assumptions.
- * Symbols in the parameters set are treated as unknowns whose specific values affect
- * the result, while other symbols are treated as iteration variables that can be
- * optimized over to find the minimum.
- *
- * @note This is the legacy version. Consider using minimum_new() for improved analysis.
- */
-Expression minimum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions);
-
-/**
- * @brief Compute the maximum of an expression
- *
- * @param expr The expression to compute the maximum of
- * @param parameters A set of symbols to treat as parameters (with unknown but bounded values)
- * @param assumptions A set of assumptions about bounds of symbols
- * @return The maximum of the expression, or null if the expression is not bounded
- *
- * Computes the maximum value that the expression can take given the assumptions.
- * Symbols in the parameters set are treated as unknowns whose specific values affect
- * the result, while other symbols are treated as iteration variables that can be
- * optimized over to find the maximum.
- *
- * @note This is the legacy version. Consider using maximum_new() for improved analysis.
- */
-Expression maximum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions);
-
-/**
  * @brief Compute the minimum of an expression with tight/loose bound selection
  *
  * @param expr The expression to compute the minimum of
@@ -92,7 +58,7 @@ Expression maximum(const Expression expr, const SymbolSet& parameters, const Ass
  * or loose (conservative) bounds. Tight bounds provide exact minimum values but may be
  * more computationally expensive, while loose bounds provide safe under-approximations.
  */
-Expression minimum_new(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight);
+Expression minimum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight);
 
 /**
  * @brief Compute the maximum of an expression with tight/loose bound selection
@@ -107,7 +73,7 @@ Expression minimum_new(const Expression expr, const SymbolSet& parameters, const
  * or loose (conservative) bounds. Tight bounds provide exact maximum values but may be
  * more computationally expensive, while loose bounds provide safe over-approximations.
  */
-Expression maximum_new(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight);
+Expression maximum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight);
 
 } // namespace symbolic
 } // namespace sdfg

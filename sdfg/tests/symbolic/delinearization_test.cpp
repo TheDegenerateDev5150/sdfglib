@@ -12,24 +12,24 @@ TEST(DelinearizeTest, Delinearize2D) {
     auto y = symbolic::symbol("y");
     auto N = symbolic::symbol("N");
     auto M = symbolic::symbol("M");
-    types::Scalar desc(types::PrimitiveType::UInt8);
+    types::Scalar desc(types::PrimitiveType::Int8);
 
     auto assum_x = symbolic::Assumption::create(x, desc);
-    assum_x.lower_bound_deprecated(symbolic::zero());
-    assum_x.upper_bound_deprecated(symbolic::sub(N, symbolic::integer(1)));
+    assum_x.add_lower_bound(symbolic::zero());
+    assum_x.add_upper_bound(symbolic::sub(N, symbolic::integer(1)));
 
     auto assum_y = symbolic::Assumption::create(y, desc);
-    assum_y.lower_bound_deprecated(symbolic::zero());
-    assum_y.upper_bound_deprecated(symbolic::sub(M, symbolic::integer(1)));
+    assum_y.add_lower_bound(symbolic::zero());
+    assum_y.add_upper_bound(symbolic::sub(M, symbolic::integer(1)));
 
     auto assum_N = symbolic::Assumption::create(N, desc);
-    assum_N.lower_bound_deprecated(symbolic::integer(1));
-    assum_N.upper_bound_deprecated(symbolic::integer(10));
+    assum_N.add_lower_bound(symbolic::integer(1));
+    assum_N.add_upper_bound(symbolic::integer(10));
     assum_N.constant(true);
 
     auto assum_M = symbolic::Assumption::create(M, desc);
-    assum_M.lower_bound_deprecated(symbolic::integer(1));
-    assum_M.upper_bound_deprecated(symbolic::integer(20));
+    assum_M.add_lower_bound(symbolic::integer(1));
+    assum_M.add_upper_bound(symbolic::integer(20));
     assum_M.constant(true);
 
     symbolic::Assumptions assums;
@@ -56,33 +56,33 @@ TEST(DelinearizeTest, Delinearize3D) {
     auto N = symbolic::symbol("N");
     auto M = symbolic::symbol("M");
     auto K = symbolic::symbol("K");
-    types::Scalar desc(types::PrimitiveType::UInt8);
+    types::Scalar desc(types::PrimitiveType::Int8);
 
     auto assum_x = symbolic::Assumption::create(x, desc);
-    assum_x.lower_bound_deprecated(symbolic::zero());
-    assum_x.upper_bound_deprecated(symbolic::sub(N, symbolic::integer(1)));
+    assum_x.add_lower_bound(symbolic::zero());
+    assum_x.add_upper_bound(symbolic::sub(N, symbolic::integer(1)));
 
     auto assum_y = symbolic::Assumption::create(y, desc);
-    assum_y.lower_bound_deprecated(symbolic::zero());
-    assum_y.upper_bound_deprecated(symbolic::sub(M, symbolic::integer(1)));
+    assum_y.add_lower_bound(symbolic::zero());
+    assum_y.add_upper_bound(symbolic::sub(M, symbolic::integer(1)));
 
     auto assum_z = symbolic::Assumption::create(z, desc);
-    assum_z.lower_bound_deprecated(symbolic::zero());
-    assum_z.upper_bound_deprecated(symbolic::sub(K, symbolic::integer(1)));
+    assum_z.add_lower_bound(symbolic::zero());
+    assum_z.add_upper_bound(symbolic::sub(K, symbolic::integer(1)));
 
     auto assum_N = symbolic::Assumption::create(N, desc);
-    assum_N.lower_bound_deprecated(symbolic::integer(1));
-    assum_N.upper_bound_deprecated(symbolic::integer(10));
+    assum_N.add_lower_bound(symbolic::integer(1));
+    assum_N.add_upper_bound(symbolic::integer(10));
     assum_N.constant(true);
 
     auto assum_M = symbolic::Assumption::create(M, desc);
-    assum_M.lower_bound_deprecated(symbolic::integer(1));
-    assum_M.upper_bound_deprecated(symbolic::integer(20));
+    assum_M.add_lower_bound(symbolic::integer(1));
+    assum_M.add_upper_bound(symbolic::integer(20));
     assum_M.constant(true);
 
     auto assum_K = symbolic::Assumption::create(K, desc);
-    assum_K.lower_bound_deprecated(symbolic::integer(1));
-    assum_K.upper_bound_deprecated(symbolic::integer(30));
+    assum_K.add_lower_bound(symbolic::integer(1));
+    assum_K.add_upper_bound(symbolic::integer(30));
     assum_K.constant(true);
 
     symbolic::Assumptions assums;
@@ -120,47 +120,47 @@ TEST(DelinearizeTest, Delinearize4D) {
     // Bounds
     auto _19 = symbolic::symbol("_19");
     auto assums_19 = symbolic::Assumption::create(_19, desc_i32);
-    assums_19.lower_bound_deprecated(symbolic::integer(1));
+    assums_19.add_lower_bound(symbolic::integer(1));
     assums_19.constant(true);
 
     auto _1 = symbolic::symbol("_1");
     auto assums_1 = symbolic::Assumption::create(_1, desc_i64);
-    assums_1.lower_bound_deprecated(symbolic::integer(1));
+    assums_1.add_lower_bound(symbolic::integer(1));
     assums_1.constant(true);
 
     auto _2 = symbolic::symbol("_2");
     auto assums_2 = symbolic::Assumption::create(_2, desc_i64);
-    assums_2.lower_bound_deprecated(symbolic::integer(1));
+    assums_2.add_lower_bound(symbolic::integer(1));
     assums_2.constant(true);
 
     auto _3 = symbolic::symbol("_3");
     auto assums_3 = symbolic::Assumption::create(_3, desc_i64);
-    assums_3.lower_bound_deprecated(symbolic::integer(1));
+    assums_3.add_lower_bound(symbolic::integer(1));
     assums_3.constant(true);
 
     // Indvars
     auto _13 = symbolic::symbol("_13");
     auto assum_13 = symbolic::Assumption::create(_13, desc_i64);
-    assum_13.lower_bound_deprecated(symbolic::zero());
-    assum_13.upper_bound_deprecated(symbolic::sub(_19, symbolic::one()));
+    assum_13.add_lower_bound(symbolic::zero());
+    assum_13.add_upper_bound(symbolic::sub(_19, symbolic::one()));
     assum_13.map(symbolic::add(_13, symbolic::one()));
 
     auto _24 = symbolic::symbol("_24");
     auto assum_24 = symbolic::Assumption::create(_24, desc_i64);
-    assum_24.lower_bound_deprecated(symbolic::zero());
-    assum_24.upper_bound_deprecated(symbolic::sub(_1, symbolic::one()));
+    assum_24.add_lower_bound(symbolic::zero());
+    assum_24.add_upper_bound(symbolic::sub(_1, symbolic::one()));
     assum_24.map(symbolic::add(_24, symbolic::one()));
 
     auto _28 = symbolic::symbol("_28");
     auto assum_28 = symbolic::Assumption::create(_28, desc_i64);
-    assum_28.lower_bound_deprecated(symbolic::zero());
-    assum_28.upper_bound_deprecated(symbolic::sub(_2, symbolic::one()));
+    assum_28.add_lower_bound(symbolic::zero());
+    assum_28.add_upper_bound(symbolic::sub(_2, symbolic::one()));
     assum_28.map(symbolic::add(_28, symbolic::one()));
 
     auto _32 = symbolic::symbol("_32");
     auto assum_32 = symbolic::Assumption::create(_32, desc_i64);
-    assum_32.lower_bound_deprecated(symbolic::zero());
-    assum_32.upper_bound_deprecated(symbolic::sub(_3, symbolic::one()));
+    assum_32.add_lower_bound(symbolic::zero());
+    assum_32.add_upper_bound(symbolic::sub(_3, symbolic::one()));
     assum_32.map(symbolic::add(_32, symbolic::one()));
 
     symbolic::Assumptions assums;
@@ -197,47 +197,47 @@ TEST(DelinearizeTest, Delinearize4D_WithOffsets) {
     // Bounds
     auto _19 = symbolic::symbol("_19");
     auto assums_19 = symbolic::Assumption::create(_19, desc_i32);
-    assums_19.lower_bound_deprecated(symbolic::integer(1));
+    assums_19.add_lower_bound(symbolic::integer(1));
     assums_19.constant(true);
 
     auto _1 = symbolic::symbol("_1");
     auto assums_1 = symbolic::Assumption::create(_1, desc_i64);
-    assums_1.lower_bound_deprecated(symbolic::integer(1));
+    assums_1.add_lower_bound(symbolic::integer(1));
     assums_1.constant(true);
 
     auto _2 = symbolic::symbol("_2");
     auto assums_2 = symbolic::Assumption::create(_2, desc_i64);
-    assums_2.lower_bound_deprecated(symbolic::integer(1));
+    assums_2.add_lower_bound(symbolic::integer(1));
     assums_2.constant(true);
 
     auto _3 = symbolic::symbol("_3");
     auto assums_3 = symbolic::Assumption::create(_3, desc_i64);
-    assums_3.lower_bound_deprecated(symbolic::integer(1));
+    assums_3.add_lower_bound(symbolic::integer(1));
     assums_3.constant(true);
 
     // Indvars
     auto _13 = symbolic::symbol("_13");
     auto assum_13 = symbolic::Assumption::create(_13, desc_i64);
-    assum_13.lower_bound_deprecated(symbolic::zero());
-    assum_13.upper_bound_deprecated(symbolic::sub(_19, symbolic::one()));
+    assum_13.add_lower_bound(symbolic::zero());
+    assum_13.add_upper_bound(symbolic::sub(_19, symbolic::one()));
     assum_13.map(symbolic::add(_13, symbolic::one()));
 
     auto _24 = symbolic::symbol("_24");
     auto assum_24 = symbolic::Assumption::create(_24, desc_i64);
-    assum_24.lower_bound_deprecated(symbolic::zero());
-    assum_24.upper_bound_deprecated(symbolic::sub(_1, symbolic::one()));
+    assum_24.add_lower_bound(symbolic::zero());
+    assum_24.add_upper_bound(symbolic::sub(_1, symbolic::one()));
     assum_24.map(symbolic::add(_24, symbolic::one()));
 
     auto _28 = symbolic::symbol("_28");
     auto assum_28 = symbolic::Assumption::create(_28, desc_i64);
-    assum_28.lower_bound_deprecated(symbolic::zero());
-    assum_28.upper_bound_deprecated(symbolic::sub(_2, symbolic::one()));
+    assum_28.add_lower_bound(symbolic::zero());
+    assum_28.add_upper_bound(symbolic::sub(_2, symbolic::one()));
     assum_28.map(symbolic::add(_28, symbolic::one()));
 
     auto _32 = symbolic::symbol("_32");
     auto assum_32 = symbolic::Assumption::create(_32, desc_i64);
-    assum_32.lower_bound_deprecated(symbolic::zero());
-    assum_32.upper_bound_deprecated(symbolic::sub(_3, symbolic::one()));
+    assum_32.add_lower_bound(symbolic::zero());
+    assum_32.add_upper_bound(symbolic::sub(_3, symbolic::one()));
     assum_32.map(symbolic::add(_32, symbolic::one()));
 
     symbolic::Assumptions assums;
@@ -281,22 +281,22 @@ TEST(DelinearizeTest, Delinearize4D_WithOffsets_Symbolic) {
     // Bounds
     auto _19 = symbolic::symbol("_19");
     auto assums_19 = symbolic::Assumption::create(_19, desc_i32);
-    assums_19.lower_bound_deprecated(symbolic::integer(1));
+    assums_19.add_lower_bound(symbolic::integer(1));
     assums_19.constant(true);
 
     auto _1 = symbolic::symbol("_1");
     auto assums_1 = symbolic::Assumption::create(_1, desc_i64);
-    assums_1.lower_bound_deprecated(symbolic::integer(1));
+    assums_1.add_lower_bound(symbolic::integer(1));
     assums_1.constant(true);
 
     auto _2 = symbolic::symbol("_2");
     auto assums_2 = symbolic::Assumption::create(_2, desc_i64);
-    assums_2.lower_bound_deprecated(symbolic::integer(1));
+    assums_2.add_lower_bound(symbolic::integer(1));
     assums_2.constant(true);
 
     auto _3 = symbolic::symbol("_3");
     auto assums_3 = symbolic::Assumption::create(_3, desc_i64);
-    assums_3.lower_bound_deprecated(symbolic::integer(1));
+    assums_3.add_lower_bound(symbolic::integer(1));
     assums_3.constant(true);
 
     auto _4 = symbolic::symbol("_4");
@@ -310,26 +310,26 @@ TEST(DelinearizeTest, Delinearize4D_WithOffsets_Symbolic) {
     // Indvars
     auto _13 = symbolic::symbol("_13");
     auto assum_13 = symbolic::Assumption::create(_13, desc_i64);
-    assum_13.lower_bound_deprecated(symbolic::zero());
-    assum_13.upper_bound_deprecated(symbolic::sub(_19, symbolic::one()));
+    assum_13.add_lower_bound(symbolic::zero());
+    assum_13.add_upper_bound(symbolic::sub(_19, symbolic::one()));
     assum_13.map(symbolic::add(_13, symbolic::one()));
 
     auto _24 = symbolic::symbol("_24");
     auto assum_24 = symbolic::Assumption::create(_24, desc_i64);
-    assum_24.lower_bound_deprecated(symbolic::zero());
-    assum_24.upper_bound_deprecated(symbolic::sub(_1, symbolic::one()));
+    assum_24.add_lower_bound(symbolic::zero());
+    assum_24.add_upper_bound(symbolic::sub(_1, symbolic::one()));
     assum_24.map(symbolic::add(_24, symbolic::one()));
 
     auto _28 = symbolic::symbol("_28");
     auto assum_28 = symbolic::Assumption::create(_28, desc_i64);
-    assum_28.lower_bound_deprecated(symbolic::zero());
-    assum_28.upper_bound_deprecated(symbolic::sub(_2, symbolic::one()));
+    assum_28.add_lower_bound(symbolic::zero());
+    assum_28.add_upper_bound(symbolic::sub(_2, symbolic::one()));
     assum_28.map(symbolic::add(_28, symbolic::one()));
 
     auto _32 = symbolic::symbol("_32");
     auto assum_32 = symbolic::Assumption::create(_32, desc_i64);
-    assum_32.lower_bound_deprecated(symbolic::zero());
-    assum_32.upper_bound_deprecated(symbolic::sub(_3, symbolic::one()));
+    assum_32.add_lower_bound(symbolic::zero());
+    assum_32.add_upper_bound(symbolic::sub(_3, symbolic::one()));
     assum_32.map(symbolic::add(_32, symbolic::one()));
 
     symbolic::Assumptions assums;
@@ -388,40 +388,40 @@ TEST(DelinearizeTest, Delinearize4D_PowStride) {
 
     symbolic::Assumptions assums;
     auto assum_i0 = symbolic::Assumption::create(i0, desc);
-    assum_i0.lower_bound_deprecated(symbolic::zero());
-    assum_i0.upper_bound_deprecated(symbolic::sub(s0, symbolic::one()));
+    assum_i0.add_lower_bound(symbolic::zero());
+    assum_i0.add_upper_bound(symbolic::sub(s0, symbolic::one()));
     assum_i0.map(symbolic::add(i0, symbolic::one()));
     assum_i0.constant(true);
     assums.insert({i0, assum_i0});
 
     auto assum_i1 = symbolic::Assumption::create(i1, desc);
-    assum_i1.lower_bound_deprecated(symbolic::zero());
-    assum_i1.upper_bound_deprecated(symbolic::sub(s1, symbolic::one()));
+    assum_i1.add_lower_bound(symbolic::zero());
+    assum_i1.add_upper_bound(symbolic::sub(s1, symbolic::one()));
     assum_i1.map(symbolic::add(i1, symbolic::one()));
     assum_i1.constant(true);
     assums.insert({i1, assum_i1});
 
     auto assum_i2 = symbolic::Assumption::create(i2, desc);
-    assum_i2.lower_bound_deprecated(symbolic::zero());
-    assum_i2.upper_bound_deprecated(symbolic::sub(s1, symbolic::one()));
+    assum_i2.add_lower_bound(symbolic::zero());
+    assum_i2.add_upper_bound(symbolic::sub(s1, symbolic::one()));
     assum_i2.map(symbolic::add(i2, symbolic::one()));
     assum_i2.constant(true);
     assums.insert({i2, assum_i2});
 
     auto assum_i3 = symbolic::Assumption::create(i3, desc);
-    assum_i3.lower_bound_deprecated(symbolic::zero());
-    assum_i3.upper_bound_deprecated(symbolic::sub(s1, symbolic::one()));
+    assum_i3.add_lower_bound(symbolic::zero());
+    assum_i3.add_upper_bound(symbolic::sub(s1, symbolic::one()));
     assum_i3.map(symbolic::add(i3, symbolic::one()));
     assum_i3.constant(true);
     assums.insert({i3, assum_i3});
 
     auto assum_s0 = symbolic::Assumption::create(s0, desc);
-    assum_s0.lower_bound_deprecated(symbolic::integer(1));
+    assum_s0.add_lower_bound(symbolic::integer(1));
     assum_s0.constant(true);
     assums.insert({s0, assum_s0});
 
     auto assum_s1 = symbolic::Assumption::create(s1, desc);
-    assum_s1.lower_bound_deprecated(symbolic::integer(1));
+    assum_s1.add_lower_bound(symbolic::integer(1));
     assum_s1.constant(true);
     assums.insert({s1, assum_s1});
 
@@ -450,24 +450,24 @@ TEST(DelinearizeTest, ZeroStride) {
     auto y = symbolic::symbol("y");
     auto N = symbolic::symbol("N");
     auto M = symbolic::symbol("M");
-    types::Scalar desc(types::PrimitiveType::UInt8);
+    types::Scalar desc(types::PrimitiveType::Int8);
 
     auto assum_x = symbolic::Assumption::create(x, desc);
-    assum_x.lower_bound_deprecated(symbolic::zero());
-    assum_x.upper_bound_deprecated(symbolic::sub(N, symbolic::integer(1)));
+    assum_x.add_lower_bound(symbolic::zero());
+    assum_x.add_upper_bound(symbolic::sub(N, symbolic::integer(1)));
 
     auto assum_y = symbolic::Assumption::create(y, desc);
-    assum_y.lower_bound_deprecated(symbolic::zero());
-    assum_y.upper_bound_deprecated(symbolic::sub(M, symbolic::integer(1)));
+    assum_y.add_lower_bound(symbolic::zero());
+    assum_y.add_upper_bound(symbolic::sub(M, symbolic::integer(1)));
 
     auto assum_N = symbolic::Assumption::create(N, desc);
-    assum_N.lower_bound_deprecated(symbolic::integer(0));
-    assum_N.upper_bound_deprecated(symbolic::integer(10));
+    assum_N.add_lower_bound(symbolic::integer(0));
+    assum_N.add_upper_bound(symbolic::integer(10));
     assum_N.constant(true);
 
     auto assum_M = symbolic::Assumption::create(M, desc);
-    assum_M.lower_bound_deprecated(symbolic::integer(0));
-    assum_M.upper_bound_deprecated(symbolic::integer(20));
+    assum_M.add_lower_bound(symbolic::integer(0));
+    assum_M.add_upper_bound(symbolic::integer(20));
     assum_M.constant(true);
 
     symbolic::Assumptions assums;
@@ -490,24 +490,24 @@ TEST(DelinearizeTest, NegativeStride) {
     auto y = symbolic::symbol("y");
     auto N = symbolic::symbol("N");
     auto M = symbolic::symbol("M");
-    types::Scalar desc(types::PrimitiveType::UInt8);
+    types::Scalar desc(types::PrimitiveType::Int8);
 
     auto assum_x = symbolic::Assumption::create(x, desc);
-    assum_x.lower_bound_deprecated(symbolic::integer(-1));
-    assum_x.upper_bound_deprecated(symbolic::sub(N, symbolic::integer(1)));
+    assum_x.add_lower_bound(symbolic::integer(-1));
+    assum_x.add_upper_bound(symbolic::sub(N, symbolic::integer(1)));
 
     auto assum_y = symbolic::Assumption::create(y, desc);
-    assum_y.lower_bound_deprecated(symbolic::integer(-1));
-    assum_y.upper_bound_deprecated(symbolic::sub(M, symbolic::integer(1)));
+    assum_y.add_lower_bound(symbolic::integer(-1));
+    assum_y.add_upper_bound(symbolic::sub(M, symbolic::integer(1)));
 
     auto assum_N = symbolic::Assumption::create(N, desc);
-    assum_N.lower_bound_deprecated(symbolic::integer(1));
-    assum_N.upper_bound_deprecated(symbolic::integer(10));
+    assum_N.add_lower_bound(symbolic::integer(1));
+    assum_N.add_upper_bound(symbolic::integer(10));
     assum_N.constant(true);
 
     auto assum_M = symbolic::Assumption::create(M, desc);
-    assum_M.lower_bound_deprecated(symbolic::integer(1));
-    assum_M.upper_bound_deprecated(symbolic::integer(20));
+    assum_M.add_lower_bound(symbolic::integer(1));
+    assum_M.add_upper_bound(symbolic::integer(20));
     assum_M.constant(true);
 
     symbolic::Assumptions assums;
