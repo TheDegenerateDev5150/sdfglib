@@ -1,5 +1,7 @@
 #include "sdfg/symbolic/extreme_values.h"
 
+#include <unordered_map>
+#include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "symengine/basic.h"
 #include "symengine/functions.h"
@@ -265,6 +267,102 @@ Expression minimum(
     if (SymEngine::is_a<SymEngine::Add>(*expr)) {
         auto add = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
         const auto& args = add->get_args();
+
+        // Collect variable symbols (non-constant OR loop variables with map) from the expression
+        // Loop variables have constant=true but map != null
+        SymbolVec vars;
+        for (const auto& atom : symbolic::atoms(expr)) {
+            auto it = assumptions.find(atom);
+            if (it != assumptions.end()) {
+                // Include if: not constant OR has a map (loop variable)
+                if (!it->second.constant() || !it->second.map().is_null()) {
+                    vars.push_back(atom);
+                }
+            }
+        }
+
+        // If we have loop variables, use polynomial analysis to get coefficients
+        // This correctly handles cases like -2*x + x*Y = x*(Y-2) where Y is a parameter
+        if (!vars.empty()) {
+            auto poly = polynomial(expr, vars);
+            if (poly != SymEngine::null) {
+                auto coeffs = affine_coefficients(poly, vars);
+                if (!coeffs.empty()) {
+                    // We have an affine expression in the loop variables
+                    // min(sum(coeff_i * var_i) + const) = sum(min(coeff_i * var_i)) + const
+                    Expression lbs = SymEngine::null;
+                    bool success = true;
+
+                    for (const auto& [sym, coeff] : coeffs) {
+                        if (sym->get_name() == "__daisy_constant__") {
+                            // Constant term - just add it
+                            if (lbs == SymEngine::null) {
+                                lbs = coeff;
+                            } else {
+                                lbs = symbolic::add(lbs, coeff);
+                            }
+                        } else {
+                            // Variable term: coeff * var
+                            // Compute min(coeff * var) properly using Mul handler
+                            auto term = symbolic::mul(coeff, sym);
+                            auto term_lb = minimum(term, parameters, assumptions, depth + 1, tight);
+                            if (term_lb == SymEngine::null) {
+                                success = false;
+                                break;
+                            }
+                            if (lbs == SymEngine::null) {
+                                lbs = term_lb;
+                            } else {
+                                lbs = symbolic::add(lbs, term_lb);
+                            }
+                        }
+                    }
+
+                    if (success && lbs != SymEngine::null) {
+                        return lbs;
+                    }
+                }
+            }
+        }
+
+        // Try boundary evaluation for expressions involving bounded symbols
+        // This handles quadratic expressions like (x - 2)^2 = x^2 - 4*x + 4
+        // by evaluating at the boundaries of x
+        {
+            // Collect all bounded symbols
+            auto all_atoms = symbolic::atoms(expr);
+            SymbolVec bounded_vars;
+            for (const auto& atom : all_atoms) {
+                auto it = assumptions.find(atom);
+                if (it != assumptions.end() && !it->second.lower_bounds().empty()) {
+                    bounded_vars.push_back(atom);
+                }
+            }
+
+            // If there's exactly one bounded variable, try boundary evaluation
+            if (bounded_vars.size() == 1) {
+                auto var = bounded_vars[0];
+                auto var_lb = minimum(var, parameters, assumptions, depth + 1, tight);
+                auto var_ub = maximum(var, parameters, assumptions, depth + 1, tight);
+
+                if (!var_lb.is_null() && !var_ub.is_null()) {
+                    // Evaluate at bounds
+                    auto val_at_lb = symbolic::subs(expr, var, var_lb);
+                    auto val_at_ub = symbolic::subs(expr, var, var_ub);
+                    val_at_lb = symbolic::simplify(val_at_lb);
+                    val_at_ub = symbolic::simplify(val_at_ub);
+
+                    // If both are integers, return the minimum
+                    if (SymEngine::is_a<SymEngine::Integer>(*val_at_lb) &&
+                        SymEngine::is_a<SymEngine::Integer>(*val_at_ub)) {
+                        auto result = symbolic::min(val_at_lb, val_at_ub);
+                        return result;
+                    }
+                }
+            }
+        }
+
+        // Fallback: naive sum of minimums (correct when terms don't share variables)
         Expression lbs = SymEngine::null;
         for (const auto& arg : args) {
             auto lb = minimum(arg, parameters, assumptions, depth + 1, tight);
@@ -277,6 +375,7 @@ Expression minimum(
                 lbs = symbolic::add(lbs, lb);
             }
         }
+
         return lbs;
     }
 
@@ -534,6 +633,101 @@ Expression maximum(
     if (SymEngine::is_a<SymEngine::Add>(*expr)) {
         auto add = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
         const auto& args = add->get_args();
+
+        // Collect variable symbols (non-constant OR loop variables with map) from the expression
+        // Loop variables have constant=true but map != null
+        SymbolVec vars;
+        for (const auto& atom : symbolic::atoms(expr)) {
+            auto it = assumptions.find(atom);
+            if (it != assumptions.end()) {
+                // Include if: not constant OR has a map (loop variable)
+                if (!it->second.constant() || !it->second.map().is_null()) {
+                    vars.push_back(atom);
+                }
+            }
+        }
+
+        // If we have loop variables, use polynomial analysis to get coefficients
+        // This correctly handles cases like -2*x + x*Y = x*(Y-2) where Y is a parameter
+        if (!vars.empty()) {
+            auto poly = polynomial(expr, vars);
+            if (poly != SymEngine::null) {
+                auto coeffs = affine_coefficients(poly, vars);
+                if (!coeffs.empty()) {
+                    // We have an affine expression in the loop variables
+                    // max(sum(coeff_i * var_i) + const) = sum(max(coeff_i * var_i)) + const
+                    Expression ubs = SymEngine::null;
+                    bool success = true;
+
+                    for (const auto& [sym, coeff] : coeffs) {
+                        if (sym->get_name() == "__daisy_constant__") {
+                            // Constant term - just add it
+                            if (ubs == SymEngine::null) {
+                                ubs = coeff;
+                            } else {
+                                ubs = symbolic::add(ubs, coeff);
+                            }
+                        } else {
+                            // Variable term: coeff * var
+                            // Compute max(coeff * var) properly using Mul handler
+                            auto term = symbolic::mul(coeff, sym);
+                            auto term_ub = maximum(term, parameters, assumptions, depth + 1, tight);
+                            if (term_ub == SymEngine::null) {
+                                success = false;
+                                break;
+                            }
+                            if (ubs == SymEngine::null) {
+                                ubs = term_ub;
+                            } else {
+                                ubs = symbolic::add(ubs, term_ub);
+                            }
+                        }
+                    }
+
+                    if (success && ubs != SymEngine::null) {
+                        return ubs;
+                    }
+                }
+            }
+        }
+
+        // Try boundary evaluation for expressions involving bounded symbols
+        // This handles quadratic expressions by evaluating at the boundaries
+        {
+            // Collect all bounded symbols
+            auto all_atoms = symbolic::atoms(expr);
+            SymbolVec bounded_vars;
+            for (const auto& atom : all_atoms) {
+                auto it = assumptions.find(atom);
+                if (it != assumptions.end() && !it->second.upper_bounds().empty()) {
+                    bounded_vars.push_back(atom);
+                }
+            }
+
+            // If there's exactly one bounded variable, try boundary evaluation
+            if (bounded_vars.size() == 1) {
+                auto var = bounded_vars[0];
+                auto var_lb = minimum(var, parameters, assumptions, depth + 1, tight);
+                auto var_ub = maximum(var, parameters, assumptions, depth + 1, tight);
+
+                if (!var_lb.is_null() && !var_ub.is_null()) {
+                    // Evaluate at bounds
+                    auto val_at_lb = symbolic::subs(expr, var, var_lb);
+                    auto val_at_ub = symbolic::subs(expr, var, var_ub);
+                    val_at_lb = symbolic::simplify(val_at_lb);
+                    val_at_ub = symbolic::simplify(val_at_ub);
+
+                    // If both are integers, return the maximum
+                    if (SymEngine::is_a<SymEngine::Integer>(*val_at_lb) &&
+                        SymEngine::is_a<SymEngine::Integer>(*val_at_ub)) {
+                        auto result = symbolic::max(val_at_lb, val_at_ub);
+                        return result;
+                    }
+                }
+            }
+        }
+
+        // Fallback: naive sum of maximums (correct when terms don't share variables)
         Expression ubs = SymEngine::null;
         for (const auto& arg : args) {
             auto ub = maximum(arg, parameters, assumptions, depth + 1, tight);
