@@ -100,7 +100,8 @@ std::string expression_to_map_str(const MultiExpression& expr, const Assumptions
     std::vector<std::string> parameters;
     SymbolSet parameters_syms;
     for (auto& sym : syms) {
-        if (assums.find(sym) == assums.end() && assums.at(sym).constant()) {
+        auto it = assums.find(sym);
+        if (it != assums.end() && it->second.constant() && it->second.map().is_null()) {
             if (parameters_syms.find(sym) != parameters_syms.end()) {
                 continue;
             }
