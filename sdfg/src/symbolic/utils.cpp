@@ -469,7 +469,10 @@ std::tuple<std::string, std::string, std::string> expressions_to_intersection_ma
     map_3_ss << "]";
     std::vector<std::string> monotonicity_constraints;
     if (dimensions_syms.find(indvar) != dimensions_syms.end()) {
-        monotonicity_constraints.push_back(indvar->get_name() + "_1 != " + indvar->get_name() + "_2");
+        // For loop-carried dependencies, we only care about the forward direction
+        // (iteration_1 < iteration_2 in execution order).
+        // This ensures we detect real dependencies, not symmetric pairs.
+        monotonicity_constraints.push_back(indvar->get_name() + "_1 < " + indvar->get_name() + "_2");
     }
     if (!monotonicity_constraints.empty()) {
         map_3_ss << " : ";
