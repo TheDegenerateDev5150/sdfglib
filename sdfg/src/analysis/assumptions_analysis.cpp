@@ -10,6 +10,7 @@
 #include "sdfg/data_flow/memlet.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/assumptions.h"
+#include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/types/type.h"
 
@@ -157,20 +158,30 @@ void AssumptionsAnalysis::traverse_structured_loop(
             }
 
             // Furthermore, we can infer lower bounds for each upper bound's symbol
+            // For a loop to execute, we need ub > init, so ub >= init + 1
+            auto min_ub_value = symbolic::add(init, symbolic::one());
+
+            // Helper to infer lower bound for symbols in an expression
+            // If expr = coeff * sym + offset and we need expr >= min_ub_value,
+            // then sym >= (min_ub_value - offset) / coeff
+            auto infer_symbol_lower_bound = [&](const symbolic::Expression& expr) {
+                auto atoms = symbolic::atoms(expr);
+                for (const auto& sym : atoms) {
+                    auto bound = symbolic::solve_affine_bound(expr, sym, min_ub_value, true);
+                    if (!bound.is_null()) {
+                        body_assumptions[sym].add_lower_bound(bound);
+                    }
+                }
+            };
+
             if (SymEngine::is_a<SymEngine::Min>(*ub)) {
                 auto min = SymEngine::rcp_static_cast<const SymEngine::Min>(ub);
                 for (size_t i = 0; i < min->get_args().size(); i++) {
                     auto arg = min->get_args()[i];
-                    if (SymEngine::is_a<SymEngine::Symbol>(*arg)) {
-                        auto ub_sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(arg);
-                        auto sym_lb = symbolic::add(init, symbolic::one());
-                        body_assumptions[ub_sym].add_lower_bound(sym_lb);
-                    }
+                    infer_symbol_lower_bound(arg);
                 }
-            } else if (SymEngine::is_a<SymEngine::Symbol>(*ub)) {
-                auto ub_sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(ub);
-                auto sym_lb = symbolic::add(init, symbolic::one());
-                body_assumptions[ub_sym].add_lower_bound(sym_lb);
+            } else {
+                infer_symbol_lower_bound(ub);
             }
         }
     }

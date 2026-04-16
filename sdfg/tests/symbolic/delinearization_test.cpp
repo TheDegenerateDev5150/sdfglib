@@ -524,3 +524,64 @@ TEST(DelinearizeTest, NegativeStride) {
     EXPECT_EQ(result.indices.size(), 1);
     EXPECT_TRUE(symbolic::eq(result.indices.at(0), expr));
 }
+
+// Test based on jacobi2d slice pattern:
+// for(_slice_iter_0_0 = 0; _slice_iter_0_0 < -2 + _s0; ...)
+//   for(_slice_iter_1_0 = 0; _slice_iter_1_0 < -2 + _s0; ...)
+//     _tmp_5[_slice_iter_1_0 + (-2 + _s0)*_slice_iter_0_0]
+//     B[1 + _slice_iter_1_0 + _s0*(1 + _slice_iter_0_0)]
+TEST(DelinearizeTest, Jacobi2D_SlicePattern) {
+    types::Scalar desc(types::PrimitiveType::Int64);
+
+    // Symbolic stride
+    auto _s0 = symbolic::symbol("_s0");
+    auto assum_s0 = symbolic::Assumption::create(_s0, desc);
+    assum_s0.add_lower_bound(symbolic::integer(3)); // Must be >= 3 for -2 + _s0 >= 1
+    assum_s0.constant(true);
+
+    // Loop induction variables with bounds [0, _s0 - 3]
+    auto iter0 = symbolic::symbol("_slice_iter_0_0");
+    auto assum_iter0 = symbolic::Assumption::create(iter0, desc);
+    assum_iter0.add_lower_bound(symbolic::zero());
+    assum_iter0.add_upper_bound(symbolic::sub(_s0, symbolic::integer(3)));
+    assum_iter0.map(symbolic::add(iter0, symbolic::one()));
+
+    auto iter1 = symbolic::symbol("_slice_iter_1_0");
+    auto assum_iter1 = symbolic::Assumption::create(iter1, desc);
+    assum_iter1.add_lower_bound(symbolic::zero());
+    assum_iter1.add_upper_bound(symbolic::sub(_s0, symbolic::integer(3)));
+    assum_iter1.map(symbolic::add(iter1, symbolic::one()));
+
+    symbolic::Assumptions assums;
+    assums.insert({_s0, assum_s0});
+    assums.insert({iter0, assum_iter0});
+    assums.insert({iter1, assum_iter1});
+
+    // Pattern 1: _tmp_5[_slice_iter_1_0 + (-2 + _s0)*_slice_iter_0_0]
+    // This is a 2D access with stride (_s0 - 2)
+    auto stride_tmp = symbolic::sub(_s0, symbolic::integer(2));
+    auto expr_tmp = symbolic::add(iter1, symbolic::mul(stride_tmp, iter0));
+
+    auto result_tmp = symbolic::delinearize(expr_tmp, assums);
+    EXPECT_TRUE(result_tmp.success);
+    EXPECT_EQ(result_tmp.dimensions.size(), 1);
+    EXPECT_EQ(result_tmp.indices.size(), 2);
+    EXPECT_TRUE(symbolic::eq(result_tmp.indices.at(0), iter0));
+    EXPECT_TRUE(symbolic::eq(result_tmp.indices.at(1), iter1));
+    EXPECT_TRUE(symbolic::eq(result_tmp.dimensions.at(0), stride_tmp));
+
+    // Pattern 2: B[1 + _slice_iter_1_0 + _s0*(1 + _slice_iter_0_0)]
+    // Expanded: 1 + _slice_iter_1_0 + _s0 + _s0*_slice_iter_0_0
+    // This is a 2D access with indices (1 + iter0, 1 + iter1) and stride _s0
+    auto offset_iter0 = symbolic::add(symbolic::one(), iter0);
+    auto offset_iter1 = symbolic::add(symbolic::one(), iter1);
+    auto expr_B = symbolic::add(offset_iter1, symbolic::mul(_s0, offset_iter0));
+
+    auto result_B = symbolic::delinearize(expr_B, assums);
+    EXPECT_TRUE(result_B.success);
+    EXPECT_EQ(result_B.dimensions.size(), 1);
+    EXPECT_EQ(result_B.indices.size(), 2);
+    EXPECT_TRUE(symbolic::eq(result_B.indices.at(0), offset_iter0));
+    EXPECT_TRUE(symbolic::eq(result_B.indices.at(1), offset_iter1));
+    EXPECT_TRUE(symbolic::eq(result_B.dimensions.at(0), _s0));
+}
