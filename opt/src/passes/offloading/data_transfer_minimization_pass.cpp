@@ -131,28 +131,12 @@ bool DataTransferMinimizationPass::
     }
 
     auto& transfer_reuse_candidates = transfer_analysis.transfer_reuse_candidates();
-    auto& users = analysis_manager.get<analysis::Users>();
 
     for (auto& candidate : transfer_reuse_candidates) {
         auto reads = candidate.first.read_count;
         auto& copy_out = *candidate.first.offload;
         auto& copy_in = candidate.second;
         auto& copy_in_container = copy_in.host_data->data();
-
-        // copy from legacy version as hack: checking for users after the copy_in container (because current analysis
-        // stops looking at that point)
-        // TODO unsafe: this does not cover all ways that still need the data on host. Safe is: only manage device-side
-        // things here and let dead-data find the unused host stuff
-        auto* read = users.get_user(
-            copy_in.host_data->data(), const_cast<data_flow::AccessNode*>(copy_in.host_data), analysis::Use::READ
-        );
-
-        for (auto* after_use : users.all_uses_after(*read)) {
-            if (after_use->container() == copy_in_container && after_use->use() == analysis::Use::READ &&
-                after_use != read) {
-                ++reads;
-            }
-        }
 
 #ifndef NDEBUG
         std::cerr << "  Elim transfer "
@@ -166,7 +150,7 @@ bool DataTransferMinimizationPass::
                   << std::endl;
 #endif
 
-        bool success = eliminate_transfer_pair(builder, copy_out, copy_in, reads == 0);
+        bool success = eliminate_transfer_pair(builder, copy_out, copy_in, false);
 
         if (success) {
             ++removed;
