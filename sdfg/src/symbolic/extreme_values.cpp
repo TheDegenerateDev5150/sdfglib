@@ -123,7 +123,8 @@ Expression minimum(
             }
             // Try lower_bounds() first
             symbolic::Expression new_lb = SymEngine::null;
-            for (auto& lb : assumptions.at(sym).lower_bounds()) {
+            auto& lb_set = assumptions.at(sym).lower_bounds();
+            for (auto& lb : lb_set) {
                 auto new_min = minimum(lb, parameters, assumptions, depth + 1, tight);
                 if (new_min.is_null()) {
                     continue;
@@ -203,6 +204,29 @@ Expression minimum(
         const auto& args = mul->get_args();
         size_t n = args.size();
 
+        // First try: if all factors are strictly positive (min >= 1),
+        // the minimum of the product is simply the product of minimums.
+        // This avoids requiring upper bounds for each factor.
+        bool all_positive = true;
+        Expression min_product_simple = symbolic::integer(1);
+        for (const auto& arg : args) {
+            Expression min_val = minimum(arg, parameters, assumptions, depth + 1, tight);
+            if (min_val == SymEngine::null) {
+                all_positive = false;
+                break;
+            }
+            // Check if min_val >= 1 (strictly positive)
+            if (!symbolic::is_true(symbolic::Ge(min_val, symbolic::one()))) {
+                all_positive = false;
+                break;
+            }
+            min_product_simple = symbolic::mul(min_product_simple, min_val);
+        }
+        if (all_positive) {
+            return min_product_simple;
+        }
+
+        // General case: need both min and max for each factor
         std::vector<std::pair<Expression, Expression>> bounds;
         bounds.reserve(n);
 

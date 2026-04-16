@@ -644,3 +644,69 @@ TEST(DelinearizeTest, Simple2D_SameBounds) {
     EXPECT_TRUE(symbolic::eq(result.indices.at(1), _i1));
     EXPECT_TRUE(symbolic::eq(result.dimensions.at(0), _s0));
 }
+
+// Test for 4D linearized access with repeated symbols in strides:
+// _tmp_5[_i17 + _s1*_i16 + _s1*_s1*_i15 + _s0*_s1*_s1*_i14]
+// Loops: _i14 in [0,_s0), _i15 in [0,_s0), _i16 in [0,_s1), _i17 in [0,_s1)
+TEST(DelinearizeTest, Simple4D_RepeatedStrides) {
+    types::Scalar desc(types::PrimitiveType::Int64);
+
+    // Symbolic bounds
+    auto _s0 = symbolic::symbol("_s0");
+    auto assum_s0 = symbolic::Assumption::create(_s0, desc);
+    assum_s0.add_lower_bound(symbolic::integer(1));
+    assum_s0.constant(true);
+
+    auto _s1 = symbolic::symbol("_s1");
+    auto assum_s1 = symbolic::Assumption::create(_s1, desc);
+    assum_s1.add_lower_bound(symbolic::integer(1));
+    assum_s1.constant(true);
+
+    // Loop induction variables
+    auto _i14 = symbolic::symbol("_i14");
+    auto assum_i14 = symbolic::Assumption::create(_i14, desc);
+    assum_i14.add_lower_bound(symbolic::zero());
+    assum_i14.add_upper_bound(symbolic::sub(_s0, symbolic::one()));
+    assum_i14.tight_lower_bound(symbolic::zero());
+    assum_i14.tight_upper_bound(symbolic::sub(_s0, symbolic::one()));
+
+    auto _i15 = symbolic::symbol("_i15");
+    auto assum_i15 = symbolic::Assumption::create(_i15, desc);
+    assum_i15.add_lower_bound(symbolic::zero());
+    assum_i15.add_upper_bound(symbolic::sub(_s0, symbolic::one()));
+    assum_i15.tight_lower_bound(symbolic::zero());
+    assum_i15.tight_upper_bound(symbolic::sub(_s0, symbolic::one()));
+
+    auto _i16 = symbolic::symbol("_i16");
+    auto assum_i16 = symbolic::Assumption::create(_i16, desc);
+    assum_i16.add_lower_bound(symbolic::zero());
+    assum_i16.add_upper_bound(symbolic::sub(_s1, symbolic::one()));
+    assum_i16.tight_lower_bound(symbolic::zero());
+    assum_i16.tight_upper_bound(symbolic::sub(_s1, symbolic::one()));
+
+    auto _i17 = symbolic::symbol("_i17");
+    auto assum_i17 = symbolic::Assumption::create(_i17, desc);
+    assum_i17.add_lower_bound(symbolic::zero());
+    assum_i17.add_upper_bound(symbolic::sub(_s1, symbolic::one()));
+    assum_i17.tight_lower_bound(symbolic::zero());
+    assum_i17.tight_upper_bound(symbolic::sub(_s1, symbolic::one()));
+
+    symbolic::Assumptions assums;
+    assums.insert({_s0, assum_s0});
+    assums.insert({_s1, assum_s1});
+    assums.insert({_i14, assum_i14});
+    assums.insert({_i15, assum_i15});
+    assums.insert({_i16, assum_i16});
+    assums.insert({_i17, assum_i17});
+
+    // Pattern: _i17 + _s1*_i16 + _s1*_s1*_i15 + _s0*_s1*_s1*_i14
+    auto s1_sq = symbolic::mul(_s1, _s1);
+    auto expr = symbolic::add(_i17, symbolic::mul(_s1, _i16));
+    expr = symbolic::add(expr, symbolic::mul(s1_sq, _i15));
+    expr = symbolic::add(expr, symbolic::mul(symbolic::mul(_s0, s1_sq), _i14));
+
+    auto result = symbolic::delinearize(expr, assums);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.indices.size(), 4);
+    EXPECT_EQ(result.dimensions.size(), 3);
+}
