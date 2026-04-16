@@ -83,6 +83,28 @@ std::string PyStructuredSDFGBuilder::get_sizeof(const sdfg::types::IType& type) 
 
 std::string PyStructuredSDFGBuilder::find_new_name(const std::string& prefix) { return builder_.find_new_name(prefix); }
 
+void PyStructuredSDFGBuilder::add_assumption_lb(const std::string& symbol, const std::string& bound) {
+    sdfg::symbolic::Symbol sym = sdfg::symbolic::symbol(symbol);
+    sdfg::symbolic::Expression lb = sdfg::symbolic::parse(bound);
+
+    auto& assumption = builder_.subject().assumption(sym);
+    assumption.add_lower_bound(lb);
+}
+
+void PyStructuredSDFGBuilder::add_assumption_ub(const std::string& symbol, const std::string& bound) {
+    sdfg::symbolic::Symbol sym = sdfg::symbolic::symbol(symbol);
+    sdfg::symbolic::Expression ub = sdfg::symbolic::parse(bound);
+
+    auto& assumption = builder_.subject().assumption(sym);
+    assumption.add_upper_bound(ub);
+}
+
+void PyStructuredSDFGBuilder::add_assumption_const(const std::string& symbol, bool constant) {
+    sdfg::symbolic::Symbol sym = sdfg::symbolic::symbol(symbol);
+    auto& assumption = builder_.subject().assumption(sym);
+    assumption.constant(constant);
+}
+
 sdfg::structured_control_flow::Sequence& PyStructuredSDFGBuilder::current_sequence() {
     if (scope_stack.empty()) {
         throw std::runtime_error("Scope stack is empty!");

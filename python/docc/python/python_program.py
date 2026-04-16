@@ -614,6 +614,8 @@ class PythonProgram(DoccProgram):
                 builder.add_container(
                     f"_s{i}", Scalar(PrimitiveType.Int64), is_argument=True
                 )
+                builder.add_assumption_lb(f"_s{i}", "1")  # Shapes must be positive
+                builder.add_assumption_const(f"_s{i}", True)  # Shapes are constant
 
         # Create symbol table for parser
         container_table = {}
