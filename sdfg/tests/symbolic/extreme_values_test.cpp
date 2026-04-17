@@ -139,8 +139,9 @@ TEST(ExtremeValuesTest, Max_Integral) {
 
     auto expr = symbolic::max(a, b);
 
+    // min(max(a,b)) = max(min(a), min(b)) = max(1, 3) = 3
     auto min = symbolic::minimum(expr, {}, assums, false);
-    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(1)));
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(3)));
 
     auto max = symbolic::maximum(expr, {}, assums, false);
     EXPECT_TRUE(symbolic::eq(max, symbolic::integer(4)));
@@ -168,8 +169,9 @@ TEST(ExtremeValuesTest, Max_Symbolic) {
 
     auto expr = symbolic::max(a, b);
 
+    // min(max(a,b)) = max(min(a), min(b)) = max(N, N')
     auto min = symbolic::minimum(expr, {N, M, N_, M_}, assums, false);
-    EXPECT_TRUE(symbolic::eq(min, symbolic::min(N, N_)));
+    EXPECT_TRUE(symbolic::eq(min, symbolic::max(N, N_)));
 
     auto max = symbolic::maximum(expr, {N, M, N_, M_}, assums, false);
     EXPECT_TRUE(symbolic::eq(max, symbolic::max(M, M_)));
@@ -202,8 +204,9 @@ TEST(ExtremeValuesTest, Min_Integral) {
     auto min = symbolic::minimum(expr, {}, assums, false);
     EXPECT_TRUE(symbolic::eq(min, symbolic::integer(1)));
 
+    // max(min(a,b)) = min(max(a), max(b)) = min(2, 4) = 2
     auto max = symbolic::maximum(expr, {}, assums, false);
-    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(4)));
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(2)));
 }
 
 TEST(ExtremeValuesTest, Min_Symbolic) {
@@ -231,8 +234,9 @@ TEST(ExtremeValuesTest, Min_Symbolic) {
     auto min = symbolic::minimum(expr, {N, M, N_, M_}, assums, false);
     EXPECT_TRUE(symbolic::eq(min, symbolic::min(N, N_)));
 
+    // max(min(a,b)) = min(max(a), max(b)) = min(M, M')
     auto max = symbolic::maximum(expr, {N, M, N_, M_}, assums, false);
-    EXPECT_TRUE(symbolic::eq(max, symbolic::max(M, M_)));
+    EXPECT_TRUE(symbolic::eq(max, symbolic::min(M, M_)));
 }
 
 TEST(ExtremeValuesTest, Recursive_Assumptions) {
@@ -660,4 +664,54 @@ TEST(ExtremeValuesTest, IDiv_CrossingZero) {
 
     auto max = symbolic::maximum(expr, {}, assums, false);
     EXPECT_TRUE(symbolic::eq(max, symbolic::integer(2)));
+}
+
+TEST(ExtremeValuesTest, ConstantParameterInCoefficient) {
+    // Regression test: constant parameters must stay in polynomial coefficients,
+    // not become generators. Otherwise correlated terms like _i1*TSTEPS - 2*_i1
+    // are split into separate monomials, producing unsound bounds.
+    //
+    // Expression: _i1*(TSTEPS-2) + _i2
+    // where _i1, _i2 are iteration variables with maps, TSTEPS is a constant parameter.
+    // _i1 in [0, 4], _i2 in [0, 4], TSTEPS has lower_bound=6 (constant, no upper bound).
+    //
+    // Expected: min = 0 * (6-2) + 0 = 0
+    //           max can't be fully determined (TSTEPS has no upper bound),
+    //           but min MUST be 0 (not negative).
+
+    auto _i1 = symbolic::symbol("_i1");
+    auto _i2 = symbolic::symbol("_i2");
+    auto TSTEPS = symbolic::symbol("TSTEPS");
+
+    // _i1: iteration variable with map and bounds [0, 4]
+    symbolic::Assumption assum_i1(_i1);
+    assum_i1.add_lower_bound(symbolic::integer(0));
+    assum_i1.add_upper_bound(symbolic::integer(4));
+    assum_i1.map(symbolic::add(_i1, symbolic::one()));
+    assum_i1.constant(true);
+
+    // _i2: iteration variable with map and bounds [0, 4]
+    symbolic::Assumption assum_i2(_i2);
+    assum_i2.add_lower_bound(symbolic::integer(0));
+    assum_i2.add_upper_bound(symbolic::integer(4));
+    assum_i2.map(symbolic::add(_i2, symbolic::one()));
+    assum_i2.constant(true);
+
+    // TSTEPS: constant parameter, lower_bound=6, no upper_bound, no map
+    symbolic::Assumption assum_T(TSTEPS);
+    assum_T.add_lower_bound(symbolic::integer(6));
+    assum_T.constant(true);
+
+    symbolic::Assumptions assums;
+    assums.insert({_i1, assum_i1});
+    assums.insert({_i2, assum_i2});
+    assums.insert({TSTEPS, assum_T});
+
+    // _i1*(TSTEPS-2) + _i2
+    auto expr = symbolic::add(symbolic::mul(_i1, symbolic::sub(TSTEPS, symbolic::integer(2))), _i2);
+
+    // Minimum must be 0: all terms are non-negative when _i1=0, _i2=0
+    auto min_val = symbolic::minimum(expr, {}, assums, false);
+    EXPECT_FALSE(min_val.is_null());
+    EXPECT_TRUE(symbolic::eq(min_val, symbolic::integer(0)));
 }

@@ -1,821 +1,598 @@
 #include "sdfg/symbolic/extreme_values.h"
 
-#include <unordered_map>
 #include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "symengine/basic.h"
 #include "symengine/functions.h"
+#include "symengine/number.h"
 
 namespace sdfg {
 namespace symbolic {
 
-size_t MAX_DEPTH = 100;
+// ============================================================================
+// BoundAnalysis implementation
+// ============================================================================
 
-Expression minimum(
-    const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, const size_t depth, bool tight
-);
-Expression maximum(
-    const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, const size_t depth, bool tight
-);
+BoundAnalysis::BoundAnalysis(const SymbolSet& parameters, const Assumptions& assumptions, bool use_tight_assumptions)
+    : parameters_(parameters), assumptions_(assumptions), use_tight_(use_tight_assumptions) {}
 
-Expression minimum(
-    const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, const size_t depth, bool tight
-) {
-    // End of recursion: fail
+Interval BoundAnalysis::bound(const Expression& expr) { return visit(expr, 0); }
+
+Expression BoundAnalysis::lower_bound(const Expression& expr) { return visit(expr, 0).lower; }
+
+Expression BoundAnalysis::upper_bound(const Expression& expr) { return visit(expr, 0).upper; }
+
+// ============================================================================
+// Main dispatch
+// ============================================================================
+
+Interval BoundAnalysis::visit(const Expression& expr, size_t depth) {
     if (depth > MAX_DEPTH) {
-        return SymEngine::null;
+        return Interval::failure();
     }
-    if (SymEngine::is_a<SymEngine::NaN>(*expr)) {
-        return SymEngine::null;
+
+    // Fail on NaN / Infty
+    if (SymEngine::is_a<SymEngine::NaN>(*expr) || SymEngine::is_a<SymEngine::Infty>(*expr)) {
+        return Interval::failure();
     }
-    if (SymEngine::is_a<SymEngine::Infty>(*expr)) {
-        return SymEngine::null;
-    }
-    // End of recursion: success
+
+    // Integer constant
     if (SymEngine::is_a<SymEngine::Integer>(*expr)) {
-        return expr;
-    }
-    if (SymEngine::is_a<SymEngine::Symbol>(*expr)) {
-        auto sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(expr);
-        if (parameters.find(sym) != parameters.end()) {
-            return sym;
-        }
+        return Interval::exact(expr);
     }
 
+    // Rational constant
+    if (SymEngine::is_a<SymEngine::Rational>(*expr)) {
+        return Interval::exact(expr);
+    }
+
+    // Symbol: parameter check (early return before deeper analysis)
+    if (SymEngine::is_a<SymEngine::Symbol>(*expr)) {
+        auto sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(expr);
+        if (parameters_.find(sym) != parameters_.end()) {
+            return Interval::exact(sym);
+        }
+        return visit_symbol(sym, depth);
+    }
+
+    // Function symbols (idiv, imod, zext_i64, trunc_i32)
     if (SymEngine::is_a<SymEngine::FunctionSymbol>(*expr)) {
-        auto func_sym = SymEngine::rcp_static_cast<const SymEngine::FunctionSymbol>(expr);
-        auto func_id = func_sym->get_name();
-        if (func_id == "zext_i64") {
-            auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(expr);
-            auto min_arg = minimum(zext->get_args()[0], parameters, assumptions, depth + 1, tight);
-            if (min_arg == SymEngine::null) {
-                return SymEngine::null;
-            } else {
-                return symbolic::zext_i64(min_arg);
-            }
-        } else if (func_id == "trunc_i32") {
-            auto trunc = SymEngine::rcp_static_cast<const symbolic::TruncI32Function>(expr);
-            auto min_arg = minimum(trunc->get_args()[0], parameters, assumptions, depth + 1, tight);
-            if (min_arg == SymEngine::null) {
-                return SymEngine::null;
-            } else {
-                return symbolic::trunc_i32(min_arg);
-            }
-        } else if (func_id == "idiv") {
-            auto numerator = func_sym->get_args()[0];
-            auto denominator = func_sym->get_args()[1];
-            if (!SymEngine::is_a<const SymEngine::Integer>(*denominator)) {
-                // Denominator is not a constant integer -> cannot soundly bound.
-                return SymEngine::null;
-            }
-
-            auto numerator_lb = minimum(numerator, parameters, assumptions, depth + 1, tight);
-            auto denominator_ub = maximum(denominator, parameters, assumptions, depth + 1, tight);
-            if (numerator_lb == SymEngine::null || denominator_ub == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (symbolic::is_true(symbolic::Le(denominator_ub, symbolic::zero()))) {
-                // Denominator can be zero or negative -> cannot soundly bound.
-                return SymEngine::null;
-            }
-            return symbolic::div(numerator_lb, denominator_ub);
-        } else if (func_id == "imod") {
-            auto lhs = func_sym->get_args()[0];
-            auto rhs = func_sym->get_args()[1];
-            if (!SymEngine::is_a<const SymEngine::Integer>(*rhs)) {
-                return SymEngine::null;
-            }
-
-            auto lhs_lb = minimum(lhs, parameters, assumptions, depth + 1, tight);
-            auto lhs_ub = maximum(lhs, parameters, assumptions, depth + 1, tight);
-            if (lhs_lb == SymEngine::null || lhs_ub == SymEngine::null) {
-                return SymEngine::null;
-            }
-
-            // Handle negative cases: min can be -(|rhs| - 1)
-            bool has_negative = symbolic::is_true(symbolic::Lt(lhs_lb, symbolic::zero())) ||
-                                symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()));
-            auto neg_bound = symbolic::sub(symbolic::one(), symbolic::simplify(symbolic::abs(rhs)));
-            symbolic::Expression zero = symbolic::zero();
-
-            auto width = symbolic::sub(lhs_ub, lhs_lb);
-            if (symbolic::is_true(symbolic::Lt(width, rhs))) {
-                // Range doesn't span full modulus cycle
-                bool wraps = symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)));
-                if (wraps) {
-                    return has_negative ? neg_bound : zero;
-                }
-                return symbolic::simplify(symbolic::mod(lhs_lb, rhs));
-            }
-
-            // Range spans full cycle
-            return has_negative ? neg_bound : zero;
-        }
+        return visit_function(SymEngine::rcp_static_cast<const SymEngine::FunctionSymbol>(expr), depth);
     }
 
-    // Symbol
-    if (SymEngine::is_a<SymEngine::Symbol>(*expr)) {
-        auto sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(expr);
-        if (assumptions.find(sym) != assumptions.end()) {
-            if (tight) {
-                if (assumptions.at(sym).tight_lower_bound().is_null()) {
-                    return SymEngine::null;
-                }
-                return minimum(assumptions.at(sym).tight_lower_bound(), parameters, assumptions, depth + 1, tight);
-            }
-            // Try lower_bounds() first
-            symbolic::Expression new_lb = SymEngine::null;
-            auto& lb_set = assumptions.at(sym).lower_bounds();
-            for (auto& lb : lb_set) {
-                auto new_min = minimum(lb, parameters, assumptions, depth + 1, tight);
-                if (new_min.is_null()) {
-                    continue;
-                }
-                if (new_lb.is_null()) {
-                    new_lb = new_min;
-                    continue;
-                }
-                new_lb = symbolic::max(new_lb, new_min);
-            }
-            // Fall back to tight_lower_bound if lower_bounds didn't yield a result
-            if (new_lb.is_null() && !assumptions.at(sym).tight_lower_bound().is_null()) {
-                return assumptions.at(sym).tight_lower_bound();
-            }
-            return new_lb;
-        }
-        return SymEngine::null;
-    }
-
-    // Pow(base, k) with constant integer exponent k
+    // Pow
     if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
-        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
-        auto args = pow_expr->get_args();
-        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
-            return SymEngine::null;
+        return visit_pow(SymEngine::rcp_static_cast<const SymEngine::Pow>(expr), depth);
+    }
+
+    // Mul
+    if (SymEngine::is_a<SymEngine::Mul>(*expr)) {
+        return visit_mul(SymEngine::rcp_static_cast<const SymEngine::Mul>(expr), depth);
+    }
+
+    // Add
+    if (SymEngine::is_a<SymEngine::Add>(*expr)) {
+        return visit_add(SymEngine::rcp_static_cast<const SymEngine::Add>(expr), depth);
+    }
+
+    // Max
+    if (SymEngine::is_a<SymEngine::Max>(*expr)) {
+        return visit_max(expr, depth);
+    }
+
+    // Min
+    if (SymEngine::is_a<SymEngine::Min>(*expr)) {
+        return visit_min(expr, depth);
+    }
+
+    return Interval::failure();
+}
+
+// ============================================================================
+// Symbol
+// ============================================================================
+
+Interval BoundAnalysis::visit_symbol(const SymEngine::RCP<const SymEngine::Symbol>& sym, size_t depth) {
+    auto it = assumptions_.find(sym);
+    if (it == assumptions_.end()) {
+        return Interval::failure();
+    }
+    const auto& assum = it->second;
+
+    Expression lb = SymEngine::null;
+    Expression ub = SymEngine::null;
+
+    if (use_tight_) {
+        // Tight mode: use tight bounds
+        if (!assum.tight_lower_bound().is_null()) {
+            lb = visit(assum.tight_lower_bound(), depth + 1).lower;
+        }
+        if (!assum.tight_upper_bound().is_null()) {
+            ub = visit(assum.tight_upper_bound(), depth + 1).upper;
+        }
+    } else {
+        // Loose mode: effective lower bound = max of all lower_bounds
+        for (auto& bound : assum.lower_bounds()) {
+            auto bound_lb = visit(bound, depth + 1).lower;
+            if (bound_lb.is_null()) {
+                continue;
+            }
+            if (lb.is_null()) {
+                lb = bound_lb;
+            } else {
+                lb = symbolic::max(lb, bound_lb);
+            }
+        }
+        // Fall back to tight_lower_bound
+        if (lb.is_null() && !assum.tight_lower_bound().is_null()) {
+            lb = assum.tight_lower_bound();
         }
 
-        long long exp_val = 0;
-        try {
-            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
-        } catch (const SymEngine::SymEngineException&) {
-            return SymEngine::null;
+        // Effective upper bound = min of all upper_bounds
+        for (auto& bound : assum.upper_bounds()) {
+            auto bound_ub = visit(bound, depth + 1).upper;
+            if (bound_ub.is_null()) {
+                continue;
+            }
+            if (ub.is_null()) {
+                ub = bound_ub;
+            } else {
+                ub = symbolic::min(ub, bound_ub);
+            }
+        }
+        // Fall back to tight_upper_bound
+        if (ub.is_null() && !assum.tight_upper_bound().is_null()) {
+            ub = assum.tight_upper_bound();
+        }
+    }
+
+    return {lb, ub};
+}
+
+// ============================================================================
+// FunctionSymbol (idiv, imod, zext_i64, trunc_i32)
+// ============================================================================
+
+Interval BoundAnalysis::visit_function(const SymEngine::RCP<const SymEngine::FunctionSymbol>& func, size_t depth) {
+    auto func_id = func->get_name();
+
+    // zext_i64: monotonic, bounds pass through
+    if (func_id == "zext_i64") {
+        auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(func);
+        auto arg_iv = visit(zext->get_args()[0], depth + 1);
+        Expression lb = arg_iv.has_lower() ? symbolic::zext_i64(arg_iv.lower) : SymEngine::null;
+        Expression ub = arg_iv.has_upper() ? symbolic::zext_i64(arg_iv.upper) : SymEngine::null;
+        return {lb, ub};
+    }
+
+    // trunc_i32: monotonic, bounds pass through
+    if (func_id == "trunc_i32") {
+        auto trunc = SymEngine::rcp_static_cast<const symbolic::TruncI32Function>(func);
+        auto arg_iv = visit(trunc->get_args()[0], depth + 1);
+        Expression lb = arg_iv.has_lower() ? symbolic::trunc_i32(arg_iv.lower) : SymEngine::null;
+        Expression ub = arg_iv.has_upper() ? symbolic::trunc_i32(arg_iv.upper) : SymEngine::null;
+        return {lb, ub};
+    }
+
+    // idiv(numerator, denominator) — only for constant positive denominator
+    if (func_id == "idiv") {
+        auto numerator = func->get_args()[0];
+        auto denominator = func->get_args()[1];
+        if (!SymEngine::is_a<const SymEngine::Integer>(*denominator)) {
+            return Interval::failure();
         }
 
-        if (exp_val < 0) {
-            return SymEngine::null;
+        auto num_iv = visit(numerator, depth + 1);
+        auto den_iv = visit(denominator, depth + 1);
+        if (!num_iv.has_lower() || !num_iv.has_upper() || !den_iv.has_lower() || !den_iv.has_upper()) {
+            return Interval::failure();
         }
-        if (exp_val == 0) {
-            return symbolic::one();
+        // Denominator must be strictly positive
+        if (symbolic::is_true(symbolic::Le(den_iv.lower, symbolic::zero()))) {
+            return Interval::failure();
+        }
+        // For positive denominator: min(a/b) = min(a)/max(b), max(a/b) = max(a)/min(b)
+        return {symbolic::div(num_iv.lower, den_iv.upper), symbolic::div(num_iv.upper, den_iv.lower)};
+    }
+
+    // imod(lhs, rhs) — only for constant integer rhs
+    if (func_id == "imod") {
+        auto lhs = func->get_args()[0];
+        auto rhs = func->get_args()[1];
+        if (!SymEngine::is_a<const SymEngine::Integer>(*rhs)) {
+            return Interval::failure();
         }
 
-        auto base_lb = minimum(args[0], parameters, assumptions, depth + 1, tight);
-        auto base_ub = maximum(args[0], parameters, assumptions, depth + 1, tight);
-        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
-            return SymEngine::null;
+        auto lhs_iv = visit(lhs, depth + 1);
+        if (!lhs_iv.has_lower() || !lhs_iv.has_upper()) {
+            return Interval::failure();
         }
+        auto lhs_lb = lhs_iv.lower;
+        auto lhs_ub = lhs_iv.upper;
 
-        auto exp_expr = symbolic::integer(exp_val);
-        auto lb_pow = symbolic::pow(base_lb, exp_expr);
-        auto ub_pow = symbolic::pow(base_ub, exp_expr);
-
-        // Odd powers are monotonic. Even powers need interval sign reasoning.
-        if (exp_val % 2 != 0) {
-            return lb_pow;
-        }
-
+        bool can_be_negative = symbolic::is_true(symbolic::Lt(lhs_lb, symbolic::zero())) ||
+                               symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()));
+        bool all_negative = symbolic::is_true(symbolic::Lt(lhs_ub, symbolic::zero())) ||
+                            symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()));
+        auto neg_bound = symbolic::sub(symbolic::one(), symbolic::simplify(symbolic::abs(rhs)));
+        auto pos_bound = symbolic::sub(rhs, symbolic::one());
         auto zero = symbolic::zero();
-        bool interval_nonneg = symbolic::is_true(symbolic::Ge(base_lb, zero));
-        bool interval_nonpos = symbolic::is_true(symbolic::Le(base_ub, zero));
-        bool crosses_zero = symbolic::is_true(symbolic::Le(base_lb, zero)) &&
-                            symbolic::is_true(symbolic::Ge(base_ub, zero));
 
-        if (crosses_zero) {
-            return zero;
-        }
-        if (interval_nonneg || interval_nonpos) {
-            return symbolic::min(lb_pow, ub_pow);
+        auto width = symbolic::sub(lhs_ub, lhs_lb);
+        if (symbolic::is_true(symbolic::Lt(width, rhs))) {
+            // Range doesn't span full modulus cycle
+            bool wraps = symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)));
+            if (wraps) {
+                Expression lb = can_be_negative ? Expression(neg_bound) : Expression(zero);
+                Expression ub = all_negative ? Expression(zero) : Expression(pos_bound);
+                return {lb, ub};
+            }
+            return {symbolic::simplify(symbolic::mod(lhs_lb, rhs)), symbolic::simplify(symbolic::mod(lhs_ub, rhs))};
         }
 
-        // Cannot prove whether 0 belongs to the interval -> avoid unsound bound.
-        return SymEngine::null;
+        // Range spans full cycle
+        Expression lb = can_be_negative ? Expression(neg_bound) : Expression(zero);
+        Expression ub = all_negative ? Expression(zero) : Expression(pos_bound);
+        return {lb, ub};
     }
 
-    // Mul
-    if (SymEngine::is_a<SymEngine::Mul>(*expr)) {
-        auto mul = SymEngine::rcp_static_cast<const SymEngine::Mul>(expr);
-        const auto& args = mul->get_args();
-        size_t n = args.size();
-
-        // First try: if all factors are strictly positive (min >= 1),
-        // the minimum of the product is simply the product of minimums.
-        // This avoids requiring upper bounds for each factor.
-        bool all_positive = true;
-        Expression min_product_simple = symbolic::integer(1);
-        for (const auto& arg : args) {
-            Expression min_val = minimum(arg, parameters, assumptions, depth + 1, tight);
-            if (min_val == SymEngine::null) {
-                all_positive = false;
-                break;
-            }
-            // Check if min_val >= 1 (strictly positive)
-            if (!symbolic::is_true(symbolic::Ge(min_val, symbolic::one()))) {
-                all_positive = false;
-                break;
-            }
-            min_product_simple = symbolic::mul(min_product_simple, min_val);
-        }
-        if (all_positive) {
-            return min_product_simple;
-        }
-
-        // General case: need both min and max for each factor
-        std::vector<std::pair<Expression, Expression>> bounds;
-        bounds.reserve(n);
-
-        for (const auto& arg : args) {
-            Expression min_val = minimum(arg, parameters, assumptions, depth + 1, tight);
-            Expression max_val = maximum(arg, parameters, assumptions, depth + 1, tight);
-
-            if (min_val == SymEngine::null || max_val == SymEngine::null) {
-                return SymEngine::null;
-            }
-            bounds.emplace_back(min_val, max_val);
-        }
-
-        // Iterate over 2^n combinations
-        Expression min_product = SymEngine::null;
-        const size_t total_combinations = 1ULL << n;
-
-        for (size_t mask = 0; mask < total_combinations; ++mask) {
-            Expression product = SymEngine::integer(1);
-            for (size_t i = 0; i < n; ++i) {
-                const auto& bound = bounds[i];
-                Expression val = (mask & (1ULL << i)) ? bound.second : bound.first;
-                product = symbolic::mul(product, val);
-            }
-            if (min_product == SymEngine::null) {
-                min_product = product;
-            } else {
-                min_product = symbolic::min(min_product, product);
-            }
-        }
-
-        return min_product;
-    }
-
-    // Add
-    if (SymEngine::is_a<SymEngine::Add>(*expr)) {
-        auto add = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
-        const auto& args = add->get_args();
-
-        // Collect loop variables (symbols with a non-null map) from the expression
-        // Loop variables have constant=true AND map != null
-        SymbolVec vars;
-        for (const auto& atom : symbolic::atoms(expr)) {
-            auto it = assumptions.find(atom);
-            if (it != assumptions.end()) {
-                // Only include symbols with a map (actual loop variables)
-                if (!it->second.map().is_null()) {
-                    vars.push_back(atom);
-                }
-            }
-        }
-
-        // If we have loop variables, use polynomial analysis to get coefficients
-        // This correctly handles cases like -2*x + x*Y = x*(Y-2) where Y is a parameter
-        if (!vars.empty()) {
-            auto poly = polynomial(expr, vars);
-            if (poly != SymEngine::null) {
-                auto coeffs = affine_coefficients(poly, vars);
-                if (!coeffs.empty()) {
-                    // Check if any variable actually appears as a free generator
-                    // (non-zero coefficient). Variables hidden inside opaque functions
-                    // like imod/idiv appear only in the constant term and need the
-                    // fallback path to be properly bounded.
-                    bool has_free_variable = false;
-                    for (const auto& [sym, coeff] : coeffs) {
-                        if (sym->get_name() != "__daisy_constant__" && !symbolic::eq(coeff, symbolic::zero())) {
-                            has_free_variable = true;
-                            break;
-                        }
-                    }
-
-                    if (has_free_variable) {
-                        // We have an affine expression in the loop variables
-                        // min(sum(coeff_i * var_i) + const) = sum(min(coeff_i * var_i)) + const
-                        Expression lbs = SymEngine::null;
-                        bool success = true;
-
-                        for (const auto& [sym, coeff] : coeffs) {
-                            if (sym->get_name() == "__daisy_constant__") {
-                                // Constant term - just add it
-                                if (lbs == SymEngine::null) {
-                                    lbs = coeff;
-                                } else {
-                                    lbs = symbolic::add(lbs, coeff);
-                                }
-                            } else {
-                                // Variable term: coeff * var
-                                // Compute min(coeff * var) properly using Mul handler
-                                auto term = symbolic::mul(coeff, sym);
-                                auto term_lb = minimum(term, parameters, assumptions, depth + 1, tight);
-                                if (term_lb == SymEngine::null) {
-                                    success = false;
-                                    break;
-                                }
-                                if (lbs == SymEngine::null) {
-                                    lbs = term_lb;
-                                } else {
-                                    lbs = symbolic::add(lbs, term_lb);
-                                }
-                            }
-                        }
-
-                        if (success && lbs != SymEngine::null) {
-                            return lbs;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Try boundary evaluation for expressions involving bounded symbols
-        // This handles quadratic expressions like (x - 2)^2 = x^2 - 4*x + 4
-        // by evaluating at the boundaries of x
-        {
-            // Collect all bounded symbols
-            auto all_atoms = symbolic::atoms(expr);
-            SymbolVec bounded_vars;
-            for (const auto& atom : all_atoms) {
-                auto it = assumptions.find(atom);
-                if (it != assumptions.end() && !it->second.lower_bounds().empty()) {
-                    bounded_vars.push_back(atom);
-                }
-            }
-
-            // If there's exactly one bounded variable, try boundary evaluation
-            if (bounded_vars.size() == 1) {
-                auto var = bounded_vars[0];
-                auto var_lb = minimum(var, parameters, assumptions, depth + 1, tight);
-                auto var_ub = maximum(var, parameters, assumptions, depth + 1, tight);
-
-                if (!var_lb.is_null() && !var_ub.is_null()) {
-                    // Evaluate at bounds
-                    auto val_at_lb = symbolic::subs(expr, var, var_lb);
-                    auto val_at_ub = symbolic::subs(expr, var, var_ub);
-                    val_at_lb = symbolic::simplify(val_at_lb);
-                    val_at_ub = symbolic::simplify(val_at_ub);
-
-                    // If both are integers, return the minimum
-                    if (SymEngine::is_a<SymEngine::Integer>(*val_at_lb) &&
-                        SymEngine::is_a<SymEngine::Integer>(*val_at_ub)) {
-                        auto result = symbolic::min(val_at_lb, val_at_ub);
-                        return result;
-                    }
-                }
-            }
-        }
-
-        // Fallback: naive sum of minimums (correct when terms don't share variables)
-        Expression lbs = SymEngine::null;
-        for (const auto& arg : args) {
-            auto lb = minimum(arg, parameters, assumptions, depth + 1, tight);
-            if (lb == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (lbs == SymEngine::null) {
-                lbs = lb;
-            } else {
-                lbs = symbolic::add(lbs, lb);
-            }
-        }
-
-        return lbs;
-    }
-
-    // Max
-    if (SymEngine::is_a<SymEngine::Max>(*expr)) {
-        auto args = SymEngine::rcp_dynamic_cast<const SymEngine::Max>(expr)->get_args();
-        Expression lbs = SymEngine::null;
-        for (const auto& arg : args) {
-            auto lb = minimum(arg, parameters, assumptions, depth + 1, tight);
-            if (lb == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (lbs == SymEngine::null) {
-                lbs = lb;
-            } else {
-                lbs = symbolic::min(lbs, lb);
-            }
-        }
-        return lbs;
-    }
-
-    // Min
-    if (SymEngine::is_a<SymEngine::Min>(*expr)) {
-        auto args = SymEngine::rcp_dynamic_cast<const SymEngine::Min>(expr)->get_args();
-        Expression lbs = SymEngine::null;
-        for (const auto& arg : args) {
-            auto lb = minimum(arg, parameters, assumptions, depth + 1, tight);
-            if (lb == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (lbs == SymEngine::null) {
-                lbs = lb;
-            } else {
-                lbs = symbolic::min(lbs, lb);
-            }
-        }
-        return lbs;
-    }
-
-    return SymEngine::null;
+    return Interval::failure();
 }
 
-Expression maximum(
-    const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, const size_t depth, bool tight
-) {
-    // End of recursion: fail
-    if (depth > MAX_DEPTH) {
-        return SymEngine::null;
-    }
-    if (SymEngine::is_a<SymEngine::NaN>(*expr)) {
-        return SymEngine::null;
-    }
-    if (SymEngine::is_a<SymEngine::Infty>(*expr)) {
-        return SymEngine::null;
-    }
-    // End of recursion: success
-    if (SymEngine::is_a<SymEngine::Integer>(*expr)) {
-        return expr;
-    }
-    if (SymEngine::is_a<SymEngine::Symbol>(*expr)) {
-        auto sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(expr);
-        if (parameters.find(sym) != parameters.end()) {
-            return sym;
-        }
+// ============================================================================
+// Pow(base, k) with constant integer exponent k
+// ============================================================================
+
+Interval BoundAnalysis::visit_pow(const SymEngine::RCP<const SymEngine::Pow>& pow_expr, size_t depth) {
+    auto args = pow_expr->get_args();
+    if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
+        return Interval::failure();
     }
 
-    if (SymEngine::is_a<SymEngine::FunctionSymbol>(*expr)) {
-        auto func_sym = SymEngine::rcp_static_cast<const SymEngine::FunctionSymbol>(expr);
-        auto func_id = func_sym->get_name();
-        if (func_id == "zext_i64") {
-            auto zext = SymEngine::rcp_static_cast<const symbolic::ZExtI64Function>(expr);
-            auto max_arg = maximum(zext->get_args()[0], parameters, assumptions, depth + 1, tight);
-            if (max_arg == SymEngine::null) {
-                return SymEngine::null;
-            } else {
-                return symbolic::zext_i64(max_arg);
-            }
-            if (max_arg == SymEngine::null) {
-                return SymEngine::null;
-            } else {
-                return symbolic::zext_i64(max_arg);
-            }
-        } else if (func_id == "trunc_i32") {
-            auto trunc = SymEngine::rcp_static_cast<const symbolic::TruncI32Function>(expr);
-            auto max_arg = maximum(trunc->get_args()[0], parameters, assumptions, depth + 1, tight);
-            if (max_arg == SymEngine::null) {
-                return SymEngine::null;
-            } else {
-                return symbolic::trunc_i32(max_arg);
-            }
-        } else if (func_id == "idiv") {
-            auto numerator = func_sym->get_args()[0];
-            auto denominator = func_sym->get_args()[1];
-            if (!SymEngine::is_a<const SymEngine::Integer>(*denominator)) {
-                // Denominator is not a constant integer -> cannot soundly bound.
-                return SymEngine::null;
-            }
-
-            auto numerator_ub = maximum(numerator, parameters, assumptions, depth + 1, tight);
-            auto denominator_lb = minimum(denominator, parameters, assumptions, depth + 1, tight);
-            if (numerator_ub == SymEngine::null || denominator_lb == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (symbolic::is_true(symbolic::Le(denominator_lb, symbolic::zero()))) {
-                // Denominator can be zero or negative -> cannot soundly bound.
-                return SymEngine::null;
-            }
-            return symbolic::div(numerator_ub, denominator_lb);
-        } else if (func_id == "imod") {
-            auto lhs = func_sym->get_args()[0];
-            auto rhs = func_sym->get_args()[1];
-            if (!SymEngine::is_a<const SymEngine::Integer>(*rhs)) {
-                return SymEngine::null;
-            }
-
-            auto lhs_lb = minimum(lhs, parameters, assumptions, depth + 1, tight);
-            auto lhs_ub = maximum(lhs, parameters, assumptions, depth + 1, tight);
-            if (lhs_lb == SymEngine::null || lhs_ub == SymEngine::null) {
-                return SymEngine::null;
-            }
-
-            // Handle negative cases: max can be 0
-            bool has_negative = symbolic::is_true(symbolic::Lt(lhs_ub, symbolic::zero())) ||
-                                symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()));
-            auto pos_bound = symbolic::sub(rhs, symbolic::one());
-            symbolic::Expression zero = symbolic::zero();
-
-            auto width = symbolic::sub(lhs_ub, lhs_lb);
-            if (symbolic::is_true(symbolic::Lt(width, rhs))) {
-                // Range doesn't span full modulus cycle
-                bool wraps = symbolic::is_true(symbolic::Lt(symbolic::mod(lhs_ub, rhs), symbolic::mod(lhs_lb, rhs)));
-                if (wraps) {
-                    return has_negative ? zero : pos_bound;
-                }
-                return symbolic::simplify(symbolic::mod(lhs_ub, rhs));
-            }
-
-            // Range spans full cycle
-            return has_negative ? zero : pos_bound;
-        }
+    long long exp_val = 0;
+    try {
+        exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
+    } catch (const SymEngine::SymEngineException&) {
+        return Interval::failure();
     }
 
-    // Symbol
-    if (SymEngine::is_a<SymEngine::Symbol>(*expr)) {
-        auto sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(expr);
-        if (assumptions.find(sym) != assumptions.end()) {
-            if (tight) {
-                if (assumptions.at(sym).tight_upper_bound().is_null()) {
-                    return SymEngine::null;
-                }
-                return maximum(assumptions.at(sym).tight_upper_bound(), parameters, assumptions, depth + 1, tight);
-            }
-            // Try upper_bounds() first
-            symbolic::Expression new_ub = SymEngine::null;
-            for (auto& ub : assumptions.at(sym).upper_bounds()) {
-                auto new_max = maximum(ub, parameters, assumptions, depth + 1, tight);
-                if (new_max.is_null()) {
-                    continue;
-                }
-                if (new_ub.is_null()) {
-                    new_ub = new_max;
-                    continue;
-                }
-                new_ub = symbolic::min(new_ub, new_max);
-            }
-            // Fall back to tight_upper_bound if upper_bounds didn't yield a result
-            if (new_ub.is_null() && !assumptions.at(sym).tight_upper_bound().is_null()) {
-                return assumptions.at(sym).tight_upper_bound();
-            }
-            return new_ub;
-        }
-        return SymEngine::null;
+    if (exp_val < 0) {
+        return Interval::failure();
+    }
+    if (exp_val == 0) {
+        return Interval::exact(symbolic::one());
     }
 
-    // Pow(base, k) with constant integer exponent k
-    if (SymEngine::is_a<SymEngine::Pow>(*expr)) {
-        auto pow_expr = SymEngine::rcp_static_cast<const SymEngine::Pow>(expr);
-        auto args = pow_expr->get_args();
-        if (args.size() != 2 || !SymEngine::is_a<SymEngine::Integer>(*args[1])) {
-            return SymEngine::null;
-        }
-
-        long long exp_val = 0;
-        try {
-            exp_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(args[1])->as_int();
-        } catch (const SymEngine::SymEngineException&) {
-            return SymEngine::null;
-        }
-
-        if (exp_val < 0) {
-            return SymEngine::null;
-        }
-        if (exp_val == 0) {
-            return symbolic::one();
-        }
-
-        auto base_lb = minimum(args[0], parameters, assumptions, depth + 1, tight);
-        auto base_ub = maximum(args[0], parameters, assumptions, depth + 1, tight);
-        if (base_lb == SymEngine::null || base_ub == SymEngine::null) {
-            return SymEngine::null;
-        }
-
-        auto exp_expr = symbolic::integer(exp_val);
-        auto lb_pow = symbolic::pow(base_lb, exp_expr);
-        auto ub_pow = symbolic::pow(base_ub, exp_expr);
-
-        if (exp_val % 2 != 0) {
-            return ub_pow;
-        }
-
-        return symbolic::max(lb_pow, ub_pow);
+    auto base_iv = visit(args[0], depth + 1);
+    if (!base_iv.has_lower() || !base_iv.has_upper()) {
+        return Interval::failure();
     }
 
-    // Mul
-    if (SymEngine::is_a<SymEngine::Mul>(*expr)) {
-        auto mul = SymEngine::rcp_static_cast<const SymEngine::Mul>(expr);
-        const auto& args = mul->get_args();
-        size_t n = args.size();
+    auto exp_expr = symbolic::integer(exp_val);
+    auto lb_pow = symbolic::pow(base_iv.lower, exp_expr);
+    auto ub_pow = symbolic::pow(base_iv.upper, exp_expr);
 
-        std::vector<std::pair<Expression, Expression>> bounds;
-        bounds.reserve(n);
-
-        for (const auto& arg : args) {
-            Expression min_val = minimum(arg, parameters, assumptions, depth + 1, tight);
-            Expression max_val = maximum(arg, parameters, assumptions, depth + 1, tight);
-
-            if (min_val == SymEngine::null || max_val == SymEngine::null) {
-                return SymEngine::null;
-            }
-            bounds.emplace_back(min_val, max_val);
-        }
-
-        // Iterate over 2^n combinations
-        Expression max_product = SymEngine::null;
-        const size_t total_combinations = 1ULL << n;
-
-        for (size_t mask = 0; mask < total_combinations; ++mask) {
-            Expression product = SymEngine::integer(1);
-            for (size_t i = 0; i < n; ++i) {
-                const auto& bound = bounds[i];
-                Expression val = (mask & (1ULL << i)) ? bound.second : bound.first;
-                product = symbolic::mul(product, val);
-            }
-            if (max_product == SymEngine::null) {
-                max_product = product;
-            } else {
-                max_product = symbolic::max(max_product, product);
-            }
-        }
-
-        return max_product;
+    // Odd powers are monotonic
+    if (exp_val % 2 != 0) {
+        return {lb_pow, ub_pow};
     }
 
-    // Add
-    if (SymEngine::is_a<SymEngine::Add>(*expr)) {
-        auto add = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
-        const auto& args = add->get_args();
+    // Even powers: need sign analysis
+    auto zero = symbolic::zero();
+    bool interval_nonneg = symbolic::is_true(symbolic::Ge(base_iv.lower, zero));
+    bool interval_nonpos = symbolic::is_true(symbolic::Le(base_iv.upper, zero));
+    bool crosses_zero = symbolic::is_true(symbolic::Le(base_iv.lower, zero)) &&
+                        symbolic::is_true(symbolic::Ge(base_iv.upper, zero));
 
-        // Collect loop variables (symbols with a non-null map) from the expression
-        // Loop variables have constant=true AND map != null
-        SymbolVec vars;
-        for (const auto& atom : symbolic::atoms(expr)) {
-            auto it = assumptions.find(atom);
-            if (it != assumptions.end()) {
-                // Only include symbols with a map (actual loop variables)
-                if (!it->second.map().is_null()) {
-                    vars.push_back(atom);
-                }
-            }
-        }
-
-        // If we have loop variables, use polynomial analysis to get coefficients
-        // This correctly handles cases like -2*x + x*Y = x*(Y-2) where Y is a parameter
-        if (!vars.empty()) {
-            auto poly = polynomial(expr, vars);
-            if (poly != SymEngine::null) {
-                auto coeffs = affine_coefficients(poly, vars);
-                if (!coeffs.empty()) {
-                    // Check if any variable actually appears as a free generator
-                    // (non-zero coefficient). Variables hidden inside opaque functions
-                    // like imod/idiv appear only in the constant term and need the
-                    // fallback path to be properly bounded.
-                    bool has_free_variable = false;
-                    for (const auto& [sym, coeff] : coeffs) {
-                        if (sym->get_name() != "__daisy_constant__" && !symbolic::eq(coeff, symbolic::zero())) {
-                            has_free_variable = true;
-                            break;
-                        }
-                    }
-
-                    if (has_free_variable) {
-                        // We have an affine expression in the loop variables
-                        // max(sum(coeff_i * var_i) + const) = sum(max(coeff_i * var_i)) + const
-                        Expression ubs = SymEngine::null;
-                        bool success = true;
-
-                        for (const auto& [sym, coeff] : coeffs) {
-                            if (sym->get_name() == "__daisy_constant__") {
-                                // Constant term - just add it
-                                if (ubs == SymEngine::null) {
-                                    ubs = coeff;
-                                } else {
-                                    ubs = symbolic::add(ubs, coeff);
-                                }
-                            } else {
-                                // Variable term: coeff * var
-                                // Compute max(coeff * var) properly using Mul handler
-                                auto term = symbolic::mul(coeff, sym);
-                                auto term_ub = maximum(term, parameters, assumptions, depth + 1, tight);
-                                if (term_ub == SymEngine::null) {
-                                    success = false;
-                                    break;
-                                }
-                                if (ubs == SymEngine::null) {
-                                    ubs = term_ub;
-                                } else {
-                                    ubs = symbolic::add(ubs, term_ub);
-                                }
-                            }
-                        }
-
-                        if (success && ubs != SymEngine::null) {
-                            return ubs;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Try boundary evaluation for expressions involving bounded symbols
-        // This handles quadratic expressions by evaluating at the boundaries
-        {
-            // Collect all bounded symbols
-            auto all_atoms = symbolic::atoms(expr);
-            SymbolVec bounded_vars;
-            for (const auto& atom : all_atoms) {
-                auto it = assumptions.find(atom);
-                if (it != assumptions.end() && !it->second.upper_bounds().empty()) {
-                    bounded_vars.push_back(atom);
-                }
-            }
-
-            // If there's exactly one bounded variable, try boundary evaluation
-            if (bounded_vars.size() == 1) {
-                auto var = bounded_vars[0];
-                auto var_lb = minimum(var, parameters, assumptions, depth + 1, tight);
-                auto var_ub = maximum(var, parameters, assumptions, depth + 1, tight);
-
-                if (!var_lb.is_null() && !var_ub.is_null()) {
-                    // Evaluate at bounds
-                    auto val_at_lb = symbolic::subs(expr, var, var_lb);
-                    auto val_at_ub = symbolic::subs(expr, var, var_ub);
-                    val_at_lb = symbolic::simplify(val_at_lb);
-                    val_at_ub = symbolic::simplify(val_at_ub);
-
-                    // If both are integers, return the maximum
-                    if (SymEngine::is_a<SymEngine::Integer>(*val_at_lb) &&
-                        SymEngine::is_a<SymEngine::Integer>(*val_at_ub)) {
-                        auto result = symbolic::max(val_at_lb, val_at_ub);
-                        return result;
-                    }
-                }
-            }
-        }
-
-        // Fallback: naive sum of maximums (correct when terms don't share variables)
-        Expression ubs = SymEngine::null;
-        for (const auto& arg : args) {
-            auto ub = maximum(arg, parameters, assumptions, depth + 1, tight);
-            if (ub == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (ubs == SymEngine::null) {
-                ubs = ub;
-            } else {
-                ubs = symbolic::add(ubs, ub);
-            }
-        }
-        return ubs;
+    if (crosses_zero) {
+        // Min is 0, max is the larger of the two endpoint powers
+        return {zero, symbolic::max(lb_pow, ub_pow)};
+    }
+    if (interval_nonneg) {
+        // Monotonically increasing
+        return {lb_pow, ub_pow};
+    }
+    if (interval_nonpos) {
+        // Monotonically decreasing (for even power on negatives)
+        return {ub_pow, lb_pow};
     }
 
-    // Max
-    if (SymEngine::is_a<SymEngine::Max>(*expr)) {
-        auto args = SymEngine::rcp_dynamic_cast<const SymEngine::Max>(expr)->get_args();
-        Expression ubs = SymEngine::null;
-        for (const auto& arg : args) {
-            auto ub = maximum(arg, parameters, assumptions, depth + 1, tight);
-            if (ub == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (ubs == SymEngine::null) {
-                ubs = ub;
-            } else {
-                ubs = symbolic::max(ubs, ub);
-            }
-        }
-        return ubs;
-    }
-
-    // Min
-    if (SymEngine::is_a<SymEngine::Min>(*expr)) {
-        auto args = SymEngine::rcp_dynamic_cast<const SymEngine::Min>(expr)->get_args();
-        Expression ubs = SymEngine::null;
-        for (const auto& arg : args) {
-            auto ub = maximum(arg, parameters, assumptions, depth + 1, tight);
-            if (ub == SymEngine::null) {
-                return SymEngine::null;
-            }
-            if (ubs == SymEngine::null) {
-                ubs = ub;
-            } else {
-                ubs = symbolic::max(ubs, ub);
-            }
-        }
-        return ubs;
-    }
-
-    return SymEngine::null;
+    return Interval::failure();
 }
+
+// ============================================================================
+// Mul — vertex enumeration of 2^n bound combinations
+// ============================================================================
+
+Interval BoundAnalysis::visit_mul(const SymEngine::RCP<const SymEngine::Mul>& mul_expr, size_t depth) {
+    const auto& args = mul_expr->get_args();
+    size_t n = args.size();
+
+    // Collect intervals for all factors
+    std::vector<Interval> factor_ivs;
+    factor_ivs.reserve(n);
+
+    for (const auto& arg : args) {
+        auto iv = visit(arg, depth + 1);
+        if (!iv.has_lower() || !iv.has_upper()) {
+            return Interval::failure();
+        }
+        factor_ivs.push_back(iv);
+    }
+
+    // Enumerate all 2^n vertex combinations
+    Expression min_product = SymEngine::null;
+    Expression max_product = SymEngine::null;
+    const size_t total_combinations = 1ULL << n;
+
+    for (size_t mask = 0; mask < total_combinations; ++mask) {
+        Expression product = symbolic::integer(1);
+        for (size_t i = 0; i < n; ++i) {
+            Expression val = (mask & (1ULL << i)) ? factor_ivs[i].upper : factor_ivs[i].lower;
+            product = symbolic::mul(product, val);
+        }
+        if (min_product.is_null()) {
+            min_product = product;
+            max_product = product;
+        } else {
+            min_product = symbolic::min(min_product, product);
+            max_product = symbolic::max(max_product, product);
+        }
+    }
+
+    return {min_product, max_product};
+}
+
+// ============================================================================
+// Add — polynomial normalization + sign-aware affine bounding
+// ============================================================================
+
+Interval BoundAnalysis::visit_add(const SymEngine::RCP<const SymEngine::Add>& add_expr, size_t depth) {
+    const auto& args = add_expr->get_args();
+    Expression expr = add_expr;
+
+    // Collect generators: non-parameter symbols with a map (loop induction variables).
+    // This groups correlated addends (e.g., -2*x + T*x → (T-2)*x) while keeping
+    // constant parameters like TSTEPS in the coefficients where they belong.
+    SymbolVec gens;
+    for (auto& sym : atoms(expr)) {
+        if (parameters_.find(sym) != parameters_.end()) {
+            continue;
+        }
+        auto it = assumptions_.find(sym);
+        if (it == assumptions_.end()) {
+            return Interval::failure();
+        }
+        // Only include symbols with a map (loop variables).
+        // Constant symbols without maps (like TSTEPS) stay in coefficients.
+        if (it->second.map().is_null()) {
+            continue;
+        }
+        gens.push_back(sym);
+    }
+
+    if (!gens.empty() && gens.size() <= MAX_GENERATORS) {
+        auto poly = polynomial(expr, gens);
+        if (!poly.is_null()) {
+            // Try affine fast-path: if all terms are degree <= 1,
+            // use sign-aware monotonicity substitution.
+            auto coeffs = affine_coefficients(poly, gens);
+            if (!coeffs.empty()) {
+                auto result = visit_add_affine(coeffs, gens, depth);
+                if (result.has_lower() || result.has_upper()) {
+                    return result;
+                }
+            }
+
+            // General polynomial: bound each monomial term independently
+            auto result = visit_add_polynomial(poly, gens, depth);
+            if (result.has_lower() || result.has_upper()) {
+                return result;
+            }
+            // Fall through to arg-wise if polynomial bounding failed
+        }
+    }
+
+    // Fallback: arg-wise bounding (sound for independent addends)
+    return visit_add_argwise(args, depth);
+}
+
+// ============================================================================
+// Max / Min
+// ============================================================================
+
+Interval BoundAnalysis::visit_max(const Expression& expr, size_t depth) {
+    auto args = SymEngine::rcp_dynamic_cast<const SymEngine::Max>(expr)->get_args();
+
+    Expression lb = SymEngine::null;
+    Expression ub = SymEngine::null;
+
+    for (const auto& arg : args) {
+        auto iv = visit(arg, depth + 1);
+        if (!iv.has_lower() || !iv.has_upper()) {
+            return Interval::failure();
+        }
+
+        // Lower bound of max(a,b,...) = max(lb_a, lb_b, ...)
+        lb = lb.is_null() ? iv.lower : symbolic::max(lb, iv.lower);
+
+        // Upper bound of max(a,b,...) = max(ub_a, ub_b, ...)
+        ub = ub.is_null() ? iv.upper : symbolic::max(ub, iv.upper);
+    }
+
+    return {lb, ub};
+}
+
+Interval BoundAnalysis::visit_min(const Expression& expr, size_t depth) {
+    auto args = SymEngine::rcp_dynamic_cast<const SymEngine::Min>(expr)->get_args();
+
+    Expression lb = SymEngine::null;
+    Expression ub = SymEngine::null;
+
+    for (const auto& arg : args) {
+        auto iv = visit(arg, depth + 1);
+        if (!iv.has_lower() || !iv.has_upper()) {
+            return Interval::failure();
+        }
+
+        // Lower bound of min(a,b,...) = min(lb_a, lb_b, ...)
+        lb = lb.is_null() ? iv.lower : symbolic::min(lb, iv.lower);
+
+        // Upper bound of min(a,b,...) = min(ub_a, ub_b, ...)
+        ub = ub.is_null() ? iv.upper : symbolic::min(ub, iv.upper);
+    }
+
+    return {lb, ub};
+}
+
+// ============================================================================
+// Add helpers
+// ============================================================================
+
+Interval BoundAnalysis::visit_add_affine(const AffineCoeffs& coeffs, const SymbolVec& gens, size_t depth) {
+    Expression lb_sum = SymEngine::null;
+    Expression ub_sum = SymEngine::null;
+    auto constant_sym = symbolic::symbol("__daisy_constant__");
+    bool lb_valid = true;
+    bool ub_valid = true;
+
+    for (auto& [sym, coeff] : coeffs) {
+        // Handle constant term
+        if (symbolic::eq(sym, constant_sym)) {
+            auto coeff_iv = visit(coeff, depth + 1);
+            if (coeff_iv.has_lower() && lb_valid) {
+                lb_sum = lb_sum.is_null() ? coeff_iv.lower : symbolic::add(lb_sum, coeff_iv.lower);
+            } else {
+                lb_valid = false;
+            }
+            if (coeff_iv.has_upper() && ub_valid) {
+                ub_sum = ub_sum.is_null() ? coeff_iv.upper : symbolic::add(ub_sum, coeff_iv.upper);
+            } else {
+                ub_valid = false;
+            }
+            continue;
+        }
+
+        // For term coeff * sym: use sign of coefficient to determine monotonicity
+        auto sym_iv = visit(sym, depth + 1);
+        auto coeff_iv = visit(coeff, depth + 1);
+
+        // Determine sign of coefficient (only needs one bound direction)
+        bool coeff_nonneg = coeff_iv.has_lower() && symbolic::is_true(symbolic::Ge(coeff_iv.lower, symbolic::zero()));
+        bool coeff_nonpos = coeff_iv.has_upper() && symbolic::is_true(symbolic::Le(coeff_iv.upper, symbolic::zero()));
+
+        Expression term_lb = SymEngine::null;
+        Expression term_ub = SymEngine::null;
+
+        if (coeff_nonneg) {
+            // Monotonically increasing in sym: lb = coeff_lb * sym_lb, ub = coeff_ub * sym_ub
+            if (coeff_iv.has_lower() && sym_iv.has_lower()) {
+                term_lb = symbolic::mul(coeff_iv.lower, sym_iv.lower);
+            }
+            if (coeff_iv.has_upper() && sym_iv.has_upper()) {
+                term_ub = symbolic::mul(coeff_iv.upper, sym_iv.upper);
+            }
+        } else if (coeff_nonpos) {
+            // Monotonically decreasing in sym: lb = coeff_lb * sym_ub, ub = coeff_ub * sym_lb
+            if (coeff_iv.has_lower() && sym_iv.has_upper()) {
+                term_lb = symbolic::mul(coeff_iv.lower, sym_iv.upper);
+            }
+            if (coeff_iv.has_upper() && sym_iv.has_lower()) {
+                term_ub = symbolic::mul(coeff_iv.upper, sym_iv.lower);
+            }
+        } else {
+            // Unknown sign: need all 4 bounds for corner enumeration
+            if (coeff_iv.has_lower() && coeff_iv.has_upper() && sym_iv.has_lower() && sym_iv.has_upper()) {
+                auto a = symbolic::mul(coeff_iv.lower, sym_iv.lower);
+                auto b = symbolic::mul(coeff_iv.lower, sym_iv.upper);
+                auto c = symbolic::mul(coeff_iv.upper, sym_iv.lower);
+                auto d = symbolic::mul(coeff_iv.upper, sym_iv.upper);
+                term_lb = symbolic::min(symbolic::min(a, b), symbolic::min(c, d));
+                term_ub = symbolic::max(symbolic::max(a, b), symbolic::max(c, d));
+            }
+        }
+
+        if (!term_lb.is_null() && lb_valid) {
+            lb_sum = lb_sum.is_null() ? term_lb : symbolic::add(lb_sum, term_lb);
+        } else {
+            lb_valid = false;
+        }
+        if (!term_ub.is_null() && ub_valid) {
+            ub_sum = ub_sum.is_null() ? term_ub : symbolic::add(ub_sum, term_ub);
+        } else {
+            ub_valid = false;
+        }
+    }
+
+    return {lb_valid ? lb_sum : SymEngine::null, ub_valid ? ub_sum : SymEngine::null};
+}
+
+Interval BoundAnalysis::visit_add_polynomial(const Polynomial& poly, const SymbolVec& gens, size_t depth) {
+    auto& D = poly->get_poly().get_dict();
+    Expression lb_sum = SymEngine::null;
+    Expression ub_sum = SymEngine::null;
+    bool lb_valid = true;
+    bool ub_valid = true;
+
+    for (auto& [exponents, coeff] : D) {
+        // Reconstruct term: coeff * gen_0^e0 * gen_1^e1 * ...
+        Expression term = coeff;
+        for (size_t i = 0; i < exponents.size(); i++) {
+            if (exponents[i] != 0) {
+                term = symbolic::mul(term, symbolic::pow(gens[i], symbolic::integer(exponents[i])));
+            }
+        }
+        auto term_iv = visit(term, depth + 1);
+        if (term_iv.has_lower() && lb_valid) {
+            lb_sum = lb_sum.is_null() ? term_iv.lower : symbolic::add(lb_sum, term_iv.lower);
+        } else {
+            lb_valid = false;
+        }
+        if (term_iv.has_upper() && ub_valid) {
+            ub_sum = ub_sum.is_null() ? term_iv.upper : symbolic::add(ub_sum, term_iv.upper);
+        } else {
+            ub_valid = false;
+        }
+    }
+
+    return {lb_valid ? lb_sum : SymEngine::null, ub_valid ? ub_sum : SymEngine::null};
+}
+
+Interval BoundAnalysis::visit_add_argwise(const SymEngine::vec_basic& args, size_t depth) {
+    Expression lb_sum = SymEngine::null;
+    Expression ub_sum = SymEngine::null;
+    bool lb_valid = true;
+    bool ub_valid = true;
+
+    for (const auto& arg : args) {
+        auto iv = visit(arg, depth + 1);
+        if (iv.has_lower() && lb_valid) {
+            lb_sum = lb_sum.is_null() ? iv.lower : symbolic::add(lb_sum, iv.lower);
+        } else {
+            lb_valid = false;
+        }
+        if (iv.has_upper() && ub_valid) {
+            ub_sum = ub_sum.is_null() ? iv.upper : symbolic::add(ub_sum, iv.upper);
+        } else {
+            ub_valid = false;
+        }
+    }
+
+    return {lb_valid ? lb_sum : SymEngine::null, ub_valid ? ub_sum : SymEngine::null};
+}
+
+// ============================================================================
+// Backward-compatible free functions
+// ============================================================================
 
 Expression minimum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight) {
-    return minimum(expr, parameters, assumptions, 0, tight);
+    BoundAnalysis analysis(parameters, assumptions, tight);
+    return analysis.lower_bound(expr);
 }
 
 Expression maximum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight) {
-    return maximum(expr, parameters, assumptions, 0, tight);
+    BoundAnalysis analysis(parameters, assumptions, tight);
+    return analysis.upper_bound(expr);
 }
 
 } // namespace symbolic
