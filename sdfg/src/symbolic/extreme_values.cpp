@@ -288,38 +288,52 @@ Expression minimum(
             if (poly != SymEngine::null) {
                 auto coeffs = affine_coefficients(poly, vars);
                 if (!coeffs.empty()) {
-                    // We have an affine expression in the loop variables
-                    // min(sum(coeff_i * var_i) + const) = sum(min(coeff_i * var_i)) + const
-                    Expression lbs = SymEngine::null;
-                    bool success = true;
-
+                    // Check if any variable actually appears as a free generator
+                    // (non-zero coefficient). Variables hidden inside opaque functions
+                    // like imod/idiv appear only in the constant term and need the
+                    // fallback path to be properly bounded.
+                    bool has_free_variable = false;
                     for (const auto& [sym, coeff] : coeffs) {
-                        if (sym->get_name() == "__daisy_constant__") {
-                            // Constant term - just add it
-                            if (lbs == SymEngine::null) {
-                                lbs = coeff;
-                            } else {
-                                lbs = symbolic::add(lbs, coeff);
-                            }
-                        } else {
-                            // Variable term: coeff * var
-                            // Compute min(coeff * var) properly using Mul handler
-                            auto term = symbolic::mul(coeff, sym);
-                            auto term_lb = minimum(term, parameters, assumptions, depth + 1, tight);
-                            if (term_lb == SymEngine::null) {
-                                success = false;
-                                break;
-                            }
-                            if (lbs == SymEngine::null) {
-                                lbs = term_lb;
-                            } else {
-                                lbs = symbolic::add(lbs, term_lb);
-                            }
+                        if (sym->get_name() != "__daisy_constant__" && !symbolic::eq(coeff, symbolic::zero())) {
+                            has_free_variable = true;
+                            break;
                         }
                     }
 
-                    if (success && lbs != SymEngine::null) {
-                        return lbs;
+                    if (has_free_variable) {
+                        // We have an affine expression in the loop variables
+                        // min(sum(coeff_i * var_i) + const) = sum(min(coeff_i * var_i)) + const
+                        Expression lbs = SymEngine::null;
+                        bool success = true;
+
+                        for (const auto& [sym, coeff] : coeffs) {
+                            if (sym->get_name() == "__daisy_constant__") {
+                                // Constant term - just add it
+                                if (lbs == SymEngine::null) {
+                                    lbs = coeff;
+                                } else {
+                                    lbs = symbolic::add(lbs, coeff);
+                                }
+                            } else {
+                                // Variable term: coeff * var
+                                // Compute min(coeff * var) properly using Mul handler
+                                auto term = symbolic::mul(coeff, sym);
+                                auto term_lb = minimum(term, parameters, assumptions, depth + 1, tight);
+                                if (term_lb == SymEngine::null) {
+                                    success = false;
+                                    break;
+                                }
+                                if (lbs == SymEngine::null) {
+                                    lbs = term_lb;
+                                } else {
+                                    lbs = symbolic::add(lbs, term_lb);
+                                }
+                            }
+                        }
+
+                        if (success && lbs != SymEngine::null) {
+                            return lbs;
+                        }
                     }
                 }
             }
@@ -654,38 +668,52 @@ Expression maximum(
             if (poly != SymEngine::null) {
                 auto coeffs = affine_coefficients(poly, vars);
                 if (!coeffs.empty()) {
-                    // We have an affine expression in the loop variables
-                    // max(sum(coeff_i * var_i) + const) = sum(max(coeff_i * var_i)) + const
-                    Expression ubs = SymEngine::null;
-                    bool success = true;
-
+                    // Check if any variable actually appears as a free generator
+                    // (non-zero coefficient). Variables hidden inside opaque functions
+                    // like imod/idiv appear only in the constant term and need the
+                    // fallback path to be properly bounded.
+                    bool has_free_variable = false;
                     for (const auto& [sym, coeff] : coeffs) {
-                        if (sym->get_name() == "__daisy_constant__") {
-                            // Constant term - just add it
-                            if (ubs == SymEngine::null) {
-                                ubs = coeff;
-                            } else {
-                                ubs = symbolic::add(ubs, coeff);
-                            }
-                        } else {
-                            // Variable term: coeff * var
-                            // Compute max(coeff * var) properly using Mul handler
-                            auto term = symbolic::mul(coeff, sym);
-                            auto term_ub = maximum(term, parameters, assumptions, depth + 1, tight);
-                            if (term_ub == SymEngine::null) {
-                                success = false;
-                                break;
-                            }
-                            if (ubs == SymEngine::null) {
-                                ubs = term_ub;
-                            } else {
-                                ubs = symbolic::add(ubs, term_ub);
-                            }
+                        if (sym->get_name() != "__daisy_constant__" && !symbolic::eq(coeff, symbolic::zero())) {
+                            has_free_variable = true;
+                            break;
                         }
                     }
 
-                    if (success && ubs != SymEngine::null) {
-                        return ubs;
+                    if (has_free_variable) {
+                        // We have an affine expression in the loop variables
+                        // max(sum(coeff_i * var_i) + const) = sum(max(coeff_i * var_i)) + const
+                        Expression ubs = SymEngine::null;
+                        bool success = true;
+
+                        for (const auto& [sym, coeff] : coeffs) {
+                            if (sym->get_name() == "__daisy_constant__") {
+                                // Constant term - just add it
+                                if (ubs == SymEngine::null) {
+                                    ubs = coeff;
+                                } else {
+                                    ubs = symbolic::add(ubs, coeff);
+                                }
+                            } else {
+                                // Variable term: coeff * var
+                                // Compute max(coeff * var) properly using Mul handler
+                                auto term = symbolic::mul(coeff, sym);
+                                auto term_ub = maximum(term, parameters, assumptions, depth + 1, tight);
+                                if (term_ub == SymEngine::null) {
+                                    success = false;
+                                    break;
+                                }
+                                if (ubs == SymEngine::null) {
+                                    ubs = term_ub;
+                                } else {
+                                    ubs = symbolic::add(ubs, term_ub);
+                                }
+                            }
+                        }
+
+                        if (success && ubs != SymEngine::null) {
+                            return ubs;
+                        }
                     }
                 }
             }
