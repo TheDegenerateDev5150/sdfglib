@@ -96,9 +96,14 @@ Expression div(const Expression lhs, const Expression rhs) {
         return integer(0);
     }
     if (SymEngine::is_a<SymEngine::Integer>(*lhs) && SymEngine::is_a<SymEngine::Integer>(*rhs)) {
-        auto a = SymEngine::rcp_static_cast<const SymEngine::Integer>(lhs)->as_int();
-        auto b = SymEngine::rcp_static_cast<const SymEngine::Integer>(rhs)->as_int();
-        return integer(a / b);
+        try {
+            auto a = SymEngine::rcp_static_cast<const SymEngine::Integer>(lhs)->as_int();
+            auto b = SymEngine::rcp_static_cast<const SymEngine::Integer>(rhs)->as_int();
+            return integer(a / b);
+        } catch (const SymEngine::SymEngineException&) {
+            // Integer too large for long long, keep symbolic representation
+            return SymEngine::function_symbol("idiv", {lhs, rhs});
+        }
     }
 
     return SymEngine::function_symbol("idiv", {lhs, rhs});
@@ -246,17 +251,25 @@ Expression simplify(const Expression expr) {
                     return new_mul;
                 }
             } else if (SymEngine::is_a<SymEngine::Integer>(*lhs) && SymEngine::is_a<SymEngine::Integer>(*rhs)) {
-                auto a = SymEngine::rcp_static_cast<const SymEngine::Integer>(lhs)->as_int();
-                auto b = SymEngine::rcp_static_cast<const SymEngine::Integer>(rhs)->as_int();
-                return integer(a / b);
+                try {
+                    auto a = SymEngine::rcp_static_cast<const SymEngine::Integer>(lhs)->as_int();
+                    auto b = SymEngine::rcp_static_cast<const SymEngine::Integer>(rhs)->as_int();
+                    return integer(a / b);
+                } catch (const SymEngine::SymEngineException&) {
+                    // Integer too large, cannot simplify - fall through
+                }
             }
         } else if (func_id == "imod") {
             auto lhs = func_sym->get_args()[0];
             auto rhs = func_sym->get_args()[1];
             if (SymEngine::is_a<SymEngine::Integer>(*lhs) && SymEngine::is_a<SymEngine::Integer>(*rhs)) {
-                auto a = SymEngine::rcp_static_cast<const SymEngine::Integer>(lhs)->as_int();
-                auto b = SymEngine::rcp_static_cast<const SymEngine::Integer>(rhs)->as_int();
-                return integer(a % b);
+                try {
+                    auto a = SymEngine::rcp_static_cast<const SymEngine::Integer>(lhs)->as_int();
+                    auto b = SymEngine::rcp_static_cast<const SymEngine::Integer>(rhs)->as_int();
+                    return integer(a % b);
+                } catch (const SymEngine::SymEngineException&) {
+                    // Integer too large, cannot simplify - fall through
+                }
             }
         } else if (func_id == "zext_i64") {
             auto arg = func_sym->get_args()[0];
@@ -264,16 +277,24 @@ Expression simplify(const Expression expr) {
 
             bool non_negative = false;
             if (SymEngine::is_a<SymEngine::Integer>(*simple_arg)) {
-                if (SymEngine::rcp_static_cast<const SymEngine::Integer>(simple_arg)->as_int() >= 0) {
-                    non_negative = true;
+                try {
+                    if (SymEngine::rcp_static_cast<const SymEngine::Integer>(simple_arg)->as_int() >= 0) {
+                        non_negative = true;
+                    }
+                } catch (const SymEngine::SymEngineException&) {
+                    // Integer too large to check, assume not simplifiable
                 }
             } else if (SymEngine::is_a<SymEngine::Max>(*simple_arg)) {
                 auto max_op = SymEngine::rcp_static_cast<const SymEngine::Max>(simple_arg);
                 for (const auto& m_arg : max_op->get_args()) {
                     if (SymEngine::is_a<SymEngine::Integer>(*m_arg)) {
-                        if (SymEngine::rcp_static_cast<const SymEngine::Integer>(m_arg)->as_int() >= 0) {
-                            non_negative = true;
-                            break;
+                        try {
+                            if (SymEngine::rcp_static_cast<const SymEngine::Integer>(m_arg)->as_int() >= 0) {
+                                non_negative = true;
+                                break;
+                            }
+                        } catch (const SymEngine::SymEngineException&) {
+                            // Integer too large, skip this arg
                         }
                     }
                 }
@@ -290,8 +311,12 @@ Expression simplify(const Expression expr) {
             auto arg = func_sym->get_args()[0];
             auto simple_arg = symbolic::simplify(arg);
             if (SymEngine::is_a<SymEngine::Integer>(*simple_arg)) {
-                auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(simple_arg)->as_int();
-                return integer(val >= 0 ? val : -val);
+                try {
+                    auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(simple_arg)->as_int();
+                    return integer(val >= 0 ? val : -val);
+                } catch (const SymEngine::SymEngineException&) {
+                    // Integer too large, cannot simplify - fall through
+                }
             }
         }
     }

@@ -269,7 +269,6 @@ class TestWhereStridedViews:
         expected = np.array([[0.0, 2.0], [3.0, 0.0], [0.0, 6.0]])
         np.testing.assert_array_equal(result, expected)
 
-    """
     def test_2d_strided_cols(self):
         @native
         def where_2d_strided_cols(a):
@@ -282,7 +281,6 @@ class TestWhereStridedViews:
         # view = [[-1, 2], [3, -4]]
         expected = np.array([[0.0, 2.0], [3.0, 0.0]])
         np.testing.assert_array_equal(result, expected)
-    """
 
 
 class TestWhereNegativeStepViews:

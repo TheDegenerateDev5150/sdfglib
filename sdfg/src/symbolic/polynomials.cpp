@@ -227,7 +227,13 @@ AffineDecomposition affine_decomposition(const Expression& expr, const Symbol& s
     if (!SymEngine::is_a<SymEngine::Integer>(*coeff)) {
         return AffineDecomposition::failure();
     }
-    auto coeff_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(coeff)->as_int();
+    long long coeff_int;
+    try {
+        coeff_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(coeff)->as_int();
+    } catch (const SymEngine::SymEngineException&) {
+        // Integer too large, decomposition failed
+        return AffineDecomposition::failure();
+    }
     if (coeff_int == 0) {
         return AffineDecomposition::failure();
     }
@@ -242,7 +248,13 @@ solve_affine_bound(const Expression& expr, const Symbol& symbol, const Expressio
         return SymEngine::null;
     }
 
-    auto coeff_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(decomp.coeff)->as_int();
+    long long coeff_int;
+    try {
+        coeff_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(decomp.coeff)->as_int();
+    } catch (const SymEngine::SymEngineException&) {
+        // Integer too large
+        return SymEngine::null;
+    }
 
     // For expr = coeff * symbol + offset:
     // - Lower bound (expr >= bound_value): symbol >= (bound_value - offset) / coeff (if coeff > 0)
