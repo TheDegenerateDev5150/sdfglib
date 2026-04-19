@@ -100,6 +100,12 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
     auto offset = aff_coeffs.at(symbolic::symbol("__daisy_constant__"));
     aff_coeffs.erase(symbolic::symbol("__daisy_constant__"));
 
+    // Factor coefficients (strides) to help bound analysis recognize patterns
+    // like (_s0-2)^2 that arise from expanded forms _s0^2 - 4*_s0 + 4
+    for (auto& [sym, coeff] : aff_coeffs) {
+        coeff = symbolic::factor(coeff);
+    }
+
     // Step 2: Peel-off dimensions
     DelinearizeResult result;
     MultiExpression strides; // Collect strides, then convert to dimensions

@@ -548,6 +548,17 @@ Condition Ge(const Expression lhs, const Expression rhs);
 Expression expand(const Expression expr);
 
 /**
+ * @brief Factors an expression into a product of simpler terms
+ * @param expr Expression to factor
+ * @return Factored form of the expression
+ *
+ * Attempts to factor polynomials by finding integer roots via trial division
+ * and detecting perfect squares. For example, x^2 - 4*x + 4 becomes (x - 2)^2.
+ * Recurses into Mul and Pow sub-expressions.
+ */
+Expression factor(const Expression expr);
+
+/**
  * @brief Simplifies an expression
  * @param expr Expression to simplify
  * @return Simplified form of the expression
