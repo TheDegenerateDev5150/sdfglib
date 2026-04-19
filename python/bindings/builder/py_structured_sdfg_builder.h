@@ -53,6 +53,12 @@ public:
 
     std::string find_new_name(const std::string& prefix = "tmp_");
 
+    void add_assumption_lb(const std::string& symbol, const std::string& bound);
+
+    void add_assumption_ub(const std::string& symbol, const std::string& bound);
+
+    void add_assumption_const(const std::string& symbol, bool constant);
+
     /***** Control Flow *****/
 
     void add_return(const std::string& data, const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());

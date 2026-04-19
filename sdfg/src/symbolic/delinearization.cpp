@@ -76,7 +76,11 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
     // Check if more than two symbols are involved
     SymbolVec symbols;
     for (auto& sym : atoms(dim)) {
-        if (!assums.at(sym).constant() || !assums.at(sym).map().is_null()) {
+        auto it = assums.find(sym);
+        if (it == assums.end()) {
+            continue;
+        }
+        if (!it->second.constant() || !it->second.map().is_null()) {
             symbols.push_back(sym);
         }
     }
@@ -96,6 +100,12 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
     auto offset = aff_coeffs.at(symbolic::symbol("__daisy_constant__"));
     aff_coeffs.erase(symbolic::symbol("__daisy_constant__"));
 
+    // Factor coefficients (strides) to help bound analysis recognize patterns
+    // like (_s0-2)^2 that arise from expanded forms _s0^2 - 4*_s0 + 4
+    for (auto& [sym, coeff] : aff_coeffs) {
+        coeff = symbolic::factor(coeff);
+    }
+
     // Step 2: Peel-off dimensions
     DelinearizeResult result;
     MultiExpression strides; // Collect strides, then convert to dimensions
@@ -111,8 +121,8 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         size_t best_complexity = 0;
         size_t max_atom_count = 0;
         for (const auto& [sym, coeff] : aff_coeffs) {
-            auto lb = minimum(coeff, {}, assums);
-            auto ub = maximum(coeff, {}, assums);
+            auto lb = minimum(coeff, {}, assums, false);
+            auto ub = maximum(coeff, {}, assums, false);
             size_t complexity = stride_complexity_score(coeff);
             size_t atom_count = symbolic::atoms(coeff).size();
 
@@ -152,7 +162,7 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         }
 
         // Symbol must be nonnegative
-        auto sym_lb = minimum(new_dim, {}, assums);
+        auto sym_lb = minimum(new_dim, {}, assums, false);
         if (sym_lb.is_null()) {
             break;
         }
@@ -165,7 +175,7 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         Expression stride = best_coeff;
         auto stride_lb = best_lb;
         if (stride_lb == SymEngine::null) {
-            stride_lb = minimum(stride, {}, assums);
+            stride_lb = minimum(stride, {}, assums, false);
         }
         if (stride_lb.is_null()) {
             break;
@@ -183,7 +193,7 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         // Check if remainder is within bounds
 
         // remaining must be nonnegative
-        auto rem_lb = minimum(remaining, {}, assums);
+        auto rem_lb = minimum(remaining, {}, assums, false);
         if (rem_lb.is_null()) {
             break;
         }
@@ -193,13 +203,44 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         }
 
         // remaining must be less than stride
-        auto ub_stride = (best_ub == SymEngine::null) ? maximum(stride, {}, assums) : best_ub;
-        auto ub_remaining = maximum(remaining, {}, assums);
-        if (ub_stride == SymEngine::null || ub_remaining == SymEngine::null) {
-            break;
+        // Try to prove this symbolically: ub_remaining < stride
+        // If ub_remaining = stride - 1 (common case), this is trivially true
+        auto ub_remaining = maximum(remaining, {}, assums, false);
+
+        bool stride_check_passed = false;
+        if (ub_remaining != SymEngine::null) {
+            // Direct symbolic check: is ub_remaining < stride provable?
+            auto diff = symbolic::expand(symbolic::sub(stride, ub_remaining));
+
+            // If diff simplifies to a positive constant, we're good
+            if (SymEngine::is_a<SymEngine::Integer>(*diff)) {
+                auto int_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(diff);
+                if (int_val->is_positive()) {
+                    stride_check_passed = true;
+                }
+            }
+
+            // Also try: is stride > ub_remaining provable via Gt?
+            if (!stride_check_passed) {
+                auto cond = symbolic::Gt(stride, ub_remaining);
+                if (symbolic::is_true(cond)) {
+                    stride_check_passed = true;
+                }
+            }
+
+            // Fallback: check numeric upper bounds if available
+            if (!stride_check_passed) {
+                auto ub_stride = (best_ub == SymEngine::null) ? maximum(stride, {}, assums, false) : best_ub;
+                if (ub_stride != SymEngine::null) {
+                    auto cond_stride = symbolic::Ge(ub_stride, ub_remaining);
+                    if (symbolic::is_true(cond_stride)) {
+                        stride_check_passed = true;
+                    }
+                }
+            }
         }
-        auto cond_stride = symbolic::Ge(ub_stride, ub_remaining);
-        if (!symbolic::is_true(cond_stride)) {
+
+        if (!stride_check_passed) {
             break;
         }
 

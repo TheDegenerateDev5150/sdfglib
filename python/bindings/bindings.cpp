@@ -240,6 +240,27 @@ PYBIND11_MODULE(_sdfg, m) {
             "Find a new unique name in the SDFG with the given prefix"
         )
         .def(
+            "add_assumption_lb",
+            &PyStructuredSDFGBuilder::add_assumption_lb,
+            py::arg("symbol"),
+            py::arg("bound"),
+            "Add a lower bound assumption for a symbolic variable"
+        )
+        .def(
+            "add_assumption_ub",
+            &PyStructuredSDFGBuilder::add_assumption_ub,
+            py::arg("symbol"),
+            py::arg("bound"),
+            "Add an upper bound assumption for a symbolic variable"
+        )
+        .def(
+            "add_assumption_const",
+            &PyStructuredSDFGBuilder::add_assumption_const,
+            py::arg("symbol"),
+            py::arg("constant"),
+            "Add a constancy assumption for a symbolic variable"
+        )
+        .def(
             "add_return",
             &PyStructuredSDFGBuilder::add_return,
             py::arg("data"),
