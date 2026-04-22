@@ -24,8 +24,8 @@
 namespace sdfg {
 namespace transformations {
 
-AccumulatorTile::AccumulatorTile(structured_control_flow::StructuredLoop& loop, std::string container)
-    : loop_(loop), container_(container) {}
+AccumulatorTile::AccumulatorTile(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node)
+    : loop_(loop), access_node_(access_node), container_(access_node.data()) {}
 
 std::string AccumulatorTile::name() const { return "AccumulatorTile"; }
 
@@ -409,14 +409,15 @@ void AccumulatorTile::to_json(nlohmann::json& j) const {
     } else {
         throw std::runtime_error("Unsupported loop type for serialization");
     }
-    j["subgraph"] = {{"0", {{"element_id", this->loop_.element_id()}, {"type", loop_type}}}};
+    j["subgraph"] = {
+        {"0", {{"element_id", this->loop_.element_id()}, {"type", loop_type}}},
+        {"1", {{"element_id", this->access_node_.element_id()}, {"type", "access_node"}}}
+    };
     j["transformation_type"] = this->name();
-    j["container"] = container_;
 }
 
 AccumulatorTile AccumulatorTile::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
     auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
-    std::string container = desc["container"].get<std::string>();
     auto element = builder.find_element_by_id(loop_id);
     if (!element) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
@@ -425,7 +426,17 @@ AccumulatorTile AccumulatorTile::from_json(builder::StructuredSDFGBuilder& build
     if (!loop) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " is not a loop.");
     }
-    return AccumulatorTile(*loop, container);
+
+    auto access_node = dynamic_cast<
+        data_flow::AccessNode*>(builder.find_element_by_id(desc.at("subgraph").at("1").at("element_id").get<size_t>()));
+    if (!access_node) {
+        throw InvalidTransformationDescriptionException(
+            "Access node with ID " + std::to_string(desc.at("subgraph").at("1").at("element_id").get<size_t>()) +
+            " not found."
+        );
+    }
+
+    return AccumulatorTile(*loop, *access_node);
 }
 
 } // namespace transformations

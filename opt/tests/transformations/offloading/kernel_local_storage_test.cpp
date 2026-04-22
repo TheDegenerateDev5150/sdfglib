@@ -642,8 +642,7 @@ TEST(KernelLocalStorageTest, CannotApply_ContainerIsWritten) {
     builder
         .add_computational_memlet(block, tasklet, "out_", access_write, {symbolic::symbol("i"), symbolic::symbol("j")});
 
-    std::string container = "A";
-    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), container);
+    transformations::KernelLocalStorage kls(*loop, symbolic::zero(), access_in);
     analysis::AnalysisManager am(builder.subject());
     EXPECT_FALSE(kls.can_be_applied(builder, am));
 }
