@@ -22,15 +22,16 @@ class OutLocalStorage : public Transformation {
 private:
     structured_control_flow::StructuredLoop& loop_;
     std::string container_;
+    const data_flow::AccessNode& access_node_;
     bool requires_array_;
 
 public:
     /**
      * @brief Construct an out-of-loop storage transformation
      * @param loop The loop to optimize
-     * @param container The container name to optimize access for
+     * @param access_node The access node to optimize
      */
-    OutLocalStorage(structured_control_flow::StructuredLoop& loop, std::string container);
+    OutLocalStorage(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node);
 
     /**
      * @brief Get the name of this transformation
