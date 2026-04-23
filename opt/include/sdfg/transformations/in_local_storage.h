@@ -70,6 +70,7 @@ public:
 
 private:
     structured_control_flow::StructuredLoop& loop_;
+    const data_flow::AccessNode& access_node_;
     std::string container_;
     std::string local_name_; ///< Name of the created local buffer
     AccessInfo access_info_; ///< Populated by can_be_applied
@@ -78,9 +79,9 @@ public:
     /**
      * @brief Construct an in-local storage transformation
      * @param loop The loop defining the scope for localization
-     * @param container Name of the container to localize
+     * @param access_node The access node referencing the container to localize
      */
-    InLocalStorage(structured_control_flow::StructuredLoop& loop, std::string container);
+    InLocalStorage(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node);
 
     /**
      * @brief Get the name of this transformation

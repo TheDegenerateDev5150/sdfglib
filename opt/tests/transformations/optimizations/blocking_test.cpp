@@ -5,7 +5,9 @@
 #include <vector>
 
 #include "sdfg/analysis/analysis.h"
+#include "sdfg/analysis/users.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
+#include "sdfg/data_flow/access_node.h"
 #include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
 #include "sdfg/passes/structured_control_flow/sequence_fusion.h"
 #include "sdfg/structured_control_flow/for.h"
@@ -51,6 +53,19 @@ std::vector<std::string> get_loop_order(builder::StructuredSDFGBuilder& builder)
         loop = find_last_for(loop->root());
     }
     return order;
+}
+
+// Find an access node for a container within a loop body
+data_flow::AccessNode& find_access_node(
+    analysis::AnalysisManager& am, structured_control_flow::StructuredLoop& loop, const std::string& container
+) {
+    auto& users = am.get<analysis::Users>();
+    analysis::UsersView view(users, loop.root());
+    auto accesses = view.uses(container);
+    assert(!accesses.empty());
+    auto* node = dynamic_cast<data_flow::AccessNode*>(accesses.front()->element());
+    assert(node);
+    return *node;
 }
 
 } // namespace
@@ -377,8 +392,9 @@ TEST(BlockingTest, GEMM_Phase2_Packing) {
     i_tile = dynamic_cast<structured_control_flow::For*>(&builder.subject().root().at(0).first);
     k_tile = dynamic_cast<structured_control_flow::For*>(&i_tile->root().at(0).first);
 
-    ASSERT_TRUE(transformations::InLocalStorage(*k_tile, "A").can_be_applied(builder, am));
-    recorder.apply<transformations::InLocalStorage>(builder, am, false, *k_tile, "A");
+    auto& a_access_p2 = find_access_node(am, *k_tile, "A");
+    ASSERT_TRUE(transformations::InLocalStorage(*k_tile, a_access_p2).can_be_applied(builder, am));
+    recorder.apply<transformations::InLocalStorage>(builder, am, false, *k_tile, a_access_p2);
     am.invalidate_all();
     cleanup(builder, am);
 
@@ -388,8 +404,9 @@ TEST(BlockingTest, GEMM_Phase2_Packing) {
     structured_control_flow::For* j_tile_loop = find_last_for(k_tile->root());
     ASSERT_NE(j_tile_loop, nullptr);
 
-    ASSERT_TRUE(transformations::InLocalStorage(*j_tile_loop, "B").can_be_applied(builder, am));
-    recorder.apply<transformations::InLocalStorage>(builder, am, false, *j_tile_loop, "B");
+    auto& b_access_p2 = find_access_node(am, *j_tile_loop, "B");
+    ASSERT_TRUE(transformations::InLocalStorage(*j_tile_loop, b_access_p2).can_be_applied(builder, am));
+    recorder.apply<transformations::InLocalStorage>(builder, am, false, *j_tile_loop, b_access_p2);
     am.invalidate_all();
     cleanup(builder, am);
 
@@ -507,19 +524,21 @@ TEST(BlockingTest, GEMM_Phase3_RegisterBlocking) {
     i_tile = dynamic_cast<structured_control_flow::For*>(&builder.subject().root().at(0).first);
     k_tile = dynamic_cast<structured_control_flow::For*>(&i_tile->root().at(0).first);
 
-    ASSERT_TRUE(transformations::InLocalStorage(*k_tile, "A").can_be_applied(builder, am));
-    recorder.apply<transformations::InLocalStorage>(builder, am, false, *k_tile, "A");
+    auto& a_access_p3 = find_access_node(am, *k_tile, "A");
+    ASSERT_TRUE(transformations::InLocalStorage(*k_tile, a_access_p3).can_be_applied(builder, am));
+    recorder.apply<transformations::InLocalStorage>(builder, am, false, *k_tile, a_access_p3);
     am.invalidate_all();
     cleanup(builder, am);
 
     // Step 9: InLocalStorage(j_tile, "B")
     i_tile = dynamic_cast<structured_control_flow::For*>(&builder.subject().root().at(0).first);
     k_tile = dynamic_cast<structured_control_flow::For*>(&i_tile->root().at(0).first);
-    structured_control_flow::For* j_tile_loop = find_last_for(k_tile->root());
+    auto* j_tile_loop = find_last_for(k_tile->root());
     ASSERT_NE(j_tile_loop, nullptr);
 
-    ASSERT_TRUE(transformations::InLocalStorage(*j_tile_loop, "B").can_be_applied(builder, am));
-    recorder.apply<transformations::InLocalStorage>(builder, am, false, *j_tile_loop, "B");
+    auto& b_access_p3 = find_access_node(am, *j_tile_loop, "B");
+    ASSERT_TRUE(transformations::InLocalStorage(*j_tile_loop, b_access_p3).can_be_applied(builder, am));
+    recorder.apply<transformations::InLocalStorage>(builder, am, false, *j_tile_loop, b_access_p3);
     am.invalidate_all();
     cleanup(builder, am);
 
@@ -609,8 +628,9 @@ TEST(BlockingTest, GEMM_Phase3_RegisterBlocking) {
     j_tile_loop = find_last_for(k_tile->root());
     i_micro = find_last_for(j_tile_loop->root());
 
-    ASSERT_TRUE(transformations::AccumulatorTile(*i_micro, "C").can_be_applied(builder, am));
-    recorder.apply<transformations::AccumulatorTile>(builder, am, false, *i_micro, "C");
+    auto& c_access_p3 = find_access_node(am, *i_micro, "C");
+    ASSERT_TRUE(transformations::AccumulatorTile(*i_micro, c_access_p3).can_be_applied(builder, am));
+    recorder.apply<transformations::AccumulatorTile>(builder, am, false, *i_micro, c_access_p3);
     am.invalidate_all();
     cleanup(builder, am);
 
@@ -738,8 +758,9 @@ TEST(BlockingTest, GEMV_Optimized) {
     auto* j_loop = dynamic_cast<structured_control_flow::For*>(&i_loop->root().at(0).first);
 
     // Step 1: OutLocalStorage(j_loop, "y") - scalar accumulator for y[i]
-    ASSERT_TRUE(transformations::OutLocalStorage(*j_loop, "y").can_be_applied(builder, am));
-    recorder.apply<transformations::OutLocalStorage>(builder, am, false, *j_loop, "y");
+    auto& y_access = find_access_node(am, *j_loop, "y");
+    ASSERT_TRUE(transformations::OutLocalStorage(*j_loop, y_access).can_be_applied(builder, am));
+    recorder.apply<transformations::OutLocalStorage>(builder, am, false, *j_loop, y_access);
     am.invalidate_all();
     cleanup(builder, am);
 
@@ -758,8 +779,9 @@ TEST(BlockingTest, GEMV_Optimized) {
     auto* j_tile = find_last_for(i_loop->root());
     ASSERT_NE(j_tile, nullptr);
 
-    ASSERT_TRUE(transformations::InLocalStorage(*j_tile, "x").can_be_applied(builder, am));
-    recorder.apply<transformations::InLocalStorage>(builder, am, false, *j_tile, "x");
+    auto& x_access = find_access_node(am, *j_tile, "x");
+    ASSERT_TRUE(transformations::InLocalStorage(*j_tile, x_access).can_be_applied(builder, am));
+    recorder.apply<transformations::InLocalStorage>(builder, am, false, *j_tile, x_access);
     am.invalidate_all();
     cleanup(builder, am);
 

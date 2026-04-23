@@ -58,7 +58,7 @@ TEST(OutLocalStorage, Scalar) {
 
     auto& new_root = builder_opt.subject().root();
     // Apply
-    transformations::OutLocalStorage transformation(loop, "C");
+    transformations::OutLocalStorage transformation(loop, access_out);
     EXPECT_TRUE(transformation.can_be_applied(builder_opt, analysis_manager));
     transformation.apply(builder_opt, analysis_manager);
 
@@ -194,7 +194,7 @@ TEST(OutLocalStorage, Array) {
 
     auto& new_root = builder_opt.subject().root();
     // Apply
-    transformations::OutLocalStorage transformation(loop, "C");
+    transformations::OutLocalStorage transformation(loop, access_out);
     EXPECT_TRUE(transformation.can_be_applied(builder_opt, analysis_manager));
     transformation.apply(builder_opt, analysis_manager);
 
@@ -326,10 +326,19 @@ TEST(OutLocalStorage, Fail) {
 
     types::Pointer opaque_desc;
     builder.add_container("A", opaque_desc, true);
+    builder.add_container("C", opaque_desc, true);
 
     types::Scalar sym_desc(types::PrimitiveType::UInt64);
     builder.add_container("N", sym_desc, true);
     builder.add_container("i", sym_desc);
+
+    // Place an access to A outside the loop (before it, in the root sequence).
+    auto& outer_block = builder.add_block(root);
+    auto& access_outside = builder.add_access(outer_block, "C");
+    auto& access_i_outside = builder.add_access(outer_block, "i");
+    auto& tasklet_outside = builder.add_tasklet(outer_block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(outer_block, access_i_outside, tasklet_outside, "_in", {});
+    builder.add_computational_memlet(outer_block, tasklet_outside, "_out", access_outside, {symbolic::integer(0)}, desc);
 
     // Define loop
     auto bound = symbolic::symbol("N");
@@ -341,7 +350,7 @@ TEST(OutLocalStorage, Fail) {
     auto& loop = builder.add_for(root, indvar, condition, init, update);
     auto& body = loop.root();
 
-    // Add computation
+    // Add computation inside the loop (only writes to A)
     auto& block = builder.add_block(body);
     auto& access_in = builder.add_access(block, "i");
     auto& access_out = builder.add_access(block, "A");
@@ -354,7 +363,7 @@ TEST(OutLocalStorage, Fail) {
     builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
     analysis::AnalysisManager analysis_manager(builder_opt.subject());
 
-    // Apply
-    transformations::OutLocalStorage transformation(loop, "C");
+    // Apply with the outside access node — should fail
+    transformations::OutLocalStorage transformation(loop, access_outside);
     EXPECT_FALSE(transformation.can_be_applied(builder_opt, analysis_manager));
 }

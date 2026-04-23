@@ -58,9 +58,11 @@ set(TEST_FILES
     transformations/tile_fusion_test.cpp
     transformations/out_local_storage_test.cpp
     transformations/in_local_storage_test.cpp
+    transformations/accumulator_tile_test.cpp
     transformations/recorder_test.cpp
     transformations/optimizations/diamond_tiling_test.cpp
     transformations/optimizations/blocking_test.cpp
+    transformations/transformation_serialization_test.cpp
     test.cpp
 )
 
@@ -68,6 +70,9 @@ set(TEST_FILES
 add_executable(sdfgopt_test ${TEST_FILES})
 target_include_directories(sdfgopt_test PRIVATE ./)
 target_link_libraries(sdfgopt_test gtest_main sdfg::opt)
+if(DOCC_BUILD_TARGET_TENSTORRENT)
+    target_link_libraries(sdfgopt_test docc::target::tenstorrent)
+endif()
 if(SDFG_ENABLE_COVERAGE)
   target_compile_options(sdfgopt_test PRIVATE
     -fprofile-instr-generate

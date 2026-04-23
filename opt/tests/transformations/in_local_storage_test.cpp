@@ -63,7 +63,7 @@ TEST(InLocalStorage, Scalar_ConstantBound) {
     analysis::AnalysisManager am(builder_opt.subject());
 
     // Apply transformation
-    transformations::InLocalStorage transformation(loop, "A");
+    transformations::InLocalStorage transformation(loop, a_in);
     EXPECT_TRUE(transformation.can_be_applied(builder_opt, am));
     transformation.apply(builder_opt, am);
 
@@ -159,11 +159,11 @@ TEST(InLocalStorage, FailsOnWrittenContainer) {
     analysis::AnalysisManager am(builder_opt.subject());
 
     // InLocalStorage should FAIL on C since it's written
-    transformations::InLocalStorage ils_c(loop, "C");
+    transformations::InLocalStorage ils_c(loop, c_in);
     EXPECT_FALSE(ils_c.can_be_applied(builder_opt, am));
 
     // InLocalStorage should SUCCEED on A since A is read-only
-    transformations::InLocalStorage ils_a(loop, "A");
+    transformations::InLocalStorage ils_a(loop, a_in);
     EXPECT_TRUE(ils_a.can_be_applied(builder_opt, am));
 }
 
@@ -211,15 +211,15 @@ TEST(InLocalStorage, FailsOnScalar) {
     analysis::AnalysisManager am(builder_opt.subject());
 
     // InLocalStorage should FAIL on scalar_val
-    transformations::InLocalStorage ils(loop, "scalar_val");
+    transformations::InLocalStorage ils(loop, s_in);
     EXPECT_FALSE(ils.can_be_applied(builder_opt, am));
 }
 
 /**
- * Test: InLocalStorage should fail when container doesn't exist
+ * Test: InLocalStorage should fail when access node is outside the loop
  */
-TEST(InLocalStorage, FailsOnNonexistent) {
-    builder::StructuredSDFGBuilder builder("ils_nonexist_test", FunctionType_CPU);
+TEST(InLocalStorage, FailsOnAccessOutsideLoop) {
+    builder::StructuredSDFGBuilder builder("ils_outside_test", FunctionType_CPU);
 
     types::Scalar sym_desc(types::PrimitiveType::UInt64);
     builder.add_container("i", sym_desc);
@@ -227,8 +227,17 @@ TEST(InLocalStorage, FailsOnNonexistent) {
     types::Scalar elem_desc(types::PrimitiveType::Float);
     types::Array arr_desc(elem_desc, symbolic::integer(4));
     builder.add_container("A", arr_desc, true);
+    builder.add_container("B", arr_desc, true);
 
     auto& root = builder.subject().root();
+
+    // Place an access to B outside the loop
+    auto& outer_block = builder.add_block(root);
+    auto& b_outside = builder.add_access(outer_block, "B");
+    auto& i_outside = builder.add_access(outer_block, "i");
+    auto& tasklet_outside = builder.add_tasklet(outer_block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(outer_block, i_outside, tasklet_outside, "_in", {});
+    builder.add_computational_memlet(outer_block, tasklet_outside, "_out", b_outside, {symbolic::integer(0)}, arr_desc);
 
     auto indvar = symbolic::symbol("i");
     auto& loop = builder.add_for(
@@ -251,8 +260,8 @@ TEST(InLocalStorage, FailsOnNonexistent) {
     builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
     analysis::AnalysisManager am(builder_opt.subject());
 
-    // InLocalStorage should FAIL on nonexistent container
-    transformations::InLocalStorage ils(loop, "B_nonexistent");
+    // InLocalStorage should FAIL on B (not used inside the loop)
+    transformations::InLocalStorage ils(loop, b_outside);
     EXPECT_FALSE(ils.can_be_applied(builder_opt, am));
 }
 
@@ -281,7 +290,15 @@ TEST(InLocalStorage, FailsOnUnusedContainer) {
         symbolic::add(indvar, symbolic::integer(1))
     );
 
-    // Only use A, not B
+    // Place an access to B outside the loop
+    auto& outer_block = builder.add_block(root);
+    auto& b_outside = builder.add_access(outer_block, "B");
+    auto& i_outside = builder.add_access(outer_block, "i");
+    auto& tasklet_outside = builder.add_tasklet(outer_block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(outer_block, i_outside, tasklet_outside, "_in", {});
+    builder.add_computational_memlet(outer_block, tasklet_outside, "_out", b_outside, {symbolic::integer(0)}, arr_desc);
+
+    // Only use A, not B inside the loop
     auto& block = builder.add_block(loop.root());
     auto& a_in = builder.add_access(block, "A");
     auto& a_out = builder.add_access(block, "A");
@@ -295,7 +312,7 @@ TEST(InLocalStorage, FailsOnUnusedContainer) {
     analysis::AnalysisManager am(builder_opt.subject());
 
     // InLocalStorage should FAIL on B (not used in loop body)
-    transformations::InLocalStorage ils(loop, "B");
+    transformations::InLocalStorage ils(loop, b_outside);
     EXPECT_FALSE(ils.can_be_applied(builder_opt, am));
 }
 
@@ -336,7 +353,7 @@ TEST(InLocalStorage, JsonSerialization) {
     analysis::AnalysisManager am(builder.subject());
 
     // Create transformation and serialize
-    transformations::InLocalStorage original(loop, "A");
+    transformations::InLocalStorage original(loop, a_in);
     EXPECT_TRUE(original.can_be_applied(builder, am));
 
     nlohmann::json j;
@@ -419,7 +436,7 @@ TEST(InLocalStorage, NestedLoops_2D) {
     analysis::AnalysisManager am(builder_opt.subject());
 
     // Apply InLocalStorage at outer loop level
-    transformations::InLocalStorage ils(i_loop, "A");
+    transformations::InLocalStorage ils(i_loop, a_in);
 
     std::cout << "Testing InLocalStorage on 2D nested loops..." << std::endl;
     bool can_apply = ils.can_be_applied(builder_opt, am);
@@ -508,7 +525,7 @@ TEST(InLocalStorage, TiledAccess_1D) {
     analysis::AnalysisManager am(builder_opt.subject());
 
     // Apply InLocalStorage at tile loop level
-    transformations::InLocalStorage ils(tile_loop, "A");
+    transformations::InLocalStorage ils(tile_loop, a_in);
 
     std::cout << "Testing InLocalStorage on tiled 1D access..." << std::endl;
     bool can_apply = ils.can_be_applied(builder_opt, am);
@@ -617,7 +634,7 @@ TEST(InLocalStorage, TiledAccess_2D_Panel) {
     analysis::AnalysisManager am(builder_opt.subject());
 
     // Apply InLocalStorage at k_tile loop level (like BLIS packing A at k_tile)
-    transformations::InLocalStorage ils(k_tile_loop, "A");
+    transformations::InLocalStorage ils(k_tile_loop, a_in);
 
     std::cout << "Testing InLocalStorage on 2D tiled panel access (BLIS-style)..." << std::endl;
     bool can_apply = ils.can_be_applied(builder_opt, am);

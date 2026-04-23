@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sdfg/data_flow/access_node.h"
 #include "sdfg/data_flow/memlet.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/transformations/transformation.h"
@@ -67,6 +68,7 @@ public:
 
 private:
     structured_control_flow::StructuredLoop& loop_;
+    const data_flow::AccessNode& access_node_;
     std::string container_;
     std::string local_name_; ///< Name of the created tile buffer
     TileInfo tile_info_; ///< Populated by can_be_applied
@@ -75,9 +77,9 @@ public:
     /**
      * @brief Construct an accumulator tile transformation
      * @param loop The outer loop defining the tile scope
-     * @param container Name of the container to tile
+     * @param access_node The access node referencing the container to tile
      */
-    AccumulatorTile(structured_control_flow::StructuredLoop& loop, std::string container);
+    AccumulatorTile(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node);
 
     /**
      * @brief Get the name of this transformation

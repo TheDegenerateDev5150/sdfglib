@@ -24,8 +24,8 @@
 namespace sdfg {
 namespace transformations {
 
-InLocalStorage::InLocalStorage(structured_control_flow::StructuredLoop& loop, std::string container)
-    : loop_(loop), container_(std::move(container)) {}
+InLocalStorage::InLocalStorage(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node)
+    : loop_(loop), access_node_(access_node), container_(access_node.data()) {}
 
 std::string InLocalStorage::name() const { return "InLocalStorage"; }
 
@@ -359,14 +359,16 @@ void InLocalStorage::to_json(nlohmann::json& j) const {
     } else {
         throw std::runtime_error("Unsupported loop type for serialization of loop: " + loop_.indvar()->get_name());
     }
-    j["subgraph"] = {{"0", {{"element_id", this->loop_.element_id()}, {"type", loop_type}}}};
+    j["subgraph"] = {
+        {"0", {{"element_id", this->loop_.element_id()}, {"type", loop_type}}},
+        {"1", {{"element_id", this->access_node_.element_id()}, {"type", "access_node"}}}
+    };
     j["transformation_type"] = this->name();
     j["container"] = container_;
 }
 
 InLocalStorage InLocalStorage::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
     auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
-    std::string container = desc["container"].get<std::string>();
     auto element = builder.find_element_by_id(loop_id);
     if (!element) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
@@ -378,7 +380,16 @@ InLocalStorage InLocalStorage::from_json(builder::StructuredSDFGBuilder& builder
         );
     }
 
-    return InLocalStorage(*loop, container);
+    auto access_node = dynamic_cast<
+        data_flow::AccessNode*>(builder.find_element_by_id(desc.at("subgraph").at("1").at("element_id").get<size_t>()));
+    if (!access_node) {
+        throw InvalidTransformationDescriptionException(
+            "Access node with ID " + std::to_string(desc.at("subgraph").at("1").at("element_id").get<size_t>()) +
+            " not found."
+        );
+    }
+
+    return InLocalStorage(*loop, *access_node);
 }
 
 } // namespace transformations
