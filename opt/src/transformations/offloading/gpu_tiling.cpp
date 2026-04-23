@@ -1,5 +1,4 @@
 #include "sdfg/transformations/offloading/gpu_tiling.h"
-#include <iostream>
 #include <set>
 
 #include "sdfg/analysis/analysis.h"
@@ -70,10 +69,10 @@ bool GPUTiling::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
     for (auto& access : read_accesses) {
         KernelLocalStorage kls(*inner_loop, outer_loop->indvar(), *access);
         if (kls.can_be_applied(builder_local, analysis_manager_local)) {
-            target_accesses_.insert(access->data());
+            target_containers_.insert(access->data());
         }
     }
-    if (target_accesses_.empty()) {
+    if (target_containers_.empty()) {
         return false;
     }
 
@@ -88,7 +87,7 @@ void GPUTiling::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
 
     analysis::UsersView users_view(analysis_manager.get<analysis::Users>(), inner_loop->root());
 
-    for (const auto& container_name : target_accesses_) {
+    for (const auto& container_name : target_containers_) {
         auto& users = analysis_manager.get<analysis::Users>();
         analysis::UsersView users_view(users, inner_loop->root());
 
@@ -114,23 +113,17 @@ void GPUTiling::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     auto& users = analysis_manager.get<analysis::Users>();
     analysis::UsersView users_view_inner_loop(users, inner_loop->root());
 
-    std::set<data_flow::AccessNode*> target_containers;
-    std::set<data_flow::AccessNode*> write_accesses;
-    for (auto& write : users_view_inner_loop.writes()) {
+    analysis::TypeAnalysis type_analysis(builder.subject(), inner_loop, analysis_manager);
+    for (const auto& write : users_view_inner_loop.writes()) {
         if (!dynamic_cast<data_flow::AccessNode*>(write->element())) {
             continue;
         }
-        auto access_node = dynamic_cast<data_flow::AccessNode*>(write->element());
-        target_containers.insert(access_node);
-    }
-
-    analysis::TypeAnalysis type_analysis(builder.subject(), inner_loop, analysis_manager);
-    for (const auto& container : target_containers) {
-        if (type_analysis.get_outer_type(container->data())->type_id() == types::TypeID::Scalar ||
-            type_analysis.get_outer_type(container->data())->type_id() == types::TypeID::Structure) {
+        if (type_analysis.get_outer_type(write->container())->type_id() == types::TypeID::Scalar ||
+            type_analysis.get_outer_type(write->container())->type_id() == types::TypeID::Structure) {
             continue;
         }
-        OutLocalStorage ols(*inner_loop, *container);
+        auto access_node = dynamic_cast<data_flow::AccessNode*>(write->element());
+        OutLocalStorage ols(*inner_loop, *access_node);
         if (ols.can_be_applied(builder, analysis_manager)) {
             ols.apply(builder, analysis_manager);
         }
