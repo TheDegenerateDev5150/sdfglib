@@ -5,14 +5,12 @@
  * This analysis attempts to delinearize memlet subsets by recovering
  * multi-dimensional structure from linearized expressions using the
  * symbolic delinearize function with block-level assumptions.
- *
- * The delinearization technique is based on the algorithm described in:
- * https://dl.acm.org/doi/10.1145/2751205.2751248
  */
 
 #pragma once
 
 #include <map>
+#include <set>
 #include <unordered_map>
 
 #include <string>
@@ -30,9 +28,17 @@ namespace analysis {
 typedef math::tensor::TensorLayout MemoryLayout;
 
 struct MemoryAccess {
-    std::string container; // Container name (memlet.data())
+    std::string container; // Container name
     data_flow::Subset subset; // Symbolic indices after delinearization
     MemoryLayout layout; // Inferred memory layout
+    bool first_dim_bounded; // True if first dimension is bounded (Tensor/Array), false for unbounded pointers
+};
+
+struct MemoryTile {
+    std::string container; // Container name
+    data_flow::Subset min_subset; // Minimum accessed indices in this tile
+    data_flow::Subset max_subset; // Maximum accessed indices in this tile
+    MemoryLayout layout; // Inferred tile layout at this loop level
     bool first_dim_bounded; // True if first dimension is bounded (Tensor/Array), false for unbounded pointers
 };
 
@@ -50,10 +56,8 @@ struct MemoryAccess {
  */
 class MemoryLayoutAnalysis : public Analysis {
 private:
-    std::unordered_map<const data_flow::Memlet*, MemoryAccess> layouts_;
-
-    // Per-loop merged layouts: keyed by (loop pointer, container name)
-    std::map<std::pair<const structured_control_flow::StructuredLoop*, std::string>, MemoryLayout> loop_layouts_;
+    std::unordered_map<const data_flow::Memlet*, MemoryAccess> accesses_;
+    std::map<std::pair<const structured_control_flow::StructuredLoop*, std::string>, MemoryTile> tiles_;
 
     void traverse(structured_control_flow::ControlFlowNode& node, analysis::AnalysisManager& analysis_manager);
 
@@ -62,6 +66,7 @@ private:
     void merge_loop_layouts(
         structured_control_flow::StructuredLoop& loop,
         const std::vector<const data_flow::Memlet*>& memlets_before,
+        const std::set<std::pair<const structured_control_flow::StructuredLoop*, std::string>>& tiles_before,
         analysis::AnalysisManager& analysis_manager
     );
 
@@ -78,7 +83,7 @@ public:
      * @param memlet The memlet to query
      * @return A pointer to the inferred memory layout information if inference was successful, nullptr otherwise
      */
-    const MemoryAccess* get(const data_flow::Memlet& memlet) const;
+    const MemoryAccess* access(const data_flow::Memlet& memlet) const;
 
     /**
      * @brief Get the inferred memory layout for a container at a specific loop level
@@ -86,7 +91,7 @@ public:
      * @param container The container name
      * @return A pointer to the memory layout at that loop level, nullptr if not available
      */
-    const MemoryLayout* get(const structured_control_flow::StructuredLoop& loop, const std::string& container) const;
+    const MemoryTile* tile(const structured_control_flow::StructuredLoop& loop, const std::string& container) const;
 };
 
 } // namespace analysis
