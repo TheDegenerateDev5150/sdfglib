@@ -93,8 +93,15 @@ Interval BoundAnalysis::visit(const Expression& expr, size_t depth) {
 // ============================================================================
 
 Interval BoundAnalysis::visit_symbol(const SymEngine::RCP<const SymEngine::Symbol>& sym, size_t depth) {
+    // Cycle detection: if we're already computing bounds for this symbol, break the cycle
+    if (visiting_.count(sym)) {
+        return Interval::failure();
+    }
+    visiting_.insert(sym);
+
     auto it = assumptions_.find(sym);
     if (it == assumptions_.end()) {
+        visiting_.erase(sym);
         return Interval::failure();
     }
     const auto& assum = it->second;
@@ -146,6 +153,14 @@ Interval BoundAnalysis::visit_symbol(const SymEngine::RCP<const SymEngine::Symbo
         }
     }
 
+    // For constant symbols without evolution (outer-scope values, array dimensions),
+    // the symbol's value is exactly itself. Use it as fallback when bounds are missing.
+    if (assum.constant() && assum.map().is_null()) {
+        if (lb.is_null()) lb = sym;
+        if (ub.is_null()) ub = sym;
+    }
+
+    visiting_.erase(sym);
     return {lb, ub};
 }
 
@@ -311,13 +326,46 @@ Interval BoundAnalysis::visit_mul(const SymEngine::RCP<const SymEngine::Mul>& mu
     // Collect intervals for all factors
     std::vector<Interval> factor_ivs;
     factor_ivs.reserve(n);
+    bool all_complete = true;
 
     for (const auto& arg : args) {
         auto iv = visit(arg, depth + 1);
-        if (!iv.has_lower() || !iv.has_upper()) {
+        if (!iv.has_lower() && !iv.has_upper()) {
             return Interval::failure();
         }
+        if (!iv.has_lower() || !iv.has_upper()) {
+            all_complete = false;
+        }
         factor_ivs.push_back(iv);
+    }
+
+    // Non-negative fast path: if all factors have non-negative lower bounds,
+    // lb = product of lower bounds, ub = product of upper bounds.
+    // This avoids symbolic min/max expressions and works with incomplete intervals.
+    bool all_nonneg = true;
+    for (const auto& iv : factor_ivs) {
+        if (!iv.has_lower() || !symbolic::is_true(symbolic::Ge(iv.lower, symbolic::zero()))) {
+            all_nonneg = false;
+            break;
+        }
+    }
+    if (all_nonneg) {
+        Expression lb_product = symbolic::one();
+        Expression ub_product = symbolic::one();
+        bool ub_valid = true;
+        for (const auto& iv : factor_ivs) {
+            lb_product = symbolic::mul(lb_product, iv.lower);
+            if (iv.has_upper()) {
+                ub_product = symbolic::mul(ub_product, iv.upper);
+            } else {
+                ub_valid = false;
+            }
+        }
+        return {lb_product, ub_valid ? ub_product : SymEngine::null};
+    }
+
+    if (!all_complete) {
+        return Interval::failure();
     }
 
     // Enumerate all 2^n vertex combinations
