@@ -1,6 +1,7 @@
 #include "sdfg/symbolic/symbolic.h"
 
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <string>
 
@@ -454,6 +455,91 @@ Expression factor(const Expression expr) {
     return expr;
 }
 
+namespace {
+
+/// Decompose expr into (base, integer_offset) where expr = base + offset.
+/// If expr is purely an integer, base = integer(0).
+/// If expr has no integer addend, offset = 0.
+std::pair<Expression, int64_t> decompose_offset(const Expression& expr) {
+    if (SymEngine::is_a<SymEngine::Integer>(*expr)) {
+        try {
+            return {symbolic::zero(), SymEngine::rcp_static_cast<const SymEngine::Integer>(expr)->as_int()};
+        } catch (const SymEngine::SymEngineException&) {
+            return {expr, 0};
+        }
+    }
+    if (SymEngine::is_a<SymEngine::Add>(*expr)) {
+        auto add = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
+        auto constant = add->get_coef();
+        if (SymEngine::is_a<SymEngine::Integer>(*constant)) {
+            try {
+                int64_t offset = SymEngine::rcp_static_cast<const SymEngine::Integer>(constant)->as_int();
+                if (offset != 0) {
+                    auto base = SymEngine::sub(expr, constant);
+                    return {base, offset};
+                }
+            } catch (const SymEngine::SymEngineException&) {
+                // too large
+            }
+        }
+    }
+    return {expr, 0};
+}
+
+/// Simplify min/max by grouping args that share the same base expression
+/// and keeping only the extreme offset per group.
+/// For max: keep the largest offset per base → max(i, i-1, i+1) = i+1
+/// For min: keep the smallest offset per base → min(i, i-1, i+1) = i-1
+template<bool IsMax>
+Expression simplify_minmax(const SymEngine::vec_basic& args) {
+    // Map from base expression to best (offset, original_expr)
+    std::vector<std::pair<Expression, std::pair<int64_t, Expression>>> groups;
+
+    for (const auto& arg : args) {
+        auto [base, offset] = decompose_offset(arg);
+
+        bool found = false;
+        for (auto& [g_base, g_best] : groups) {
+            if (symbolic::eq(g_base, base)) {
+                if constexpr (IsMax) {
+                    if (offset > g_best.first) {
+                        g_best = {offset, arg};
+                    }
+                } else {
+                    if (offset < g_best.first) {
+                        g_best = {offset, arg};
+                    }
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            groups.push_back({base, {offset, arg}});
+        }
+    }
+
+    // If we eliminated any args, rebuild
+    if (groups.size() < args.size()) {
+        if (groups.size() == 1) {
+            return groups[0].second.second;
+        }
+        SymEngine::vec_basic new_args;
+        for (auto& [_, best] : groups) {
+            new_args.push_back(best.second);
+        }
+        if constexpr (IsMax) {
+            return SymEngine::max(new_args);
+        } else {
+            return SymEngine::min(new_args);
+        }
+    }
+
+    return SymEngine::null;
+}
+
+} // anonymous namespace
+
 Expression simplify(const Expression expr) {
     if (SymEngine::is_a<SymEngine::StrictLessThan>(*expr)) {
         auto slt = SymEngine::rcp_static_cast<const SymEngine::StrictLessThan>(expr);
@@ -470,6 +556,38 @@ Expression simplify(const Expression expr) {
         auto simple_lhs = symbolic::simplify(lhs);
         auto simple_rhs = symbolic::simplify(rhs);
         return symbolic::Le(simple_lhs, simple_rhs);
+    }
+
+    // Simplify max(a, a+c1, a+c2, ...) by keeping only the largest offset per base
+    if (SymEngine::is_a<SymEngine::Max>(*expr)) {
+        auto max_op = SymEngine::rcp_static_cast<const SymEngine::Max>(expr);
+        auto args = max_op->get_args();
+        // First simplify each arg
+        SymEngine::vec_basic simple_args;
+        for (const auto& arg : args) {
+            simple_args.push_back(symbolic::simplify(arg));
+        }
+        auto result = simplify_minmax<true>(simple_args);
+        if (!result.is_null()) {
+            return result;
+        }
+        return SymEngine::max(simple_args);
+    }
+
+    // Simplify min(a, a+c1, a+c2, ...) by keeping only the smallest offset per base
+    if (SymEngine::is_a<SymEngine::Min>(*expr)) {
+        auto min_op = SymEngine::rcp_static_cast<const SymEngine::Min>(expr);
+        auto args = min_op->get_args();
+        // First simplify each arg
+        SymEngine::vec_basic simple_args;
+        for (const auto& arg : args) {
+            simple_args.push_back(symbolic::simplify(arg));
+        }
+        auto result = simplify_minmax<false>(simple_args);
+        if (!result.is_null()) {
+            return result;
+        }
+        return SymEngine::min(simple_args);
     }
 
     if (SymEngine::is_a<SymEngine::Add>(*expr)) {
@@ -607,6 +725,148 @@ Expression simplify(const Expression expr) {
     } catch (const SymEngine::SymEngineException& e) {
         return expr;
     }
+};
+
+Expression overapproximate(const Expression expr) {
+    // For min: pick the arg with the largest integer offset (upper bound of min)
+    if (SymEngine::is_a<SymEngine::Min>(*expr)) {
+        auto min_op = SymEngine::rcp_static_cast<const SymEngine::Min>(expr);
+        auto args = min_op->get_args();
+
+        // First overapproximate each arg recursively
+        SymEngine::vec_basic approx_args;
+        for (const auto& arg : args) {
+            approx_args.push_back(overapproximate(arg));
+        }
+
+        // Find the arg with purely integer value (prefer constant over symbolic)
+        Expression best = SymEngine::null;
+        int64_t best_val = std::numeric_limits<int64_t>::min();
+        bool has_integer = false;
+        for (const auto& arg : approx_args) {
+            if (SymEngine::is_a<SymEngine::Integer>(*arg)) {
+                try {
+                    auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(arg)->as_int();
+                    if (!has_integer || val > best_val) {
+                        best = arg;
+                        best_val = val;
+                        has_integer = true;
+                    }
+                } catch (const SymEngine::SymEngineException&) {
+                }
+            }
+        }
+        if (has_integer) {
+            return best;
+        }
+
+        // No pure integer arg — group by base, pick largest offset per group
+        auto result = simplify_minmax<true>(approx_args);
+        if (!result.is_null()) {
+            return result;
+        }
+        return SymEngine::min(approx_args);
+    }
+
+    // For max: pick the arg with the largest integer offset (upper bound of max)
+    if (SymEngine::is_a<SymEngine::Max>(*expr)) {
+        auto max_op = SymEngine::rcp_static_cast<const SymEngine::Max>(expr);
+        auto args = max_op->get_args();
+
+        SymEngine::vec_basic approx_args;
+        for (const auto& arg : args) {
+            approx_args.push_back(overapproximate(arg));
+        }
+
+        Expression best = SymEngine::null;
+        int64_t best_val = std::numeric_limits<int64_t>::min();
+        bool has_integer = false;
+        for (const auto& arg : approx_args) {
+            if (SymEngine::is_a<SymEngine::Integer>(*arg)) {
+                try {
+                    auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(arg)->as_int();
+                    if (!has_integer || val > best_val) {
+                        best = arg;
+                        best_val = val;
+                        has_integer = true;
+                    }
+                } catch (const SymEngine::SymEngineException&) {
+                }
+            }
+        }
+        if (has_integer) {
+            return best;
+        }
+
+        auto result = simplify_minmax<true>(approx_args);
+        if (!result.is_null()) {
+            return result;
+        }
+        return SymEngine::max(approx_args);
+    }
+
+    // Recurse into Add
+    if (SymEngine::is_a<SymEngine::Add>(*expr)) {
+        auto add_node = SymEngine::rcp_static_cast<const SymEngine::Add>(expr);
+        auto args = add_node->get_args();
+
+        // If exactly one addend is a Min, distribute the rest into it:
+        // min(a, b) + c = min(a+c, b+c)
+        // This exposes pure integer args after cancellation.
+        SymEngine::vec_basic min_children;
+        SymEngine::vec_basic rest;
+        int min_count = 0;
+        for (const auto& arg : args) {
+            if (min_count == 0 && SymEngine::is_a<SymEngine::Min>(*arg)) {
+                min_count++;
+                auto min_op = SymEngine::rcp_static_cast<const SymEngine::Min>(arg);
+                for (const auto& mc : min_op->get_args()) {
+                    min_children.push_back(mc);
+                }
+            } else {
+                rest.push_back(arg);
+            }
+        }
+
+        if (min_count == 1 && !rest.empty()) {
+            auto sum_rest = SymEngine::add(rest);
+            SymEngine::vec_basic new_min_args;
+            for (const auto& mc : min_children) {
+                new_min_args.push_back(SymEngine::expand(SymEngine::add(mc, sum_rest)));
+            }
+            return overapproximate(SymEngine::min(new_min_args));
+        }
+
+        // Normal case: recurse into each addend
+        SymEngine::vec_basic new_args;
+        bool changed = false;
+        for (const auto& arg : args) {
+            auto new_arg = overapproximate(arg);
+            new_args.push_back(new_arg);
+            if (!symbolic::eq(arg, new_arg)) changed = true;
+        }
+        if (changed) {
+            return SymEngine::add(new_args);
+        }
+    }
+
+    // Recurse into Mul
+    if (SymEngine::is_a<SymEngine::Mul>(*expr)) {
+        auto mul_node = SymEngine::rcp_static_cast<const SymEngine::Mul>(expr);
+        auto args = mul_node->get_args();
+        SymEngine::vec_basic new_args;
+        bool changed = false;
+        for (const auto& arg : args) {
+            auto new_arg = overapproximate(arg);
+            new_args.push_back(new_arg);
+            if (!symbolic::eq(arg, new_arg)) changed = true;
+        }
+        if (changed) {
+            return SymEngine::mul(new_args);
+        }
+    }
+
+    return expr;
 };
 
 bool eq(const Expression lhs, const Expression rhs) { return SymEngine::eq(*lhs, *rhs); };

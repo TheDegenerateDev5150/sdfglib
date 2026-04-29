@@ -568,6 +568,20 @@ Expression factor(const Expression expr);
 Expression simplify(const Expression expr);
 
 /**
+ * @brief Overapproximates an expression by resolving min/max to upper bounds
+ * @param expr Expression to overapproximate
+ * @return An expression that is >= the original for all symbol valuations
+ *
+ * Traverses the expression and replaces:
+ * - min(a, b) with the argument that has the larger constant offset (upper bound of min)
+ * - max(a, b) with the argument that has the larger constant offset (upper bound of max)
+ *
+ * This is useful for computing conservative upper bounds on working set sizes,
+ * e.g. a tile extent of min(32, M - i_tile) overapproximates to 32.
+ */
+Expression overapproximate(const Expression expr);
+
+/**
  * @brief Tests structural equality of two expressions
  * @param lhs First expression
  * @param rhs Second expression
