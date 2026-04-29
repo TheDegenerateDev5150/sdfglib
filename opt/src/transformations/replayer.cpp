@@ -1,4 +1,3 @@
-#include <sdfg/transformations/accumulator_tile.h>
 #include <sdfg/transformations/einsum2dot.h>
 #include <sdfg/transformations/einsum2gemm.h>
 #include <sdfg/transformations/einsum_expand.h>
@@ -39,9 +38,7 @@ void Replayer::replay(
     for (const auto& desc : transformation_data) {
         auto transformation_name = desc["transformation_type"];
 
-        if (transformation_name == "AccumulatorTile") {
-            this->apply<transformations::AccumulatorTile>(builder, analysis_manager, desc, skip_if_not_applicable);
-        } else if (transformation_name == "LoopTiling") {
+        if (transformation_name == "LoopTiling") {
             this->apply<transformations::LoopTiling>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "LoopDistribute") {
             this->apply<transformations::LoopDistribute>(builder, analysis_manager, desc, skip_if_not_applicable);
