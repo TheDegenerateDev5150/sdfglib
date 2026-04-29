@@ -1,7 +1,7 @@
 #include "sdfg/analysis/memory_layout_analysis.h"
 
-#include <iostream>
 #include <optional>
+#include <set>
 #include <unordered_set>
 
 #include "sdfg/analysis/assumptions_analysis.h"
@@ -12,6 +12,7 @@
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/structured_control_flow/while.h"
 #include "sdfg/symbolic/delinearization.h"
+#include "sdfg/symbolic/extreme_values.h"
 #include "sdfg/symbolic/polynomials.h"
 
 namespace sdfg {
@@ -20,8 +21,8 @@ namespace analysis {
 MemoryLayoutAnalysis::MemoryLayoutAnalysis(StructuredSDFG& sdfg) : Analysis(sdfg) {}
 
 void MemoryLayoutAnalysis::run(analysis::AnalysisManager& analysis_manager) {
-    layouts_.clear();
-    loop_layouts_.clear();
+    accesses_.clear();
+    tiles_.clear();
     traverse(sdfg_.root(), analysis_manager);
 }
 
@@ -42,15 +43,21 @@ void MemoryLayoutAnalysis::
     } else if (auto loop = dynamic_cast<structured_control_flow::StructuredLoop*>(&node)) {
         // Snapshot current memlets before traversing loop body
         std::vector<const data_flow::Memlet*> memlets_before;
-        memlets_before.reserve(layouts_.size());
-        for (const auto& entry : layouts_) {
+        memlets_before.reserve(accesses_.size());
+        for (const auto& entry : accesses_) {
             memlets_before.push_back(entry.first);
+        }
+
+        // Snapshot tile keys before traversal
+        std::set<std::pair<const structured_control_flow::StructuredLoop*, std::string>> tiles_before;
+        for (const auto& entry : tiles_) {
+            tiles_before.insert(entry.first);
         }
 
         traverse(loop->root(), analysis_manager);
 
         // Merge layouts for containers accessed within this loop
-        merge_loop_layouts(*loop, memlets_before, analysis_manager);
+        merge_loop_layouts(*loop, memlets_before, tiles_before, analysis_manager);
     }
     // Break, Continue, Return nodes don't contain blocks
 }
@@ -88,7 +95,7 @@ void MemoryLayoutAnalysis::
 
                 MemoryLayout layout(tensor_type.shape(), tensor_type.strides(), tensor_type.offset());
                 MemoryAccess layout_info{container_name, subset, layout, true};
-                this->layouts_.emplace(&memlet, layout_info);
+                this->accesses_.emplace(&memlet, layout_info);
                 continue;
             }
             case types::TypeID::Array: {
@@ -105,7 +112,7 @@ void MemoryLayoutAnalysis::
 
                 MemoryLayout layout(shape);
                 MemoryAccess layout_info{container_name, subset, layout, true};
-                this->layouts_.emplace(&memlet, layout_info);
+                this->accesses_.emplace(&memlet, layout_info);
                 continue;
             }
             case types::TypeID::Pointer: {
@@ -113,45 +120,15 @@ void MemoryLayoutAnalysis::
                 // on assumptions from loop bounds
                 auto* pointer_type = dynamic_cast<const types::Pointer*>(&memlet.base_type());
                 if (pointer_type->pointee_type().type_id() != types::TypeID::Scalar) {
-                    std::cerr << "[DEBUG] Skipping non-scalar pointer for " << container_name << std::endl;
                     continue; // Skip non-scalar pointers
                 }
 
                 if (subset.size() != 1) {
-                    std::cerr << "[DEBUG] Skipping " << container_name << ": subset.size() = " << subset.size()
-                              << " (requires 1)" << std::endl;
                     continue; // Require full linearization
                 }
                 auto& linearized_expr = subset.at(0);
 
-                std::cerr << "[DEBUG] Delinearizing " << container_name << ": " << *linearized_expr << std::endl;
-                std::cerr << "[DEBUG] Assumptions available:" << std::endl;
-                for (const auto& [sym, assump] : assumptions) {
-                    for (const auto& bound : assump.upper_bounds()) {
-                        std::cerr << "  " << *sym << ": upper bound " << *bound << std::endl;
-                    }
-                    for (const auto& bound : assump.lower_bounds()) {
-                        std::cerr << "  " << *sym << ": lower bound " << *bound << std::endl;
-                    }
-                }
-
                 auto result = symbolic::delinearize(linearized_expr, assumptions);
-                if (!result.success) {
-                    std::cerr << "[DEBUG] Delinearization FAILED for " << container_name << std::endl;
-                    continue; // Delinearization failed, skip
-                }
-
-                std::cerr << "[DEBUG] Delinearization SUCCESS for " << container_name << std::endl;
-                std::cerr << "[DEBUG]   Indices: ";
-                for (const auto& idx : result.indices) {
-                    std::cerr << *idx << " ";
-                }
-                std::cerr << std::endl;
-                std::cerr << "[DEBUG]   Dimensions: ";
-                for (const auto& dim : result.dimensions) {
-                    std::cerr << *dim << " ";
-                }
-                std::cerr << std::endl;
                 if (!result.success) {
                     continue; // Delinearization failed, skip
                 }
@@ -160,7 +137,7 @@ void MemoryLayoutAnalysis::
                 // The first dimension is unbounded - insert a placeholder that will be filled in by merge
                 // Using a special symbol as placeholder for the first dimension
                 symbolic::MultiExpression shape;
-                shape.push_back(symbolic::symbol("__first_dim_placeholder__"));
+                shape.push_back(symbolic::symbol("__unbounded__"));
                 for (const auto& dim : result.dimensions) {
                     shape.push_back(dim);
                 }
@@ -169,7 +146,7 @@ void MemoryLayoutAnalysis::
                 // The merge phase will attempt to bound the first dimension using loop assumptions
                 MemoryLayout layout(shape);
                 MemoryAccess layout_info{container_name, result.indices, layout, false};
-                this->layouts_.emplace(&memlet, layout_info);
+                this->accesses_.emplace(&memlet, layout_info);
                 continue;
             }
             default:
@@ -178,9 +155,9 @@ void MemoryLayoutAnalysis::
     }
 }
 
-const MemoryAccess* MemoryLayoutAnalysis::get(const data_flow::Memlet& memlet) const {
-    auto layout_it = layouts_.find(&memlet);
-    if (layout_it == layouts_.end()) {
+const MemoryAccess* MemoryLayoutAnalysis::access(const data_flow::Memlet& memlet) const {
+    auto layout_it = accesses_.find(&memlet);
+    if (layout_it == accesses_.end()) {
         return nullptr;
     }
     return &layout_it->second;
@@ -189,168 +166,172 @@ const MemoryAccess* MemoryLayoutAnalysis::get(const data_flow::Memlet& memlet) c
 void MemoryLayoutAnalysis::merge_loop_layouts(
     structured_control_flow::StructuredLoop& loop,
     const std::vector<const data_flow::Memlet*>& memlets_before,
+    const std::set<std::pair<const structured_control_flow::StructuredLoop*, std::string>>& tiles_before,
     analysis::AnalysisManager& analysis_manager
 ) {
     // Convert memlets_before to a set for O(1) lookup
     std::unordered_set<const data_flow::Memlet*> before_set(memlets_before.begin(), memlets_before.end());
 
-    // Group newly added unbounded layouts by container
-    std::unordered_map<std::string, std::vector<const data_flow::Memlet*>> container_groups;
-    for (auto& [memlet_ptr, access] : layouts_) {
+    // Group all new accesses by container
+    std::unordered_map<std::string, std::vector<const data_flow::Memlet*>> all_container_groups;
+    for (auto& [memlet_ptr, acc] : accesses_) {
         if (before_set.find(memlet_ptr) != before_set.end()) {
-            continue; // Skip memlets that existed before this loop
+            continue;
         }
-        if (access.first_dim_bounded) {
-            continue; // Skip already bounded layouts
-        }
-        container_groups[access.container].push_back(memlet_ptr);
+        all_container_groups[acc.container].push_back(memlet_ptr);
     }
 
-    // Get assumptions at loop body level (includes loop variable bounds)
-    // The loop's indvar bounds are only available inside the loop body, not at the loop node itself
     auto& assumptions_analysis = analysis_manager.get<AssumptionsAnalysis>();
     auto& assumptions = assumptions_analysis.get(loop.root());
+    // Start with SDFG-level parameters (read-only arguments like N, M)
+    // then add any additional constant symbols from loop assumptions
+    symbolic::SymbolSet parameters = assumptions_analysis.parameters();
+    for (auto& entry : assumptions) {
+        if (symbolic::eq(entry.first, loop.indvar())) {
+            continue; // Skip induction variable itself
+        }
 
-    // Process each container group
-    for (auto& [container, memlets] : container_groups) {
+        if (entry.second.constant()) {
+            parameters.insert(entry.first);
+        }
+    }
+
+    for (auto& [container, memlets] : all_container_groups) {
         if (memlets.empty()) continue;
 
-        // Collect all inner dimensions and first-dim indices for consistency check
-        auto& first_access = layouts_.at(memlets[0]);
-        auto& reference_shape = first_access.layout.shape();
-        if (reference_shape.empty()) continue;
+        // Find new inner tiles for this container (created by nested loops)
+        std::vector<const MemoryTile*> inner_tiles;
+        for (auto& [key, tile] : tiles_) {
+            if (tiles_before.count(key) > 0) continue;
+            if (key.second != container) continue;
+            inner_tiles.push_back(&tile);
+        }
 
-        // Check consistency of inner dimensions across all accesses
-        bool consistent = true;
-        std::vector<symbolic::Expression> first_dim_indices;
-        first_dim_indices.reserve(memlets.size());
+        size_t ndims = 0;
+        MemoryLayout reference_layout({symbolic::one()});
+        // Separate min/max index lists to avoid unnecessary symbolic min/max
+        std::vector<std::vector<symbolic::Expression>> min_indices;
+        std::vector<std::vector<symbolic::Expression>> max_indices;
 
-        for (const auto* memlet_ptr : memlets) {
-            auto& access = layouts_.at(memlet_ptr);
-            auto& shape = access.layout.shape();
+        if (!inner_tiles.empty()) {
+            // Use inner tile min/max as representative values
+            // Inner tiles have already resolved inner loop variables to their bounds
+            ndims = inner_tiles[0]->min_subset.size();
+            reference_layout = inner_tiles[0]->layout;
+            min_indices.resize(ndims);
+            max_indices.resize(ndims);
 
-            // Check inner dimensions match (all except first)
-            if (shape.size() != reference_shape.size()) {
-                consistent = false;
-                break;
+            for (const auto* tile : inner_tiles) {
+                if (tile->min_subset.size() != ndims) continue;
+                for (size_t d = 0; d < ndims; ++d) {
+                    min_indices[d].push_back(tile->min_subset[d]);
+                    max_indices[d].push_back(tile->max_subset[d]);
+                }
             }
-            for (size_t i = 1; i < shape.size(); ++i) {
-                if (!symbolic::eq(shape[i], reference_shape[i])) {
+        } else {
+            // Use raw access indices (no inner tiles available)
+            auto& first_access = accesses_.at(memlets[0]);
+            auto& reference_shape = first_access.layout.shape();
+            ndims = reference_shape.size();
+            reference_layout = first_access.layout;
+            min_indices.resize(ndims);
+            max_indices.resize(ndims);
+
+            bool consistent = true;
+            for (const auto* memlet_ptr : memlets) {
+                auto& acc = accesses_.at(memlet_ptr);
+                auto& shape = acc.layout.shape();
+
+                if (shape.size() != ndims) {
                     consistent = false;
                     break;
                 }
-            }
-            if (!consistent) break;
+                // Check inner dimensions match (all except first which may be unbounded)
+                for (size_t d = 1; d < ndims; ++d) {
+                    if (!symbolic::eq(shape[d], reference_shape[d])) {
+                        consistent = false;
+                        break;
+                    }
+                }
+                if (!consistent) break;
 
-            // Collect first-dimension index
-            if (!access.subset.empty()) {
-                first_dim_indices.push_back(access.subset[0]);
-            }
-        }
-
-        if (!consistent || first_dim_indices.empty()) {
-            continue; // Skip containers with inconsistent layouts
-        }
-
-        // Attempt to bound first dimension from collected indices
-        // Find the maximum offset across all first-dim indices
-        std::optional<symbolic::Expression> max_bound;
-
-        for (const auto& first_idx : first_dim_indices) {
-            // Extract symbols from the index expression
-            auto syms = symbolic::atoms(first_idx);
-            if (syms.size() != 1) {
-                // Can't handle multi-symbol or constant-only indices at this level
-                // Skip and let outer loop try
-                continue;
-            }
-            auto sym = *syms.begin();
-
-            // Check if we have assumptions for this symbol
-            if (assumptions.find(sym) == assumptions.end()) {
-                continue; // No bounds for this symbol at this loop level
-            }
-
-            // Get the affine coefficients: first_idx = mul * sym + add
-            symbolic::SymbolVec gens = {sym};
-            auto polynomial = symbolic::polynomial(first_idx, gens);
-            if (polynomial == SymEngine::null) {
-                continue; // Not a polynomial
-            }
-            auto coeffs = symbolic::affine_coefficients(polynomial, gens);
-            if (coeffs.find(sym) == coeffs.end()) {
-                continue;
-            }
-
-            auto mul = coeffs.at(sym);
-            if (!symbolic::eq(mul, symbolic::one())) {
-                continue; // Non-unit coefficient, can't simply bound
-            }
-
-            auto constant_sym = symbolic::symbol("__daisy_constant__");
-            symbolic::Expression add;
-            if (coeffs.count(constant_sym)) {
-                add = coeffs.at(constant_sym);
-            } else {
-                add = symbolic::zero();
-            }
-            auto& sym_assumption = assumptions.at(sym);
-            auto sym_bound = sym_assumption.tight_upper_bound();
-
-            // Accessed range upper bound: sym_bound + add + 1 (exclusive)
-            auto access_bound = symbolic::simplify(symbolic::add(symbolic::add(sym_bound, add), symbolic::one()));
-
-            if (!max_bound.has_value()) {
-                max_bound = access_bound;
-            } else {
-                // Take maximum of current max and this bound
-                // For simplicity, if they differ symbolically, keep symbolic max
-                if (!symbolic::eq(*max_bound, access_bound)) {
-                    max_bound = symbolic::max(*max_bound, access_bound);
+                // Collect indices for each dimension
+                if (acc.subset.size() != ndims) {
+                    consistent = false;
+                    break;
+                }
+                for (size_t d = 0; d < ndims; ++d) {
+                    min_indices[d].push_back(acc.subset[d]);
+                    max_indices[d].push_back(acc.subset[d]);
                 }
             }
+
+            if (!consistent) continue;
         }
 
-        if (!max_bound.has_value()) {
-            continue; // Could not bound first dimension at this loop level
-        }
-        auto max_bound_val = symbolic::expand(*max_bound);
-        max_bound_val = symbolic::simplify(max_bound_val);
+        if (ndims == 0) continue;
 
-        // Store this loop's view of the container
-        auto loop_shape = first_access.layout.shape();
-        if (!loop_shape.empty()) {
-            loop_shape[0] = max_bound_val;
-        }
-        loop_layouts_.insert(
-            {{&loop, container}, MemoryLayout(loop_shape, first_access.layout.strides(), first_access.layout.offset())}
-        );
+        // Compute min/max bounds for each dimension
+        data_flow::Subset min_subset;
+        data_flow::Subset max_subset;
+        bool all_bounded = true;
 
-        // Update all accesses in this container with the bounded first dimension
-        for (const auto* memlet_ptr : memlets) {
-            auto& access = layouts_.at(memlet_ptr);
-            // Copy data before modifying
-            auto container = access.container;
-            auto subset = access.subset;
-            auto new_shape = access.layout.shape();
-            auto strides = access.layout.strides();
-            auto offset = access.layout.offset();
-            if (!new_shape.empty()) {
-                new_shape[0] = max_bound_val;
+        for (size_t d = 0; d < ndims; ++d) {
+            symbolic::Expression dim_min = SymEngine::null;
+            symbolic::Expression dim_max = SymEngine::null;
+
+            // Compute dim_min from min_indices
+            for (const auto& idx : min_indices[d]) {
+                auto lb = symbolic::minimum(idx, parameters, assumptions, true);
+                if (lb.is_null()) {
+                    lb = symbolic::minimum(idx, parameters, assumptions, false);
+                }
+                if (lb.is_null()) {
+                    all_bounded = false;
+                    break;
+                }
+                if (dim_min.is_null()) {
+                    dim_min = lb;
+                } else {
+                    dim_min = symbolic::min(dim_min, lb);
+                }
             }
-            // Update the layout with bounded first dimension
-            layouts_.erase(memlet_ptr);
-            layouts_
-                .emplace(memlet_ptr, MemoryAccess{container, subset, MemoryLayout(new_shape, strides, offset), true});
+            if (!all_bounded) break;
+
+            // Compute dim_max from max_indices
+            for (const auto& idx : max_indices[d]) {
+                auto ub = symbolic::maximum(idx, parameters, assumptions, true);
+                if (ub.is_null()) {
+                    ub = symbolic::maximum(idx, parameters, assumptions, false);
+                }
+                if (ub.is_null()) {
+                    all_bounded = false;
+                    break;
+                }
+                if (dim_max.is_null()) {
+                    dim_max = ub;
+                } else {
+                    dim_max = symbolic::max(dim_max, ub);
+                }
+            }
+            if (!all_bounded) break;
+
+            min_subset.push_back(symbolic::simplify(dim_min));
+            max_subset.push_back(symbolic::simplify(dim_max));
         }
+
+        if (!all_bounded) continue;
+
+        // Store this loop's tile with the original memory layout
+        tiles_.insert({{&loop, container}, MemoryTile{container, min_subset, max_subset, reference_layout, true}});
     }
 }
 
-const MemoryLayout* MemoryLayoutAnalysis::
-    get(const structured_control_flow::StructuredLoop& loop, const std::string& container) const {
+const MemoryTile* MemoryLayoutAnalysis::
+    tile(const structured_control_flow::StructuredLoop& loop, const std::string& container) const {
     auto key = std::make_pair(&loop, container);
-    auto it = loop_layouts_.find(key);
-    if (it == loop_layouts_.end()) {
+    auto it = tiles_.find(key);
+    if (it == tiles_.end()) {
         return nullptr;
     }
     return &it->second;

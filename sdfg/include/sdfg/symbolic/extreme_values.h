@@ -90,6 +90,9 @@ private:
     const Assumptions& assumptions_;
     bool use_tight_;
 
+    // Cycle detection: symbols currently being bounded
+    SymbolSet visiting_;
+
     Interval visit(const Expression& expr, size_t depth);
 
     Interval visit_symbol(const SymEngine::RCP<const SymEngine::Symbol>& sym, size_t depth);

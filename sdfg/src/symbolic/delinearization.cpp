@@ -203,28 +203,35 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         }
 
         // remaining must be less than stride
-        // Try to prove this symbolically: ub_remaining < stride
-        // If ub_remaining = stride - 1 (common case), this is trivially true
         auto ub_remaining = maximum(remaining, {}, assums, false);
 
         bool stride_check_passed = false;
         if (ub_remaining != SymEngine::null) {
-            // Direct symbolic check: is ub_remaining < stride provable?
-            auto diff = symbolic::expand(symbolic::sub(stride, ub_remaining));
-
-            // If diff simplifies to a positive constant, we're good
-            if (SymEngine::is_a<SymEngine::Integer>(*diff)) {
-                auto int_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(diff);
-                if (int_val->is_positive()) {
-                    stride_check_passed = true;
+            // Collect all upper bound candidates: if ub_remaining is min(a,b,...),
+            // then ub_remaining <= each arg, so proving stride > any arg suffices.
+            std::vector<Expression> ub_candidates;
+            if (SymEngine::is_a<SymEngine::Min>(*ub_remaining)) {
+                for (const auto& arg : ub_remaining->get_args()) {
+                    ub_candidates.push_back(arg);
                 }
+            } else {
+                ub_candidates.push_back(ub_remaining);
             }
 
-            // Also try: is stride > ub_remaining provable via Gt?
-            if (!stride_check_passed) {
-                auto cond = symbolic::Gt(stride, ub_remaining);
+            for (const auto& ub_cand : ub_candidates) {
+                // Direct symbolic check: is ub_cand < stride provable?
+                auto diff = symbolic::expand(symbolic::sub(stride, ub_cand));
+                if (SymEngine::is_a<SymEngine::Integer>(*diff)) {
+                    auto int_val = SymEngine::rcp_static_cast<const SymEngine::Integer>(diff);
+                    if (int_val->is_positive()) {
+                        stride_check_passed = true;
+                        break;
+                    }
+                }
+                auto cond = symbolic::Gt(stride, ub_cand);
                 if (symbolic::is_true(cond)) {
                     stride_check_passed = true;
+                    break;
                 }
             }
 
