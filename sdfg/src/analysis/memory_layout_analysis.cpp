@@ -369,8 +369,19 @@ const MemoryTile* MemoryLayoutAnalysis::
 symbolic::MultiExpression MemoryTile::extents() const {
     symbolic::MultiExpression result;
     for (size_t d = 0; d < min_subset.size(); ++d) {
-        result.push_back(symbolic::simplify(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one()))
-        );
+        result.push_back(symbolic::simplify(
+            symbolic::expand(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one()))
+        ));
+    }
+    return result;
+}
+
+symbolic::MultiExpression MemoryTile::extents_approx() const {
+    symbolic::MultiExpression result;
+    for (size_t d = 0; d < min_subset.size(); ++d) {
+        result.push_back(symbolic::simplify(symbolic::expand(
+            symbolic::overapproximate(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one()))
+        )));
     }
     return result;
 }
@@ -383,7 +394,7 @@ std::pair<symbolic::Expression, symbolic::Expression> MemoryTile::contiguous_ran
         first = symbolic::add(first, symbolic::mul(strides[d], min_subset[d]));
         last = symbolic::add(last, symbolic::mul(strides[d], max_subset[d]));
     }
-    return {symbolic::simplify(first), symbolic::simplify(last)};
+    return {symbolic::simplify(symbolic::expand(first)), symbolic::simplify(symbolic::expand(last))};
 }
 
 } // namespace analysis

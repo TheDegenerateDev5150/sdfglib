@@ -135,11 +135,8 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_RowMajor) {
 
     auto [tile_i_first, tile_i_last] = tile_i->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_first, symbolic::zero()));
-    // last = stride[0]*max[0] + stride[1]*max[1] = M*(N-1) + (M-1)
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_last,
-        symbolic::add(symbolic::mul(M, symbolic::sub(N, symbolic::one())), symbolic::sub(M, symbolic::one()))
-    ));
+    // last = M*(N-1) + (M-1) = MN - 1
+    EXPECT_TRUE(symbolic::eq(tile_i_last, symbolic::sub(symbolic::mul(M, N), symbolic::one())));
 }
 
 TEST(MemoryLayoutAnalysisTest, Linearized_2D_ColMajor) {
@@ -232,7 +229,8 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_ColMajor) {
 
     auto [tile_j_first, tile_j_last] = tile_j->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_j_first, i));
-    EXPECT_TRUE(symbolic::eq(tile_j_last, symbolic::add(symbolic::mul(N, symbolic::sub(M, symbolic::one())), i)));
+    // last = N*(M-1) + i = MN - N + i
+    EXPECT_TRUE(symbolic::eq(tile_j_last, symbolic::add(symbolic::sub(symbolic::mul(M, N), N), i)));
 
     // Check tile at outer loop
     auto* tile_i = analysis.tile(outer_loop, "A");
@@ -264,11 +262,8 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_ColMajor) {
 
     auto [tile_i_first, tile_i_last] = tile_i->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_first, symbolic::zero()));
-    // last = N*(M-1) + (N-1)
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_last,
-        symbolic::add(symbolic::mul(N, symbolic::sub(M, symbolic::one())), symbolic::sub(N, symbolic::one()))
-    ));
+    // last = N*(M-1) + (N-1) = MN - 1
+    EXPECT_TRUE(symbolic::eq(tile_i_last, symbolic::sub(symbolic::mul(M, N), symbolic::one())));
 }
 
 TEST(MemoryLayoutAnalysisTest, Linearized_3D_RowMajor) {
@@ -413,12 +408,12 @@ TEST(MemoryLayoutAnalysisTest, Linearized_3D_RowMajor) {
     EXPECT_TRUE(symbolic::eq(tile_j_ext.at(2), K));
 
     auto [tile_j_first, tile_j_last] = tile_j->contiguous_range();
+    // first = i*M*K
     EXPECT_TRUE(symbolic::eq(tile_j_first, symbolic::mul(i, symbolic::mul(M, K))));
+    // last = i*MK + (M-1)*K + (K-1) = i*MK + MK - 1
     EXPECT_TRUE(symbolic::eq(
         tile_j_last,
-        symbolic::
-            add(symbolic::mul(i, symbolic::mul(M, K)),
-                symbolic::add(symbolic::mul(symbolic::sub(M, symbolic::one()), K), symbolic::sub(K, symbolic::one())))
+        symbolic::sub(symbolic::add(symbolic::mul(i, symbolic::mul(M, K)), symbolic::mul(M, K)), symbolic::one())
     ));
 
     // Check tile at outer loop (i)
@@ -456,12 +451,8 @@ TEST(MemoryLayoutAnalysisTest, Linearized_3D_RowMajor) {
 
     auto [tile_i_first, tile_i_last] = tile_i->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_first, symbolic::zero()));
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_last,
-        symbolic::
-            add(symbolic::mul(symbolic::sub(N, symbolic::one()), symbolic::mul(M, K)),
-                symbolic::add(symbolic::mul(symbolic::sub(M, symbolic::one()), K), symbolic::sub(K, symbolic::one())))
-    ));
+    // last = (N-1)*MK + (M-1)*K + (K-1) = NMK - 1
+    EXPECT_TRUE(symbolic::eq(tile_i_last, symbolic::sub(symbolic::mul(N, symbolic::mul(M, K)), symbolic::one())));
 }
 
 TEST(MemoryLayoutAnalysisTest, Linearized_3D_ColMajor) {
@@ -570,9 +561,10 @@ TEST(MemoryLayoutAnalysisTest, Linearized_3D_ColMajor) {
     auto [tile_k_first, tile_k_last] = tile_k->contiguous_range();
     auto Nj_i = symbolic::add(symbolic::mul(N, j), i);
     EXPECT_TRUE(symbolic::eq(tile_k_first, Nj_i));
+    // last = MN*(K-1) + Nj + i = MNK - MN + Nj + i
     EXPECT_TRUE(symbolic::
                     eq(tile_k_last,
-                       symbolic::add(symbolic::mul(symbolic::mul(M, N), symbolic::sub(K, symbolic::one())), Nj_i)));
+                       symbolic::add(symbolic::sub(symbolic::mul(symbolic::mul(M, N), K), symbolic::mul(M, N)), Nj_i)));
 
     // Check tile at middle loop (j)
     auto* tile_j = analysis.tile(middle_loop, "A");
@@ -609,11 +601,8 @@ TEST(MemoryLayoutAnalysisTest, Linearized_3D_ColMajor) {
 
     auto [tile_j_first, tile_j_last] = tile_j->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_j_first, i));
-    EXPECT_TRUE(symbolic::
-                    eq(tile_j_last,
-                       symbolic::
-                           add(symbolic::mul(symbolic::mul(M, N), symbolic::sub(K, symbolic::one())),
-                               symbolic::add(symbolic::mul(N, symbolic::sub(M, symbolic::one())), i))));
+    // last = MN*(K-1) + N*(M-1) + i = MNK - N + i
+    EXPECT_TRUE(symbolic::eq(tile_j_last, symbolic::add(symbolic::sub(symbolic::mul(symbolic::mul(M, N), K), N), i)));
 
     // Check tile at outer loop (i)
     auto* tile_i = analysis.tile(outer_loop, "A");
@@ -650,12 +639,8 @@ TEST(MemoryLayoutAnalysisTest, Linearized_3D_ColMajor) {
 
     auto [tile_i_first, tile_i_last] = tile_i->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_first, symbolic::zero()));
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_last,
-        symbolic::
-            add(symbolic::mul(symbolic::mul(M, N), symbolic::sub(K, symbolic::one())),
-                symbolic::add(symbolic::mul(N, symbolic::sub(M, symbolic::one())), symbolic::sub(N, symbolic::one())))
-    ));
+    // last = MN*(K-1) + N*(M-1) + (N-1) = MNK - 1
+    EXPECT_TRUE(symbolic::eq(tile_i_last, symbolic::sub(symbolic::mul(symbolic::mul(M, N), K), symbolic::one())));
 }
 
 TEST(MemoryLayoutAnalysisTest, Stencil_2D_5Point) {
@@ -771,7 +756,7 @@ TEST(MemoryLayoutAnalysisTest, Stencil_2D_5Point) {
 
     // Check tile at inner loop for A: min/max across all 5 stencil points
     // i indices: {i-1, i, i+1}, j indices: {j-1, j, j+1}
-    // min/max not simplified: min(i, i-1, i+1) and max(i, i-1, i+1)
+    // simplify collapses: min(i, i-1, i+1) → i-1, max(i, i-1, i+1) → i+1
     auto* tile_j_A = analysis.tile(inner_loop, "A");
     ASSERT_NE(tile_j_A, nullptr);
 
@@ -779,39 +764,31 @@ TEST(MemoryLayoutAnalysisTest, Stencil_2D_5Point) {
     auto i_plus_1 = symbolic::add(i, symbolic::one());
     auto M_minus_1 = symbolic::sub(M, symbolic::one());
     auto M_minus_2 = symbolic::sub(M, symbolic::integer(2));
-    auto M_minus_3 = symbolic::sub(M, symbolic::integer(3));
 
     ASSERT_EQ(tile_j_A->min_subset.size(), 2);
-    // min(i, i-1, i+1) — SymEngine doesn't simplify symbolic min with constant offsets
-    EXPECT_TRUE(symbolic::eq(tile_j_A->min_subset.at(0), symbolic::min(symbolic::min(i, i_minus_1), i_plus_1)));
+    EXPECT_TRUE(symbolic::eq(tile_j_A->min_subset.at(0), i_minus_1));
     EXPECT_TRUE(symbolic::eq(tile_j_A->min_subset.at(1), symbolic::zero()));
 
     ASSERT_EQ(tile_j_A->max_subset.size(), 2);
-    // max(i, i-1, i+1)
-    EXPECT_TRUE(symbolic::eq(tile_j_A->max_subset.at(0), symbolic::max(symbolic::max(i, i_minus_1), i_plus_1)));
-    // max(M-1, M-2, M-3) — from j+1 at j=M-2, j at j=M-2, j-1 at j=M-2
-    EXPECT_TRUE(symbolic::eq(tile_j_A->max_subset.at(1), symbolic::max(symbolic::max(M_minus_1, M_minus_2), M_minus_3))
-    );
+    EXPECT_TRUE(symbolic::eq(tile_j_A->max_subset.at(0), i_plus_1));
+    // max(M-1, M-2, M-3) simplified → M-1
+    EXPECT_TRUE(symbolic::eq(tile_j_A->max_subset.at(1), M_minus_1));
 
-    // tile_j_A extents and contiguous range
-    auto min_i_expr = symbolic::min(symbolic::min(i, i_minus_1), i_plus_1);
-    auto max_i_expr = symbolic::max(symbolic::max(i, i_minus_1), i_plus_1);
-    auto max_j_A_expr = symbolic::max(symbolic::max(M_minus_1, M_minus_2), M_minus_3);
-
+    // tile_j_A extents: [(i+1)-(i-1)+1 = 3, (M-1)-0+1 = M]
     auto tile_j_A_ext = tile_j_A->extents();
     ASSERT_EQ(tile_j_A_ext.size(), 2);
-    EXPECT_TRUE(symbolic::
-                    eq(tile_j_A_ext.at(0),
-                       symbolic::simplify(symbolic::add(symbolic::sub(max_i_expr, min_i_expr), symbolic::one()))));
-    EXPECT_TRUE(symbolic::
-                    eq(tile_j_A_ext.at(1),
-                       symbolic::simplify(symbolic::add(symbolic::sub(max_j_A_expr, symbolic::zero()), symbolic::one()))
-                    ));
+    EXPECT_TRUE(symbolic::eq(tile_j_A_ext.at(0), symbolic::integer(3)));
+    EXPECT_TRUE(symbolic::eq(tile_j_A_ext.at(1), M));
 
+    // contiguous_range: first = M*(i-1), last = M*(i+1) + (M-1)
     auto [tile_j_A_first, tile_j_A_last] = tile_j_A->contiguous_range();
-    EXPECT_TRUE(symbolic::eq(tile_j_A_first, symbolic::simplify(symbolic::mul(M, min_i_expr))));
-    EXPECT_TRUE(symbolic::eq(tile_j_A_last, symbolic::simplify(symbolic::add(symbolic::mul(M, max_i_expr), max_j_A_expr)))
-    );
+    // first = M*(i-1) = Mi - M
+    EXPECT_TRUE(symbolic::eq(tile_j_A_first, symbolic::sub(symbolic::mul(M, i), M)));
+    // last = M*(i+1) + (M-1) = Mi + 2M - 1
+    EXPECT_TRUE(symbolic::eq(
+        tile_j_A_last,
+        symbolic::add(symbolic::mul(M, i), symbolic::sub(symbolic::mul(symbolic::integer(2), M), symbolic::one()))
+    ));
 
     // Check tile at inner loop for B
     auto* tile_j_B = analysis.tile(inner_loop, "B");
@@ -842,39 +819,28 @@ TEST(MemoryLayoutAnalysisTest, Stencil_2D_5Point) {
 
     auto N_minus_1 = symbolic::sub(N, symbolic::one());
     auto N_minus_2 = symbolic::sub(N, symbolic::integer(2));
-    auto N_minus_3 = symbolic::sub(N, symbolic::integer(3));
 
     ASSERT_EQ(tile_i_A->min_subset.size(), 2);
     EXPECT_TRUE(symbolic::eq(tile_i_A->min_subset.at(0), symbolic::zero()));
     EXPECT_TRUE(symbolic::eq(tile_i_A->min_subset.at(1), symbolic::zero()));
 
     ASSERT_EQ(tile_i_A->max_subset.size(), 2);
-    // max(N-1, N-3, N-2) — from inner tile max i+1 at i=N-2, i-1 at i=N-2, i at i=N-2
-    EXPECT_TRUE(symbolic::eq(tile_i_A->max_subset.at(0), symbolic::max(symbolic::max(N_minus_1, N_minus_3), N_minus_2))
-    );
-    EXPECT_TRUE(symbolic::eq(tile_i_A->max_subset.at(1), symbolic::max(symbolic::max(M_minus_1, M_minus_2), M_minus_3))
-    );
+    // max(N-1, N-3, N-2) simplified → N-1
+    EXPECT_TRUE(symbolic::eq(tile_i_A->max_subset.at(0), N_minus_1));
+    // max(M-1, M-2, M-3) simplified → M-1
+    EXPECT_TRUE(symbolic::eq(tile_i_A->max_subset.at(1), M_minus_1));
 
-    // tile_i_A extents and contiguous range
-    auto max_i_A_outer = symbolic::max(symbolic::max(N_minus_1, N_minus_3), N_minus_2);
-    auto max_j_A_outer = symbolic::max(symbolic::max(M_minus_1, M_minus_2), M_minus_3);
-
+    // tile_i_A extents: [(N-1)-0+1 = N, (M-1)-0+1 = M]
     auto tile_i_A_ext = tile_i_A->extents();
     ASSERT_EQ(tile_i_A_ext.size(), 2);
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_A_ext.at(0),
-        symbolic::simplify(symbolic::add(symbolic::sub(max_i_A_outer, symbolic::zero()), symbolic::one()))
-    ));
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_A_ext.at(1),
-        symbolic::simplify(symbolic::add(symbolic::sub(max_j_A_outer, symbolic::zero()), symbolic::one()))
-    ));
+    EXPECT_TRUE(symbolic::eq(tile_i_A_ext.at(0), N));
+    EXPECT_TRUE(symbolic::eq(tile_i_A_ext.at(1), M));
 
+    // contiguous_range: first = 0, last = M*(N-1) + (M-1)
     auto [tile_i_A_first, tile_i_A_last] = tile_i_A->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_A_first, symbolic::zero()));
-    EXPECT_TRUE(symbolic::
-                    eq(tile_i_A_last, symbolic::simplify(symbolic::add(symbolic::mul(M, max_i_A_outer), max_j_A_outer)))
-    );
+    // last = M*(N-1) + (M-1) = MN - 1
+    EXPECT_TRUE(symbolic::eq(tile_i_A_last, symbolic::sub(symbolic::mul(M, N), symbolic::one())));
 
     // Check tile at outer loop for B
     auto* tile_i_B = analysis.tile(outer_loop, "B");
@@ -896,10 +862,9 @@ TEST(MemoryLayoutAnalysisTest, Stencil_2D_5Point) {
 
     auto [tile_i_B_first, tile_i_B_last] = tile_i_B->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_B_first, symbolic::add(M, symbolic::one())));
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_B_last,
-        symbolic::add(symbolic::mul(M, symbolic::sub(N, symbolic::integer(2))), symbolic::sub(M, symbolic::integer(2)))
-    ));
+    // last = M*(N-2) + (M-2) = MN - M - 2
+    EXPECT_TRUE(symbolic::eq(tile_i_B_last, symbolic::sub(symbolic::sub(symbolic::mul(M, N), M), symbolic::integer(2)))
+    );
 }
 
 TEST(MemoryLayoutAnalysisTest, Linearized_2D_TriangularLoop) {
@@ -1003,10 +968,8 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_TriangularLoop) {
 
     auto [tile_i_first, tile_i_last] = tile_i->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_first, symbolic::zero()));
-    EXPECT_TRUE(symbolic::eq(
-        tile_i_last,
-        symbolic::add(symbolic::mul(N, symbolic::sub(N, symbolic::one())), symbolic::sub(N, symbolic::integer(2)))
-    ));
+    // last = N*(N-1) + (N-2) = N² - 2
+    EXPECT_TRUE(symbolic::eq(tile_i_last, symbolic::sub(symbolic::mul(N, N), symbolic::integer(2))));
 }
 
 TEST(MemoryLayoutAnalysisTest, Linearized_2D_TiledLoop) {
@@ -1117,6 +1080,13 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_TiledLoop) {
     EXPECT_TRUE(symbolic::eq(tile_j_ext.at(0), symbolic::one()));
     EXPECT_TRUE(symbolic::eq(tile_j_ext.at(1), symbolic::add(symbolic::sub(min_j_upper, j_tile), symbolic::one())));
 
+    // extents_approx: overapproximate picks j_tile+31 from min(j_tile+31, M-1)
+    // (largest constant offset), so approx extent = j_tile+31 - j_tile + 1 = 32
+    auto tile_j_ext_approx = tile_j->extents_approx();
+    ASSERT_EQ(tile_j_ext_approx.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_j_ext_approx.at(0), symbolic::one()));
+    EXPECT_TRUE(symbolic::eq(tile_j_ext_approx.at(1), tile_size));
+
     auto [tile_j_first, tile_j_last] = tile_j->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_j_first, symbolic::add(symbolic::mul(M, i), j_tile)));
     EXPECT_TRUE(symbolic::eq(tile_j_last, symbolic::add(symbolic::mul(M, i), min_j_upper)));
@@ -1149,6 +1119,12 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_TiledLoop) {
     EXPECT_TRUE(symbolic::eq(tile_i_ext.at(0), symbolic::add(symbolic::sub(min_i_upper, i_tile), symbolic::one())));
     EXPECT_TRUE(symbolic::eq(tile_i_ext.at(1), symbolic::add(symbolic::sub(min_j_upper, j_tile), symbolic::one())));
 
+    // extents_approx: overapproximate picks i_tile+31 and j_tile+31 → [32, 32]
+    auto tile_i_ext_approx = tile_i->extents_approx();
+    ASSERT_EQ(tile_i_ext_approx.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_i_ext_approx.at(0), tile_size));
+    EXPECT_TRUE(symbolic::eq(tile_i_ext_approx.at(1), tile_size));
+
     auto [tile_i_first, tile_i_last] = tile_i->contiguous_range();
     EXPECT_TRUE(symbolic::eq(tile_i_first, symbolic::add(symbolic::mul(M, i_tile), j_tile)));
     EXPECT_TRUE(symbolic::eq(tile_i_last, symbolic::add(symbolic::mul(M, min_i_upper), min_j_upper)));
@@ -1162,6 +1138,170 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_TiledLoop) {
     EXPECT_TRUE(symbolic::eq(tile_jt->min_subset.at(1), symbolic::zero()));
 
     // Check tile at i_tile_loop (outermost): everything resolved
+    auto* tile_it = analysis.tile(i_tile_loop, "A");
+    ASSERT_NE(tile_it, nullptr);
+
+    ASSERT_EQ(tile_it->min_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_it->min_subset.at(0), symbolic::zero()));
+    EXPECT_TRUE(symbolic::eq(tile_it->min_subset.at(1), symbolic::zero()));
+}
+
+TEST(MemoryLayoutAnalysisTest, Linearized_2D_TiledLoop_ColMajor) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar index_type(types::PrimitiveType::Int64);
+    types::Scalar scalar_type(types::PrimitiveType::Float);
+    types::Pointer pointer_type(scalar_type);
+    builder.add_container("N", index_type, true);
+    builder.add_container("M", index_type, true);
+    builder.add_container("i_tile", index_type);
+    builder.add_container("j_tile", index_type);
+    builder.add_container("i", index_type);
+    builder.add_container("j", index_type);
+    builder.add_container("A", pointer_type, true);
+
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+    auto i_tile = symbolic::symbol("i_tile");
+    auto j_tile = symbolic::symbol("j_tile");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto tile_size = symbolic::integer(32);
+
+    // for i_tile in [0, N) step 32
+    auto& i_tile_loop =
+        builder.add_for(root, i_tile, symbolic::Lt(i_tile, N), symbolic::integer(0), symbolic::add(i_tile, tile_size));
+
+    // for j_tile in [0, M) step 32
+    auto& j_tile_loop = builder.add_for(
+        i_tile_loop.root(), j_tile, symbolic::Lt(j_tile, M), symbolic::integer(0), symbolic::add(j_tile, tile_size)
+    );
+
+    // for i in [i_tile, min(i_tile+32, N))
+    auto& i_loop = builder.add_for(
+        j_tile_loop.root(),
+        i,
+        symbolic::And(symbolic::Lt(i, symbolic::add(i_tile, tile_size)), symbolic::Lt(i, N)),
+        i_tile,
+        symbolic::add(i, symbolic::one())
+    );
+
+    // for j in [j_tile, min(j_tile+32, M))
+    auto& j_loop = builder.add_for(
+        i_loop.root(),
+        j,
+        symbolic::And(symbolic::Lt(j, symbolic::add(j_tile, tile_size)), symbolic::Lt(j, M)),
+        j_tile,
+        symbolic::add(j, symbolic::one())
+    );
+
+    // A[j*N + i]  (column-major)
+    auto& block = builder.add_block(j_loop.root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    auto linearized = symbolic::add(symbolic::mul(j, N), i);
+    auto& memlet_in = builder.add_computational_memlet(block, access_in, tasklet, "_in", {linearized});
+    auto& memlet_out = builder.add_computational_memlet(block, tasklet, "_out", access_out, {linearized});
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    auto& analysis = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
+
+    // Check access in body: delinearizes to [j, i] with strides [N, 1]
+    auto result_in = analysis.access(memlet_in);
+    ASSERT_NE(result_in, nullptr);
+
+    ASSERT_EQ(result_in->subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(result_in->subset.at(0), j));
+    EXPECT_TRUE(symbolic::eq(result_in->subset.at(1), i));
+
+    const auto& layout_in = result_in->layout;
+    ASSERT_EQ(layout_in.shape().size(), 2);
+    EXPECT_TRUE(symbolic::eq(layout_in.shape().at(0), symbolic::symbol("__unbounded__")));
+    EXPECT_TRUE(symbolic::eq(layout_in.shape().at(1), N));
+
+    ASSERT_EQ(layout_in.strides().size(), 2);
+    EXPECT_TRUE(symbolic::eq(layout_in.strides().at(0), N));
+    EXPECT_TRUE(symbolic::eq(layout_in.strides().at(1), symbolic::one()));
+
+    // Check tile at j_loop (innermost): j varies, i is constant
+    // Delinearized subset dim0=j, dim1=i
+    // j ranges [j_tile, min(j_tile+31, M-1)], i is constant
+    auto* tile_j = analysis.tile(j_loop, "A");
+    ASSERT_NE(tile_j, nullptr);
+
+    auto min_j_upper =
+        symbolic::min(symbolic::sub(symbolic::add(j_tile, tile_size), symbolic::one()), symbolic::sub(M, symbolic::one()));
+
+    ASSERT_EQ(tile_j->min_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_j->min_subset.at(0), j_tile));
+    EXPECT_TRUE(symbolic::eq(tile_j->min_subset.at(1), i));
+
+    ASSERT_EQ(tile_j->max_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_j->max_subset.at(0), min_j_upper));
+    EXPECT_TRUE(symbolic::eq(tile_j->max_subset.at(1), i));
+
+    // tile_j extents: [min(j_tile+31,M-1)-j_tile+1, 1]
+    auto tile_j_ext = tile_j->extents();
+    ASSERT_EQ(tile_j_ext.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_j_ext.at(0), symbolic::add(symbolic::sub(min_j_upper, j_tile), symbolic::one())));
+    EXPECT_TRUE(symbolic::eq(tile_j_ext.at(1), symbolic::one()));
+
+    // extents_approx: distribute -j_tile into min → min(32, M-j_tile) → pick 32
+    auto tile_j_ext_approx = tile_j->extents_approx();
+    ASSERT_EQ(tile_j_ext_approx.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_j_ext_approx.at(0), tile_size));
+    EXPECT_TRUE(symbolic::eq(tile_j_ext_approx.at(1), symbolic::one()));
+
+    // contiguous_range: first = N*j_tile + i, last = N*min_j_upper + i
+    auto [tile_j_first, tile_j_last] = tile_j->contiguous_range();
+    EXPECT_TRUE(symbolic::eq(tile_j_first, symbolic::add(symbolic::mul(N, j_tile), i)));
+    EXPECT_TRUE(symbolic::eq(tile_j_last, symbolic::add(symbolic::mul(N, min_j_upper), i)));
+
+    // Check tile at i_loop: i varies [i_tile, min(i_tile+31, N-1)]
+    auto* tile_i = analysis.tile(i_loop, "A");
+    ASSERT_NE(tile_i, nullptr);
+
+    auto min_i_upper =
+        symbolic::min(symbolic::sub(symbolic::add(i_tile, tile_size), symbolic::one()), symbolic::sub(N, symbolic::one()));
+
+    ASSERT_EQ(tile_i->min_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_i->min_subset.at(0), j_tile));
+    EXPECT_TRUE(symbolic::eq(tile_i->min_subset.at(1), i_tile));
+
+    ASSERT_EQ(tile_i->max_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_i->max_subset.at(0), min_j_upper));
+    EXPECT_TRUE(symbolic::eq(tile_i->max_subset.at(1), min_i_upper));
+
+    // tile_i extents
+    auto tile_i_ext = tile_i->extents();
+    ASSERT_EQ(tile_i_ext.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_i_ext.at(0), symbolic::add(symbolic::sub(min_j_upper, j_tile), symbolic::one())));
+    EXPECT_TRUE(symbolic::eq(tile_i_ext.at(1), symbolic::add(symbolic::sub(min_i_upper, i_tile), symbolic::one())));
+
+    // extents_approx: [32, 32]
+    auto tile_i_ext_approx = tile_i->extents_approx();
+    ASSERT_EQ(tile_i_ext_approx.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_i_ext_approx.at(0), tile_size));
+    EXPECT_TRUE(symbolic::eq(tile_i_ext_approx.at(1), tile_size));
+
+    // contiguous_range: first = N*j_tile + i_tile, last = N*min_j_upper + min_i_upper
+    auto [tile_i_first, tile_i_last] = tile_i->contiguous_range();
+    EXPECT_TRUE(symbolic::eq(tile_i_first, symbolic::add(symbolic::mul(N, j_tile), i_tile)));
+    EXPECT_TRUE(symbolic::eq(tile_i_last, symbolic::add(symbolic::mul(N, min_j_upper), min_i_upper)));
+
+    // Check tile at j_tile_loop
+    auto* tile_jt = analysis.tile(j_tile_loop, "A");
+    ASSERT_NE(tile_jt, nullptr);
+
+    ASSERT_EQ(tile_jt->min_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(tile_jt->min_subset.at(0), symbolic::zero()));
+    EXPECT_TRUE(symbolic::eq(tile_jt->min_subset.at(1), i_tile));
+
+    // Check tile at i_tile_loop (outermost)
     auto* tile_it = analysis.tile(i_tile_loop, "A");
     ASSERT_NE(tile_it, nullptr);
 
