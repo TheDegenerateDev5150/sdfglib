@@ -40,6 +40,12 @@ struct MemoryTile {
     data_flow::Subset max_subset; // Maximum accessed indices in this tile
     MemoryLayout layout; // Inferred tile layout at this loop level
     bool first_dim_bounded; // True if first dimension is bounded (Tensor/Array), false for unbounded pointers
+
+    /// Per-dimension bounding box extents: max[d] - min[d] + 1
+    symbolic::MultiExpression extents() const;
+
+    /// First and last linear element addresses: offset + sum(stride[d] * idx[d])
+    std::pair<symbolic::Expression, symbolic::Expression> contiguous_range() const;
 };
 
 /**

@@ -366,5 +366,25 @@ const MemoryTile* MemoryLayoutAnalysis::
     return &it->second;
 }
 
+symbolic::MultiExpression MemoryTile::extents() const {
+    symbolic::MultiExpression result;
+    for (size_t d = 0; d < min_subset.size(); ++d) {
+        result.push_back(symbolic::simplify(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one()))
+        );
+    }
+    return result;
+}
+
+std::pair<symbolic::Expression, symbolic::Expression> MemoryTile::contiguous_range() const {
+    auto& strides = layout.strides();
+    auto first = layout.offset();
+    auto last = layout.offset();
+    for (size_t d = 0; d < min_subset.size(); ++d) {
+        first = symbolic::add(first, symbolic::mul(strides[d], min_subset[d]));
+        last = symbolic::add(last, symbolic::mul(strides[d], max_subset[d]));
+    }
+    return {symbolic::simplify(first), symbolic::simplify(last)};
+}
+
 } // namespace analysis
 } // namespace sdfg
