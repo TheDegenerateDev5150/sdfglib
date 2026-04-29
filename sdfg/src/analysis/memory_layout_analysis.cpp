@@ -18,6 +18,30 @@
 namespace sdfg {
 namespace analysis {
 
+namespace {
+// Collect StructuredLoop nodes that are direct children of the given node,
+// stopping at loop boundaries (does not recurse into nested loops).
+void collect_direct_child_loops(
+    structured_control_flow::ControlFlowNode& node, std::set<const structured_control_flow::StructuredLoop*>& result
+) {
+    if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(&node)) {
+        result.insert(loop);
+        return;
+    }
+    if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(&node)) {
+        for (size_t i = 0; i < seq->size(); i++) {
+            collect_direct_child_loops(seq->at(i).first, result);
+        }
+    } else if (auto* ife = dynamic_cast<structured_control_flow::IfElse*>(&node)) {
+        for (size_t i = 0; i < ife->size(); i++) {
+            collect_direct_child_loops(ife->at(i).first, result);
+        }
+    } else if (auto* w = dynamic_cast<structured_control_flow::While*>(&node)) {
+        collect_direct_child_loops(w->root(), result);
+    }
+}
+} // namespace
+
 MemoryLayoutAnalysis::MemoryLayoutAnalysis(StructuredSDFG& sdfg) : Analysis(sdfg) {}
 
 void MemoryLayoutAnalysis::run(analysis::AnalysisManager& analysis_manager) {
@@ -196,14 +220,19 @@ void MemoryLayoutAnalysis::merge_loop_layouts(
         }
     }
 
+    // Find direct child loops of this loop (not grandchildren)
+    std::set<const structured_control_flow::StructuredLoop*> direct_child_loops;
+    collect_direct_child_loops(loop.root(), direct_child_loops);
+
     for (auto& [container, memlets] : all_container_groups) {
         if (memlets.empty()) continue;
 
-        // Find new inner tiles for this container (created by nested loops)
+        // Find inner tiles from direct child loops only
         std::vector<const MemoryTile*> inner_tiles;
         for (auto& [key, tile] : tiles_) {
             if (tiles_before.count(key) > 0) continue;
             if (key.second != container) continue;
+            if (direct_child_loops.count(key.first) == 0) continue;
             inner_tiles.push_back(&tile);
         }
 
