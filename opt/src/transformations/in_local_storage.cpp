@@ -1,13 +1,10 @@
 #include "sdfg/transformations/in_local_storage.h"
 
-#include <cassert>
 #include <cstddef>
 #include <string>
 
-#include "sdfg/analysis/assumptions_analysis.h"
-#include "sdfg/analysis/loop_analysis.h"
+#include "sdfg/analysis/memory_layout_analysis.h"
 #include "sdfg/analysis/scope_analysis.h"
-#include "sdfg/analysis/type_analysis.h"
 #include "sdfg/analysis/users.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/access_node.h"
@@ -17,8 +14,8 @@
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/transformations/utils.h"
 #include "sdfg/types/array.h"
+#include "sdfg/types/pointer.h"
 #include "sdfg/types/scalar.h"
 
 namespace sdfg {
@@ -33,142 +30,58 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
     auto& sdfg = builder.subject();
     auto& body = this->loop_.root();
 
-    // Criterion: Container must exist in the SDFG
+    tile_info_ = TileInfo{};
+
+    // Criterion: Container must exist
     if (!sdfg.exists(this->container_)) {
         return false;
     }
 
-    // Criterion: Container must be an array type
-    auto& container_type = sdfg.type(this->container_);
-    if (container_type.type_id() != types::TypeID::Pointer && container_type.type_id() != types::TypeID::Array) {
+    auto& type = sdfg.type(this->container_);
+
+    // Criterion: Container must be Array or Pointer (not Scalar)
+    if (type.type_id() != types::TypeID::Pointer && type.type_id() != types::TypeID::Array) {
         return false;
     }
 
-    // Criterion: Check if container is used in the loop
+    // Criterion: Container must be used in the loop body
     auto& users = analysis_manager.get<analysis::Users>();
     analysis::UsersView body_users(users, body);
     if (body_users.uses(this->container_).empty()) {
         return false;
     }
 
-    // Criterion: Container must be READ-ONLY within the loop (no writes)
-    // This is what distinguishes InLocalStorage from OutLocalStorage
+    // Criterion: Container must be read-only within the loop (no writes)
     if (!body_users.writes(this->container_).empty()) {
         return false;
     }
 
-    // Criterion: All accesses must have the same dimensionality
-    auto accesses = body_users.uses(this->container_);
-    auto first_access = accesses.at(0);
-    auto first_subsets = first_access->subsets();
-    if (first_subsets.empty()) {
-        return false;
-    }
-    auto& first_subset = first_subsets.at(0);
-    if (first_subset.size() == 0) {
+    // Use MemoryLayoutAnalysis tile API
+    auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
+    auto* tile = mla.tile(loop_, this->container_);
+    if (!tile) {
         return false;
     }
 
-    for (auto* access : accesses) {
-        for (auto& subset : access->subsets()) {
-            if (subset.size() != first_subset.size()) {
-                return false;
-            }
-        }
-    }
-
-    // Store representative subset for later use
-    access_info_.representative_subset = first_subset;
-
-    // Use LoopAnalysis to collect all nested loops within the target loop
-    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
-
-    // Collect all nested loops (descendants of this loop, plus this loop itself)
-    std::vector<structured_control_flow::StructuredLoop*> nested_loops;
-    nested_loops.push_back(&loop_);
-
-    auto descendants = loop_analysis.descendants(&loop_);
-    for (auto* desc : descendants) {
-        if (auto* nested_loop = dynamic_cast<structured_control_flow::StructuredLoop*>(desc)) {
-            nested_loops.push_back(nested_loop);
-        }
-    }
-
-    // Analyze index expressions per dimension
-    // For each dimension, check which nested loop indvars it depends on
-    // and compute buffer size from their iteration counts
-    access_info_.dimensions.clear();
-    access_info_.bases.clear();
-
-    // Track which loops contribute to buffer dimensions
-    bool target_loop_contributes = false;
-    bool descendant_loops_contribute = false;
-
-    bool found_varying_dim = false;
-    for (size_t d = 0; d < first_subset.size(); d++) {
-        auto& index_expr = first_subset.at(d);
-        auto atoms = symbolic::atoms(index_expr);
-
-        // Check if any atom is an induction variable of a nested loop
-        symbolic::Expression dim_size = symbolic::integer(1);
-        symbolic::Expression dim_base = index_expr;
-        bool has_loop_indvar = false;
-
-        for (auto* nested_loop : nested_loops) {
-            auto indvar = nested_loop->indvar();
-
-            // Check if this indvar appears in the index expression
-            bool found = false;
-            for (auto& atom : atoms) {
-                if (symbolic::eq(atom, indvar)) {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (found) {
-                // Get iteration count for this loop
-                auto iter_count = nested_loop->num_iterations();
-                if (iter_count.is_null()) {
-                    return false; // Need known iteration count
-                }
-
-                dim_size = symbolic::mul(dim_size, iter_count);
-
-                // Base: substitute indvar with its initial value
-                dim_base = symbolic::subs(dim_base, indvar, nested_loop->init());
-                has_loop_indvar = true;
-
-                // Track whether target or descendants contribute
-                if (nested_loop == &loop_) {
-                    target_loop_contributes = true;
-                } else {
-                    descendant_loops_contribute = true;
-                }
-            }
-        }
-
-        if (has_loop_indvar) {
-            access_info_.dimensions.push_back(dim_size);
-            access_info_.bases.push_back(dim_base);
-            found_varying_dim = true;
-        } else {
-            // Constant dimension - size 1, base is the expression itself
-            access_info_.dimensions.push_back(symbolic::integer(1));
-            access_info_.bases.push_back(index_expr);
-        }
-    }
-
-    // We need at least one varying dimension to make localization useful
-    if (!found_varying_dim) {
+    // Get overapproximated extents (integer upper bounds)
+    auto extents = tile->extents_approx();
+    if (extents.empty()) {
         return false;
     }
 
-    // Determine copy placement:
-    // - copy_inside_loop = true: only descendants contribute (tiled case, per-iteration)
-    // - copy_inside_loop = false: target loop contributes (simple case, copy once before)
-    //   This includes the case where both target and descendants contribute.
-    access_info_.copy_inside_loop = descendant_loops_contribute && !target_loop_contributes;
+    // Criterion: All extents must be provably integer
+    for (auto& ext : extents) {
+        if (!SymEngine::is_a<SymEngine::Integer>(*ext)) {
+            return false;
+        }
+    }
+
+    // Store tile info
+    tile_info_.dimensions = extents;
+    tile_info_.bases = tile->min_subset;
+    tile_info_.strides =
+        std::vector<symbolic::Expression>(tile->layout.strides().begin(), tile->layout.strides().end());
+    tile_info_.offset = tile->layout.offset();
 
     return true;
 }
@@ -184,153 +97,168 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
         throw InvalidSDFGException("InLocalStorage: Parent of loop must be a Sequence!");
     }
 
-    // Get type information for the original container
+    // Get type information
     auto& type = sdfg.type(this->container_);
     types::Scalar scalar_type(type.primitive_type());
 
     // Create local buffer name
     local_name_ = "__daisy_in_local_storage_" + this->container_;
 
-    // Collect varying dimensions and compute strides for linearization
+    // Collect varying dimensions (extent > 1) and compute buffer layout
     std::vector<size_t> varying_dims;
     std::vector<symbolic::Expression> dim_sizes;
-    for (size_t d = 0; d < access_info_.dimensions.size(); d++) {
-        auto dim_size = access_info_.dimensions.at(d);
+    for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
+        auto& dim_size = tile_info_.dimensions.at(d);
         if (!symbolic::eq(dim_size, symbolic::integer(1))) {
             varying_dims.push_back(d);
             dim_sizes.push_back(dim_size);
         }
     }
 
-    // Compute strides: stride[i] = product of dim_sizes[i+1..]
-    std::vector<symbolic::Expression> strides(varying_dims.size());
+    // Compute total buffer size
     symbolic::Expression total_size = symbolic::integer(1);
-    for (int i = varying_dims.size() - 1; i >= 0; i--) {
-        strides[i] = total_size;
-        total_size = symbolic::mul(total_size, dim_sizes[i]);
+    for (auto& ds : dim_sizes) {
+        total_size = symbolic::mul(total_size, ds);
     }
 
-    // Create the local buffer array
+    // Create the local buffer
     types::Array buffer_type(scalar_type, total_size);
     builder.add_container(local_name_, buffer_type);
 
-    // Get access information from loop body
+    // Helper: build linearized local index from per-dimension indices
+    auto linearize = [&](const std::vector<symbolic::Symbol>& indvars) -> symbolic::Expression {
+        symbolic::Expression linear_idx = symbolic::integer(0);
+        symbolic::Expression stride = symbolic::integer(1);
+        for (int i = indvars.size() - 1; i >= 0; i--) {
+            linear_idx = symbolic::add(linear_idx, symbolic::mul(indvars[i], stride));
+            stride = symbolic::mul(stride, dim_sizes[i]);
+        }
+        return linear_idx;
+    };
+
+    // Helper: build source subset (base[d] + copy_indvar[d]) for original container
+    // For Pointer types: re-linearize to a single expression using layout strides
+    // For Array types: produce multi-dimensional subset
+    bool is_pointer = (type.type_id() == types::TypeID::Pointer);
+    auto build_original_subset = [&](const std::vector<symbolic::Symbol>& copy_indvars) -> data_flow::Subset {
+        std::vector<symbolic::Expression> full_indices;
+        size_t var_idx = 0;
+        for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
+            if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
+                full_indices.push_back(symbolic::add(tile_info_.bases.at(d), copy_indvars.at(var_idx++)));
+            } else {
+                full_indices.push_back(tile_info_.bases.at(d));
+            }
+        }
+
+        if (is_pointer) {
+            // Linearize: offset + sum(stride[d] * index[d])
+            symbolic::Expression linear = tile_info_.offset;
+            for (size_t d = 0; d < full_indices.size(); d++) {
+                linear = symbolic::add(linear, symbolic::mul(tile_info_.strides.at(d), full_indices.at(d)));
+            }
+            return {linear};
+        } else {
+            return data_flow::Subset(full_indices.begin(), full_indices.end());
+        }
+    };
+
+    // ==================================================================
+    // Create COPY-IN loops (copy from container to local) - before target loop
+    // ==================================================================
+    {
+        std::vector<symbolic::Symbol> copy_indvars;
+        structured_control_flow::Sequence* copy_scope = parent;
+        bool first_copy_loop = true;
+
+        for (size_t i = 0; i < varying_dims.size(); i++) {
+            size_t d = varying_dims[i];
+            auto indvar_name = "__daisy_ils_" + this->container_ + "_d" + std::to_string(d);
+            types::Scalar indvar_type(types::PrimitiveType::UInt64);
+            builder.add_container(indvar_name, indvar_type);
+            auto indvar = symbolic::symbol(indvar_name);
+            copy_indvars.push_back(indvar);
+
+            auto init = symbolic::integer(0);
+            auto condition = symbolic::Lt(indvar, dim_sizes[i]);
+            auto update = symbolic::add(indvar, symbolic::integer(1));
+
+            if (first_copy_loop) {
+                auto& copy_loop =
+                    builder.add_for_before(*copy_scope, loop_, indvar, condition, init, update, {}, loop_.debug_info());
+                copy_scope = &copy_loop.root();
+                first_copy_loop = false;
+            } else {
+                auto& copy_loop = builder.add_for(*copy_scope, indvar, condition, init, update, {}, loop_.debug_info());
+                copy_scope = &copy_loop.root();
+            }
+        }
+
+        // Create copy block
+        auto& copy_block = builder.add_block(*copy_scope);
+        auto& copy_src = builder.add_access(copy_block, this->container_);
+        auto& copy_dst = builder.add_access(copy_block, local_name_);
+        auto& copy_tasklet = builder.add_tasklet(copy_block, data_flow::TaskletCode::assign, "_out", {"_in"});
+
+        auto copy_src_subset = build_original_subset(copy_indvars);
+        data_flow::Subset copy_dst_subset = {linearize(copy_indvars)};
+
+        builder.add_computational_memlet(copy_block, copy_src, copy_tasklet, "_in", copy_src_subset, type);
+        builder.add_computational_memlet(copy_block, copy_tasklet, "_out", copy_dst, copy_dst_subset, buffer_type);
+    }
+
+    // ==================================================================
+    // Update accesses in the main loop to use the local buffer
+    // ==================================================================
     analysis::UsersView body_users(users, loop_.root());
-    auto accesses = body_users.uses(this->container_);
-    auto first_access = accesses.at(0);
-    auto& first_subset = access_info_.representative_subset;
+    auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
 
-    // Determine where to insert copy loops based on analysis
-    // - copy_inside_loop == true: insert inside loop_.root() (per-iteration, for tiled case)
-    // - copy_inside_loop == false: insert before loop_ in parent (once, for simple case)
-    structured_control_flow::Sequence* copy_scope;
-    structured_control_flow::ControlFlowNode* insert_before_node;
-
-    if (access_info_.copy_inside_loop) {
-        // Tiled case: insert inside loop, before its children
-        copy_scope = &loop_.root();
-        insert_before_node = (loop_.root().size() > 0) ? &loop_.root().at(0).first : nullptr;
-    } else {
-        // Simple case: insert before loop in its parent
-        copy_scope = parent;
-        insert_before_node = &loop_;
-    }
-
-    std::vector<symbolic::Symbol> copy_indvars;
-    data_flow::Subset local_subset; // Indices for the local buffer
-
-    bool first_copy_loop = true;
-    for (size_t d = 0; d < access_info_.dimensions.size(); d++) {
-        auto dim_size = access_info_.dimensions.at(d);
-
-        // Skip dimensions with size 1 (constant)
-        if (symbolic::eq(dim_size, symbolic::integer(1))) {
-            local_subset.push_back(symbolic::integer(0));
-            continue;
-        }
-
-        // Create loop index variable for this dimension
-        auto indvar_name = "__daisy_ils_" + this->container_ + "_d" + std::to_string(d);
-        types::Scalar indvar_type(types::PrimitiveType::UInt64);
-        builder.add_container(indvar_name, indvar_type);
-        auto indvar = symbolic::symbol(indvar_name);
-        copy_indvars.push_back(indvar);
-
-        // Loop: for indvar = 0; indvar < dim_size; indvar++
-        auto init = symbolic::integer(0);
-        auto condition = symbolic::Lt(indvar, dim_size);
-        auto update = symbolic::add(indvar, symbolic::integer(1));
-
-        if (first_copy_loop && insert_before_node) {
-            // First copy loop: insert before the existing node
-            auto& copy_loop = builder.add_for_before(
-                *copy_scope, *insert_before_node, indvar, condition, init, update, {}, loop_.debug_info()
-            );
-            copy_scope = &copy_loop.root();
-            first_copy_loop = false;
-        } else if (first_copy_loop) {
-            // No existing node to insert before - just add the loop
-            auto& copy_loop = builder.add_for(*copy_scope, indvar, condition, init, update, {}, loop_.debug_info());
-            copy_scope = &copy_loop.root();
-            first_copy_loop = false;
-        } else {
-            // Nested copy loops: add inside the current copy scope
-            auto& copy_loop = builder.add_for(*copy_scope, indvar, condition, init, update, {}, loop_.debug_info());
-            copy_scope = &copy_loop.root();
-        }
-
-        // Index for local buffer is the loop indvar
-        local_subset.push_back(indvar);
-    }
-
-    // Create the copy block in the innermost loop
-    auto& copy_block = builder.add_block(*copy_scope);
-
-    // Build the source subset - substitute index expressions with (base + local_indvar)
-    data_flow::Subset src_subset;
-    size_t indvar_idx = 0;
-    for (size_t d = 0; d < first_subset.size(); d++) {
-        auto dim_size = access_info_.dimensions.at(d);
-        if (symbolic::eq(dim_size, symbolic::integer(1))) {
-            // Constant dimension - use original expression
-            src_subset.push_back(first_subset.at(d));
-        } else {
-            // Varying dimension - base + local_indvar
-            auto base = access_info_.bases.at(d);
-            auto local_indvar = copy_indvars.at(indvar_idx++);
-            src_subset.push_back(symbolic::add(base, local_indvar));
-        }
-    }
-
-    // Read from original container
-    auto& copy_access_src = builder.add_access(copy_block, this->container_);
-    // Write to local buffer
-    auto& copy_access_dst = builder.add_access(copy_block, local_name_);
-    // Tasklet: _out = _in
-    auto& copy_tasklet = builder.add_tasklet(copy_block, data_flow::TaskletCode::assign, "_out", {"_in"});
-
-    // Input memlet: read from original array
-    builder.add_computational_memlet(copy_block, copy_access_src, copy_tasklet, "_in", src_subset, type);
-
-    // Output memlet: write to local buffer
-    builder.add_computational_memlet(copy_block, copy_tasklet, "_out", copy_access_dst, local_subset, buffer_type);
-
-    // Now update all accesses in the main loop body to use the local buffer
-    // Transform the access indices from original form to local indices
     for (auto* user : body_users.uses(this->container_)) {
         auto element = user->element();
         if (auto memlet = dynamic_cast<data_flow::Memlet*>(element)) {
-            auto& old_subset = memlet->subset();
+            // Use MemoryLayoutAnalysis to get the delinearized access
+            auto* access = mla.access(*memlet);
+            if (access && access->subset.size() == tile_info_.dimensions.size()) {
+                // Compute local index: linearize (access[d] - base[d]) for varying dims
+                std::vector<symbolic::Expression> local_indices;
+                for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
+                    if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
+                        local_indices.push_back(symbolic::sub(access->subset.at(d), tile_info_.bases.at(d)));
+                    }
+                }
 
-            // Build new subset: subtract base from each dimension
-            data_flow::Subset new_subset;
-            for (size_t d = 0; d < old_subset.size(); d++) {
-                auto base = access_info_.bases.at(d);
-                // new_index = old_index - base
-                new_subset.push_back(symbolic::sub(old_subset.at(d), base));
+                // Linearize
+                symbolic::Expression linear_idx = symbolic::integer(0);
+                symbolic::Expression stride = symbolic::integer(1);
+                for (int i = local_indices.size() - 1; i >= 0; i--) {
+                    linear_idx = symbolic::add(linear_idx, symbolic::mul(local_indices[i], stride));
+                    stride = symbolic::mul(stride, dim_sizes[i]);
+                }
+
+                memlet->set_subset({linear_idx});
+                memlet->set_base_type(buffer_type);
+            } else {
+                // Fallback: subtract bases from raw subset
+                auto& old_subset = memlet->subset();
+                if (old_subset.size() == tile_info_.dimensions.size()) {
+                    std::vector<symbolic::Expression> local_indices;
+                    for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
+                        if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
+                            local_indices.push_back(symbolic::sub(old_subset.at(d), tile_info_.bases.at(d)));
+                        }
+                    }
+
+                    symbolic::Expression linear_idx = symbolic::integer(0);
+                    symbolic::Expression stride = symbolic::integer(1);
+                    for (int i = local_indices.size() - 1; i >= 0; i--) {
+                        linear_idx = symbolic::add(linear_idx, symbolic::mul(local_indices[i], stride));
+                        stride = symbolic::mul(stride, dim_sizes[i]);
+                    }
+
+                    memlet->set_subset({linear_idx});
+                    memlet->set_base_type(buffer_type);
+                }
             }
-            memlet->set_subset(new_subset);
-            memlet->set_base_type(buffer_type);
         }
     }
 

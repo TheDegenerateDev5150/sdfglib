@@ -164,7 +164,21 @@ void AssumptionsAnalysis::traverse_structured_loop(
             // Helper to infer lower bound for symbols in an expression
             // If expr = coeff * sym + offset and we need expr >= min_ub_value,
             // then sym >= (min_ub_value - offset) / coeff
+            //
+            // Only infer bounds when min_ub_value is purely constant (no non-parameter
+            // symbols). When init is symbolic (e.g., a tile indvar), the derived bounds
+            // reference that symbol (e.g., j_tile0 >= j_tile1-255) and create
+            // unresolvable chains in BoundAnalysis that prevent delinearization.
+            bool min_ub_value_is_clean = true;
+            for (auto& atom : symbolic::atoms(min_ub_value)) {
+                if (!this->parameters_.contains(atom)) {
+                    min_ub_value_is_clean = false;
+                    break;
+                }
+            }
+
             auto infer_symbol_lower_bound = [&](const symbolic::Expression& expr) {
+                if (!min_ub_value_is_clean) return;
                 auto atoms = symbolic::atoms(expr);
                 for (const auto& sym : atoms) {
                     auto bound = symbolic::solve_affine_bound(expr, sym, min_ub_value, true);
