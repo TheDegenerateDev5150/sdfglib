@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "sdfg/analysis/analysis.h"
+#include "sdfg/analysis/memory_layout_analysis.h"
 #include "sdfg/analysis/users.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/access_node.h"
@@ -436,7 +437,7 @@ TEST(BlockingTest, GEMM_Phase2_Packing) {
  *   14. LoopInterchange(k, j_micro): ... → i_micro → j_micro → k → i → j
  *   15. OutLocalStorage(i_micro, "C"): register tile for C[MR×NR]
  */
-TEST(BlockingTest, DISABLED_GEMM_Phase3_RegisterBlocking) {
+TEST(BlockingTest, GEMM_Phase3_RegisterBlocking) {
     GEMMFixture fixture;
     fixture.build();
 
