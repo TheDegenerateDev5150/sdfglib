@@ -1,9 +1,11 @@
 #pragma once
 
 #include "sdfg/data_flow/access_node.h"
+#include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/transformations/transformation.h"
+#include "sdfg/types/type.h"
 
 namespace sdfg {
 namespace transformations {
@@ -64,14 +66,20 @@ private:
     const data_flow::AccessNode& access_node_;
     std::string local_name_; ///< Name of the created local buffer
     TileInfo tile_info_; ///< Populated by can_be_applied
+    types::StorageType storage_type_; ///< Storage type for the local buffer
 
 public:
     /**
      * @brief Construct an out-of-loop storage transformation
      * @param loop The loop to optimize
      * @param access_node The access node to optimize
+     * @param storage_type Storage type for the local buffer (default: CPU_Stack)
      */
-    OutLocalStorage(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node);
+    OutLocalStorage(
+        structured_control_flow::StructuredLoop& loop,
+        const data_flow::AccessNode& access_node,
+        const types::StorageType& storage_type = types::StorageType::CPU_Stack()
+    );
 
     /**
      * @brief Get the name of this transformation

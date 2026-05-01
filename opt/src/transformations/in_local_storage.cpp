@@ -8,12 +8,14 @@
 #include "sdfg/analysis/users.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/access_node.h"
+#include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/data_flow/memlet.h"
 #include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
 #include "sdfg/passes/structured_control_flow/sequence_fusion.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg/targets/gpu/gpu_schedule_type.h"
 #include "sdfg/types/array.h"
 #include "sdfg/types/pointer.h"
 #include "sdfg/types/scalar.h"
@@ -21,8 +23,12 @@
 namespace sdfg {
 namespace transformations {
 
-InLocalStorage::InLocalStorage(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node)
-    : loop_(loop), access_node_(access_node), container_(access_node.data()) {}
+InLocalStorage::InLocalStorage(
+    structured_control_flow::StructuredLoop& loop,
+    const data_flow::AccessNode& access_node,
+    const types::StorageType& storage_type
+)
+    : loop_(loop), access_node_(access_node), container_(access_node.data()), storage_type_(storage_type) {}
 
 std::string InLocalStorage::name() const { return "InLocalStorage"; }
 
@@ -69,19 +75,90 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
         return false;
     }
 
-    // Criterion: All extents must be provably integer
-    for (auto& ext : extents) {
-        if (!SymEngine::is_a<SymEngine::Integer>(*ext)) {
-            return false;
-        }
-    }
-
-    // Store tile info
+    // Store tile info (before substitution, bases/strides stay symbolic)
     tile_info_.dimensions = extents;
     tile_info_.bases = tile->min_subset;
     tile_info_.strides =
         std::vector<symbolic::Expression>(tile->layout.strides().begin(), tile->layout.strides().end());
     tile_info_.offset = tile->layout.offset();
+
+    // GPU shared memory: resolve symbolic extents using GPU block sizes and
+    // require at least one cooperative dimension
+    if (storage_type_.is_nv_shared()) {
+        auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
+        auto ancestors = scope_analysis.ancestor_scopes(&loop_);
+
+        // Build substitution map: symbolic GPU map bounds → integer block sizes
+        // E.g., Map condition "i < N" with block_size=32 → N=32
+        for (auto* node : ancestors) {
+            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+                if (!gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
+                    continue;
+                }
+                auto block_size = gpu::gpu_block_size(ancestor_map->schedule_type());
+                // Extract symbolic bound from condition: Lt(indvar, BOUND)
+                auto condition = ancestor_map->condition();
+                if (SymEngine::is_a<SymEngine::StrictLessThan>(*condition)) {
+                    auto stl = SymEngine::rcp_static_cast<const SymEngine::StrictLessThan>(condition);
+                    auto rhs = stl->get_args()[1];
+                    auto iter_count = symbolic::sub(rhs, ancestor_map->init());
+                    if (!SymEngine::is_a<SymEngine::Integer>(*iter_count)) {
+                        // Symbolic bound — substitute with block size in extents and bases
+                        for (auto& ext : tile_info_.dimensions) {
+                            ext = symbolic::simplify(symbolic::subs(ext, iter_count, block_size));
+                        }
+                        for (auto& base : tile_info_.bases) {
+                            base = symbolic::simplify(symbolic::subs(base, iter_count, block_size));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also resolve the loop's own bound if symbolic and matches a block size
+        // E.g., For k = 0..K where K is a parameter — check if K can be resolved
+        // from any GPU ancestor map
+        // (Already handled above: if K appears as a GPU map bound, it's substituted)
+
+        // Criterion: All extents must now be provably integer
+        for (auto& ext : tile_info_.dimensions) {
+            if (!SymEngine::is_a<SymEngine::Integer>(*ext)) {
+                return false;
+            }
+        }
+
+        // Criterion: At least one cooperative dimension
+        bool has_cooperative_dim = false;
+        for (auto* node : ancestors) {
+            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+                if (!gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
+                    continue;
+                }
+                // A GPU dim is cooperative if its indvar does NOT appear in any tile base
+                bool appears_in_bases = false;
+                for (auto& base : tile_info_.bases) {
+                    if (symbolic::uses(base, ancestor_map->indvar())) {
+                        appears_in_bases = true;
+                        break;
+                    }
+                }
+                if (!appears_in_bases) {
+                    has_cooperative_dim = true;
+                    break;
+                }
+            }
+        }
+        if (!has_cooperative_dim) {
+            return false;
+        }
+    } else {
+        // CPU path: All extents must be provably integer
+        for (auto& ext : tile_info_.dimensions) {
+            if (!SymEngine::is_a<SymEngine::Integer>(*ext)) {
+                return false;
+            }
+        }
+    }
 
     return true;
 }
@@ -121,38 +198,37 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
         total_size = symbolic::mul(total_size, ds);
     }
 
-    // Create the local buffer
-    types::Array buffer_type(scalar_type, total_size);
-    builder.add_container(local_name_, buffer_type);
-
-    // Helper: build linearized local index from per-dimension indices
-    auto linearize = [&](const std::vector<symbolic::Symbol>& indvars) -> symbolic::Expression {
+    // Helper: build linearized local index from per-dimension symbolic expressions
+    auto linearize_exprs = [&](const std::vector<symbolic::Expression>& indices) -> symbolic::Expression {
         symbolic::Expression linear_idx = symbolic::integer(0);
         symbolic::Expression stride = symbolic::integer(1);
-        for (int i = indvars.size() - 1; i >= 0; i--) {
-            linear_idx = symbolic::add(linear_idx, symbolic::mul(indvars[i], stride));
+        for (int i = indices.size() - 1; i >= 0; i--) {
+            linear_idx = symbolic::add(linear_idx, symbolic::mul(indices[i], stride));
             stride = symbolic::mul(stride, dim_sizes[i]);
         }
         return linear_idx;
     };
 
+    // Helper: build linearized local index from per-dimension indvars (symbols)
+    auto linearize = [&](const std::vector<symbolic::Symbol>& indvars) -> symbolic::Expression {
+        std::vector<symbolic::Expression> exprs(indvars.begin(), indvars.end());
+        return linearize_exprs(exprs);
+    };
+
     // Helper: build source subset (base[d] + copy_indvar[d]) for original container
-    // For Pointer types: re-linearize to a single expression using layout strides
-    // For Array types: produce multi-dimensional subset
     bool is_pointer = (type.type_id() == types::TypeID::Pointer);
-    auto build_original_subset = [&](const std::vector<symbolic::Symbol>& copy_indvars) -> data_flow::Subset {
+    auto build_original_subset = [&](const std::vector<symbolic::Expression>& copy_indices) -> data_flow::Subset {
         std::vector<symbolic::Expression> full_indices;
         size_t var_idx = 0;
         for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
             if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
-                full_indices.push_back(symbolic::add(tile_info_.bases.at(d), copy_indvars.at(var_idx++)));
+                full_indices.push_back(symbolic::add(tile_info_.bases.at(d), copy_indices.at(var_idx++)));
             } else {
                 full_indices.push_back(tile_info_.bases.at(d));
             }
         }
 
         if (is_pointer) {
-            // Linearize: offset + sum(stride[d] * index[d])
             symbolic::Expression linear = tile_info_.offset;
             for (size_t d = 0; d < full_indices.size(); d++) {
                 linear = symbolic::add(linear, symbolic::mul(tile_info_.strides.at(d), full_indices.at(d)));
@@ -164,9 +240,135 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
     };
 
     // ==================================================================
-    // Create COPY-IN loops (copy from container to local) - before target loop
+    // Branch: GPU cooperative path vs CPU sequential path
     // ==================================================================
-    {
+    if (storage_type_.is_nv_shared()) {
+        // ============================================================
+        // GPU COOPERATIVE PATH
+        // ============================================================
+        auto ancestors = scope_analysis.ancestor_scopes(&loop_);
+
+        // Collect cooperative GPU dimensions (indvar not in tile bases)
+        struct CoopDim {
+            symbolic::Symbol indvar;
+            symbolic::Integer block_size;
+            gpu::GPUDimension dimension;
+        };
+        std::vector<CoopDim> coop_dims;
+
+        for (auto* node : ancestors) {
+            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+                if (!gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
+                    continue;
+                }
+                bool appears_in_bases = false;
+                for (auto& base : tile_info_.bases) {
+                    if (symbolic::uses(base, ancestor_map->indvar())) {
+                        appears_in_bases = true;
+                        break;
+                    }
+                }
+                if (!appears_in_bases) {
+                    coop_dims.push_back(
+                        {ancestor_map->indvar(),
+                         gpu::gpu_block_size(ancestor_map->schedule_type()),
+                         gpu::gpu_dimension(ancestor_map->schedule_type())}
+                    );
+                }
+            }
+        }
+
+        // Compute total cooperative thread count
+        symbolic::Expression total_coop_threads = symbolic::integer(1);
+        for (auto& cd : coop_dims) {
+            total_coop_threads = symbolic::mul(total_coop_threads, cd.block_size);
+        }
+
+        // Create the local buffer with NV_Shared storage
+        types::Array buffer_type(storage_type_, 0, {}, scalar_type, total_size);
+        builder.add_container(local_name_, buffer_type);
+
+        // Emit: barrier → guarded cooperative copy → barrier → loop
+        // 1. Barrier before copy
+        auto& barrier_block1 = builder.add_block_before(*parent, loop_, {}, loop_.debug_info());
+        builder.add_library_node<data_flow::BarrierLocalNode>(barrier_block1, {});
+
+        // 2. Cooperative copy with if_else guard
+        // Flatten cooperative thread index: coop_flat = sum(indvar[i] * product(block_size[j] for j>i))
+        symbolic::Expression coop_flat = symbolic::integer(0);
+        symbolic::Expression coop_stride = symbolic::integer(1);
+        for (int i = coop_dims.size() - 1; i >= 0; i--) {
+            coop_flat = symbolic::add(coop_flat, symbolic::mul(coop_dims[i].indvar, coop_stride));
+            coop_stride = symbolic::mul(coop_stride, coop_dims[i].block_size);
+        }
+
+        // Each thread loads elements strided by total_coop_threads
+        // Thread t loads elements: t, t + total_threads, t + 2*total_threads, ...
+        // We emit a loop: for (idx = coop_flat; idx < total_size; idx += total_coop_threads)
+        auto idx_name = "__daisy_ils_coop_" + this->container_;
+        types::Scalar idx_type(types::PrimitiveType::UInt64);
+        builder.add_container(idx_name, idx_type);
+        auto idx_var = symbolic::symbol(idx_name);
+
+        auto copy_init = coop_flat;
+        auto copy_condition = symbolic::Lt(idx_var, total_size);
+        auto copy_update = symbolic::add(idx_var, total_coop_threads);
+
+        auto& copy_loop = builder.add_map_before(
+            *parent,
+            loop_,
+            idx_var,
+            copy_condition,
+            copy_init,
+            copy_update,
+            structured_control_flow::ScheduleType_Sequential::create(),
+            {},
+            loop_.debug_info()
+        );
+
+        // Decompose flat idx back into per-dimension indices for source subset
+        // idx maps to varying_dims in row-major order
+        auto& copy_scope = copy_loop.root();
+        auto& copy_block = builder.add_block(copy_scope);
+        auto& copy_src = builder.add_access(copy_block, this->container_);
+        auto& copy_dst = builder.add_access(copy_block, local_name_);
+        auto& copy_tasklet = builder.add_tasklet(copy_block, data_flow::TaskletCode::assign, "_out", {"_in"});
+
+        // Decompose idx_var into per-dim indices
+        std::vector<symbolic::Expression> copy_indices;
+        symbolic::Expression remainder = idx_var;
+        for (size_t i = 0; i < dim_sizes.size(); i++) {
+            if (i < dim_sizes.size() - 1) {
+                // integer division: idx / (product of remaining dims)
+                symbolic::Expression divisor = symbolic::integer(1);
+                for (size_t j = i + 1; j < dim_sizes.size(); j++) {
+                    divisor = symbolic::mul(divisor, dim_sizes[j]);
+                }
+                auto quotient = symbolic::div(remainder, divisor);
+                copy_indices.push_back(quotient);
+                remainder = symbolic::mod(remainder, divisor);
+            } else {
+                copy_indices.push_back(remainder);
+            }
+        }
+
+        auto copy_src_subset = build_original_subset(copy_indices);
+        data_flow::Subset copy_dst_subset = {idx_var};
+
+        builder.add_computational_memlet(copy_block, copy_src, copy_tasklet, "_in", copy_src_subset, type);
+        builder.add_computational_memlet(copy_block, copy_tasklet, "_out", copy_dst, copy_dst_subset, buffer_type);
+
+        // 3. Barrier after copy
+        auto& barrier_block2 = builder.add_block_before(*parent, loop_, {}, loop_.debug_info());
+        builder.add_library_node<data_flow::BarrierLocalNode>(barrier_block2, {});
+    } else {
+        // ============================================================
+        // CPU SEQUENTIAL PATH
+        // ============================================================
+        // Create the local buffer with specified storage type
+        types::Array buffer_type(storage_type_, 0, {}, scalar_type, total_size);
+        builder.add_container(local_name_, buffer_type);
+
         std::vector<symbolic::Symbol> copy_indvars;
         structured_control_flow::Sequence* copy_scope = parent;
         bool first_copy_loop = true;
@@ -184,12 +386,30 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
             auto update = symbolic::add(indvar, symbolic::integer(1));
 
             if (first_copy_loop) {
-                auto& copy_loop =
-                    builder.add_for_before(*copy_scope, loop_, indvar, condition, init, update, {}, loop_.debug_info());
+                auto& copy_loop = builder.add_map_before(
+                    *copy_scope,
+                    loop_,
+                    indvar,
+                    condition,
+                    init,
+                    update,
+                    structured_control_flow::ScheduleType_Sequential::create(),
+                    {},
+                    loop_.debug_info()
+                );
                 copy_scope = &copy_loop.root();
                 first_copy_loop = false;
             } else {
-                auto& copy_loop = builder.add_for(*copy_scope, indvar, condition, init, update, {}, loop_.debug_info());
+                auto& copy_loop = builder.add_map(
+                    *copy_scope,
+                    indvar,
+                    condition,
+                    init,
+                    update,
+                    structured_control_flow::ScheduleType_Sequential::create(),
+                    {},
+                    loop_.debug_info()
+                );
                 copy_scope = &copy_loop.root();
             }
         }
@@ -200,26 +420,27 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
         auto& copy_dst = builder.add_access(copy_block, local_name_);
         auto& copy_tasklet = builder.add_tasklet(copy_block, data_flow::TaskletCode::assign, "_out", {"_in"});
 
-        auto copy_src_subset = build_original_subset(copy_indvars);
+        std::vector<symbolic::Expression> copy_exprs(copy_indvars.begin(), copy_indvars.end());
+        auto copy_src_subset = build_original_subset(copy_exprs);
         data_flow::Subset copy_dst_subset = {linearize(copy_indvars)};
 
         builder.add_computational_memlet(copy_block, copy_src, copy_tasklet, "_in", copy_src_subset, type);
-        builder.add_computational_memlet(copy_block, copy_tasklet, "_out", copy_dst, copy_dst_subset, buffer_type);
+        types::Array buffer_type_ref(storage_type_, 0, {}, scalar_type, total_size);
+        builder.add_computational_memlet(copy_block, copy_tasklet, "_out", copy_dst, copy_dst_subset, buffer_type_ref);
     }
 
     // ==================================================================
     // Update accesses in the main loop to use the local buffer
     // ==================================================================
+    types::Array buffer_type(storage_type_, 0, {}, scalar_type, total_size);
     analysis::UsersView body_users(users, loop_.root());
     auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
 
     for (auto* user : body_users.uses(this->container_)) {
         auto element = user->element();
         if (auto memlet = dynamic_cast<data_flow::Memlet*>(element)) {
-            // Use MemoryLayoutAnalysis to get the delinearized access
             auto* access = mla.access(*memlet);
             if (access && access->subset.size() == tile_info_.dimensions.size()) {
-                // Compute local index: linearize (access[d] - base[d]) for varying dims
                 std::vector<symbolic::Expression> local_indices;
                 for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
                     if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
@@ -227,18 +448,10 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
                     }
                 }
 
-                // Linearize
-                symbolic::Expression linear_idx = symbolic::integer(0);
-                symbolic::Expression stride = symbolic::integer(1);
-                for (int i = local_indices.size() - 1; i >= 0; i--) {
-                    linear_idx = symbolic::add(linear_idx, symbolic::mul(local_indices[i], stride));
-                    stride = symbolic::mul(stride, dim_sizes[i]);
-                }
-
+                symbolic::Expression linear_idx = linearize_exprs(local_indices);
                 memlet->set_subset({linear_idx});
                 memlet->set_base_type(buffer_type);
             } else {
-                // Fallback: subtract bases from raw subset
                 auto& old_subset = memlet->subset();
                 if (old_subset.size() == tile_info_.dimensions.size()) {
                     std::vector<symbolic::Expression> local_indices;
@@ -248,13 +461,7 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
                         }
                     }
 
-                    symbolic::Expression linear_idx = symbolic::integer(0);
-                    symbolic::Expression stride = symbolic::integer(1);
-                    for (int i = local_indices.size() - 1; i >= 0; i--) {
-                        linear_idx = symbolic::add(linear_idx, symbolic::mul(local_indices[i], stride));
-                        stride = symbolic::mul(stride, dim_sizes[i]);
-                    }
-
+                    symbolic::Expression linear_idx = linearize_exprs(local_indices);
                     memlet->set_subset({linear_idx});
                     memlet->set_base_type(buffer_type);
                 }
