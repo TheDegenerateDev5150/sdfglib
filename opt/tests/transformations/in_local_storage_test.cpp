@@ -494,6 +494,32 @@ TEST(InLocalStorage, TiledAccess_2D) {
         // Second: compute loop (i_loop preserved)
         auto* compute_loop = dynamic_cast<structured_control_flow::For*>(&j_tile_body.at(1).first);
         EXPECT_NE(compute_loop, nullptr);
+
+        // Verify the compute memlet uses LOCAL indices: (i-i_tile)*NC + (j-j_tile)
+        auto& compute_i_body = compute_loop->root();
+        EXPECT_GE(compute_i_body.size(), 1u);
+        auto* compute_j_loop = dynamic_cast<structured_control_flow::For*>(&compute_i_body.at(0).first);
+        EXPECT_NE(compute_j_loop, nullptr);
+        auto& compute_j_body = compute_j_loop->root();
+        EXPECT_EQ(compute_j_body.size(), 1u);
+        auto* compute_block = dynamic_cast<structured_control_flow::Block*>(&compute_j_body.at(0).first);
+        EXPECT_NE(compute_block, nullptr);
+
+        bool found_local_access = false;
+        for (auto* node : compute_block->dataflow().data_nodes()) {
+            if (node->data() == "__daisy_in_local_storage_A") {
+                found_local_access = true;
+                for (auto& memlet : compute_block->dataflow().out_edges(*node)) {
+                    auto& subset = memlet.subset();
+                    EXPECT_EQ(subset.size(), 1u);
+                    // Expected: (i - i_tile) * NC + (j - j_tile)
+                    auto expected =
+                        symbolic::add(symbolic::mul(symbolic::sub(i, i_tile), NC), symbolic::sub(j, j_tile));
+                    EXPECT_TRUE(symbolic::eq(subset.at(0), expected));
+                }
+            }
+        }
+        EXPECT_TRUE(found_local_access);
     }
 }
 
@@ -711,6 +737,32 @@ TEST(InLocalStorage, TiledAccess_2D_Panel) {
         EXPECT_NE(copy_inner, nullptr);
         EXPECT_TRUE(symbolic::eq(copy_inner->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(copy_inner->condition(), symbolic::Lt(copy_inner->indvar(), KC)));
+
+        // Verify the compute memlet uses LOCAL indices: (i-i_tile)*KC + (k-k_tile)
+        auto& compute_i_body = i_loop.root();
+        EXPECT_GE(compute_i_body.size(), 1u);
+        auto* compute_k_loop = dynamic_cast<structured_control_flow::For*>(&compute_i_body.at(0).first);
+        EXPECT_NE(compute_k_loop, nullptr);
+        auto& compute_k_body = compute_k_loop->root();
+        EXPECT_EQ(compute_k_body.size(), 1u);
+        auto* compute_block = dynamic_cast<structured_control_flow::Block*>(&compute_k_body.at(0).first);
+        EXPECT_NE(compute_block, nullptr);
+
+        bool found_local_access = false;
+        for (auto* node : compute_block->dataflow().data_nodes()) {
+            if (node->data() == "__daisy_in_local_storage_A") {
+                found_local_access = true;
+                for (auto& memlet : compute_block->dataflow().out_edges(*node)) {
+                    auto& subset = memlet.subset();
+                    EXPECT_EQ(subset.size(), 1u);
+                    // Expected: (i - i_tile) * KC + (k - k_tile)
+                    auto expected =
+                        symbolic::add(symbolic::mul(symbolic::sub(i, i_tile), KC), symbolic::sub(k, k_tile));
+                    EXPECT_TRUE(symbolic::eq(subset.at(0), expected));
+                }
+            }
+        }
+        EXPECT_TRUE(found_local_access);
     }
 }
 
@@ -1429,4 +1481,24 @@ TEST(InLocalStorage, CPU_FlatPointer_Linearized) {
 
     auto* main_loop = dynamic_cast<structured_control_flow::For*>(&outer_body.at(1).first);
     EXPECT_NE(main_loop, nullptr);
+
+    // Verify the compute memlet uses LOCAL indices (k, zero-based)
+    auto& main_body = main_loop->root();
+    EXPECT_EQ(main_body.size(), 1u);
+    auto* compute_block = dynamic_cast<structured_control_flow::Block*>(&main_body.at(0).first);
+    EXPECT_NE(compute_block, nullptr);
+
+    bool found_local_access = false;
+    for (auto* node : compute_block->dataflow().data_nodes()) {
+        if (node->data() == "__daisy_in_local_storage_A") {
+            found_local_access = true;
+            for (auto& memlet : compute_block->dataflow().out_edges(*node)) {
+                // After ILS, the subset should be {k} (local index, zero-based)
+                auto& subset = memlet.subset();
+                EXPECT_EQ(subset.size(), 1u);
+                EXPECT_TRUE(symbolic::eq(subset.at(0), k));
+            }
+        }
+    }
+    EXPECT_TRUE(found_local_access);
 }
