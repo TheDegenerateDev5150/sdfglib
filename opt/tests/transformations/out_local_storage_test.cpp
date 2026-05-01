@@ -870,6 +870,40 @@ TEST(OutLocalStorage, TiledAccumulator_2D) {
         EXPECT_NE(wb_loop, nullptr);
         EXPECT_TRUE(symbolic::eq(wb_loop->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(wb_loop->condition(), symbolic::Lt(wb_loop->indvar(), MC)));
+
+        // Verify the compute memlet uses LOCAL indices: (i-i_tile)*KC + (k-k_tile)
+        auto& compute_i_body = compute_loop->root();
+        EXPECT_GE(compute_i_body.size(), 1u);
+        auto* compute_k_loop = dynamic_cast<structured_control_flow::For*>(&compute_i_body.at(0).first);
+        EXPECT_NE(compute_k_loop, nullptr);
+        auto& compute_k_body = compute_k_loop->root();
+        EXPECT_EQ(compute_k_body.size(), 1u);
+        auto* compute_block = dynamic_cast<structured_control_flow::Block*>(&compute_k_body.at(0).first);
+        EXPECT_NE(compute_block, nullptr);
+
+        bool found_local_read = false;
+        bool found_local_write = false;
+        for (auto* node : compute_block->dataflow().data_nodes()) {
+            if (node->data() == "__daisy_out_local_storage_C") {
+                auto expected = symbolic::add(symbolic::mul(symbolic::sub(i, i_tile), KC), symbolic::sub(k, k_tile));
+                // Check outgoing memlets (reads from this access node)
+                for (auto& memlet : compute_block->dataflow().out_edges(*node)) {
+                    found_local_read = true;
+                    auto& subset = memlet.subset();
+                    EXPECT_EQ(subset.size(), 1u);
+                    EXPECT_TRUE(symbolic::eq(subset.at(0), expected));
+                }
+                // Check incoming memlets (writes to this access node)
+                for (auto& memlet : compute_block->dataflow().in_edges(*node)) {
+                    found_local_write = true;
+                    auto& subset = memlet.subset();
+                    EXPECT_EQ(subset.size(), 1u);
+                    EXPECT_TRUE(symbolic::eq(subset.at(0), expected));
+                }
+            }
+        }
+        EXPECT_TRUE(found_local_read);
+        EXPECT_TRUE(found_local_write);
     }
 }
 
@@ -1702,4 +1736,25 @@ TEST(OutLocalStorage, CPU_FlatPointer_Linearized) {
     EXPECT_NE(wb_map, nullptr);
     EXPECT_TRUE(symbolic::eq(wb_map->init(), symbolic::integer(0)));
     EXPECT_TRUE(symbolic::eq(wb_map->condition(), symbolic::Lt(wb_map->indvar(), symbolic::integer(16))));
+
+    // Verify the compute memlet uses LOCAL indices (k, zero-based)
+    auto& main_body = main_loop->root();
+    EXPECT_EQ(main_body.size(), 1u);
+    auto* compute_block = dynamic_cast<structured_control_flow::Block*>(&main_body.at(0).first);
+    EXPECT_NE(compute_block, nullptr);
+
+    bool found_local_access = false;
+    for (auto* node : compute_block->dataflow().data_nodes()) {
+        if (node->data() == "__daisy_out_local_storage_C") {
+            // Check incoming memlets (writes to this access node)
+            for (auto& memlet : compute_block->dataflow().in_edges(*node)) {
+                found_local_access = true;
+                // After OLS, the subset should be {k} (local index, zero-based)
+                auto& subset = memlet.subset();
+                EXPECT_EQ(subset.size(), 1u);
+                EXPECT_TRUE(symbolic::eq(subset.at(0), k));
+            }
+        }
+    }
+    EXPECT_TRUE(found_local_access);
 }

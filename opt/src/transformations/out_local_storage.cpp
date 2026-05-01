@@ -1,6 +1,7 @@
 #include "sdfg/transformations/out_local_storage.h"
 
 #include <cstddef>
+#include <functional>
 #include <string>
 
 #include "sdfg/analysis/memory_layout_analysis.h"
@@ -12,6 +13,7 @@
 #include "sdfg/data_flow/memlet.h"
 #include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
 #include "sdfg/passes/structured_control_flow/sequence_fusion.h"
+#include "sdfg/structured_control_flow/if_else.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/symbolic.h"
@@ -587,44 +589,61 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
         // ==================================================================
         // Update accesses in the main loop to use the local buffer
         // ==================================================================
-        analysis::UsersView body_users(users, loop_.root());
         auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
 
-        for (auto* user : body_users.uses(this->container_)) {
-            auto element = user->element();
-            if (auto memlet = dynamic_cast<data_flow::Memlet*>(element)) {
-                auto* access = mla.access(*memlet);
-                if (access && access->subset.size() == tile_info_.dimensions.size()) {
-                    std::vector<symbolic::Expression> local_indices;
-                    for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
-                        if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
-                            local_indices.push_back(symbolic::sub(access->subset.at(d), tile_info_.bases.at(d)));
-                        }
-                    }
-
-                    symbolic::Expression linear_idx = linearize_exprs(local_indices);
-                    memlet->set_subset({linear_idx});
-                    memlet->set_base_type(buffer_type);
-                } else {
-                    auto& old_subset = memlet->subset();
-                    if (old_subset.size() == tile_info_.dimensions.size()) {
-                        std::vector<symbolic::Expression> local_indices;
-                        for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
-                            if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
-                                local_indices.push_back(symbolic::sub(old_subset.at(d), tile_info_.bases.at(d)));
+        // Recursive helper to traverse all blocks in the loop body
+        std::function<void(structured_control_flow::ControlFlowNode&)> rewrite_accesses;
+        rewrite_accesses = [&](structured_control_flow::ControlFlowNode& node) {
+            if (auto* block = dynamic_cast<structured_control_flow::Block*>(&node)) {
+                auto& dfg = block->dataflow();
+                for (auto* access : dfg.data_nodes()) {
+                    if (access->data() != this->container_) continue;
+                    // Rewrite outgoing memlets (reads from this access node)
+                    for (auto& memlet : dfg.out_edges(*access)) {
+                        auto* acc = mla.access(memlet);
+                        if (acc && acc->subset.size() == tile_info_.dimensions.size()) {
+                            std::vector<symbolic::Expression> local_indices;
+                            for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
+                                if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
+                                    local_indices.push_back(symbolic::sub(acc->subset.at(d), tile_info_.bases.at(d)));
+                                }
                             }
+                            symbolic::Expression linear_idx = linearize_exprs(local_indices);
+                            memlet.set_subset({linear_idx});
+                            memlet.set_base_type(buffer_type);
                         }
-
-                        symbolic::Expression linear_idx = linearize_exprs(local_indices);
-                        memlet->set_subset({linear_idx});
-                        memlet->set_base_type(buffer_type);
                     }
+                    // Rewrite incoming memlets (writes to this access node)
+                    for (auto& memlet : dfg.in_edges(*access)) {
+                        auto* acc = mla.access(memlet);
+                        if (acc && acc->subset.size() == tile_info_.dimensions.size()) {
+                            std::vector<symbolic::Expression> local_indices;
+                            for (size_t d = 0; d < tile_info_.dimensions.size(); d++) {
+                                if (!symbolic::eq(tile_info_.dimensions.at(d), symbolic::integer(1))) {
+                                    local_indices.push_back(symbolic::sub(acc->subset.at(d), tile_info_.bases.at(d)));
+                                }
+                            }
+                            symbolic::Expression linear_idx = linearize_exprs(local_indices);
+                            memlet.set_subset({linear_idx});
+                            memlet.set_base_type(buffer_type);
+                        }
+                    }
+                    // Rename the access node to the local buffer
+                    access->data(local_name_);
+                }
+            } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(&node)) {
+                for (size_t i = 0; i < seq->size(); i++) {
+                    rewrite_accesses(seq->at(i).first);
+                }
+            } else if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(&node)) {
+                rewrite_accesses(loop->root());
+            } else if (auto* if_else = dynamic_cast<structured_control_flow::IfElse*>(&node)) {
+                for (size_t i = 0; i < if_else->size(); i++) {
+                    rewrite_accesses(if_else->at(i).first);
                 }
             }
-        }
-
-        // Replace container name in the loop body
-        loop_.replace(symbolic::symbol(this->container_), symbolic::symbol(local_name_));
+        };
+        rewrite_accesses(loop_.root());
     }
 
     // Cleanup
