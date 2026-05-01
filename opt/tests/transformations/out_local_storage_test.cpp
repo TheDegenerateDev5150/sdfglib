@@ -5,10 +5,16 @@
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/access_node.h"
+#include "sdfg/data_flow/library_node.h"
+#include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/for.h"
+#include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg/targets/cuda/cuda.h"
+#include "sdfg/targets/gpu/gpu_schedule_type.h"
+#include "sdfg/types/array.h"
 #include "sdfg/types/pointer.h"
 
 using namespace sdfg;
@@ -202,7 +208,7 @@ TEST(OutLocalStorage, Array) {
     EXPECT_EQ(new_root.size(), 3);
 
     // Init loop: copy C to C_local
-    auto init_for = dynamic_cast<structured_control_flow::For*>(&new_root.at(0).first);
+    auto init_for = dynamic_cast<structured_control_flow::Map*>(&new_root.at(0).first);
     EXPECT_NE(init_for, nullptr);
     EXPECT_TRUE(symbolic::eq(init_for->init(), symbolic::integer(0)));
     EXPECT_TRUE(symbolic::eq(init_for->condition(), symbolic::Lt(init_for->indvar(), symbolic::integer(100))));
@@ -244,7 +250,7 @@ TEST(OutLocalStorage, Array) {
     EXPECT_EQ(accesses, 2);
 
     // Writeback loop: copy C_local back to C
-    auto wb_for = dynamic_cast<structured_control_flow::For*>(&new_root.at(2).first);
+    auto wb_for = dynamic_cast<structured_control_flow::Map*>(&new_root.at(2).first);
     EXPECT_NE(wb_for, nullptr);
     EXPECT_TRUE(symbolic::eq(wb_for->init(), symbolic::integer(0)));
     EXPECT_TRUE(symbolic::eq(wb_for->condition(), symbolic::Lt(wb_for->indvar(), symbolic::integer(100))));
@@ -391,7 +397,7 @@ TEST(OutLocalStorage, InnerLoopAccumulator) {
     auto& new_root = builder_opt.subject().root();
     EXPECT_EQ(new_root.size(), 3);
 
-    auto* init_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(0).first);
+    auto* init_loop = dynamic_cast<structured_control_flow::Map*>(&new_root.at(0).first);
     EXPECT_NE(init_loop, nullptr);
     // Init loop should iterate 0..8
     EXPECT_TRUE(symbolic::eq(init_loop->init(), symbolic::integer(0)));
@@ -400,7 +406,7 @@ TEST(OutLocalStorage, InnerLoopAccumulator) {
     auto* compute_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(1).first);
     EXPECT_NE(compute_loop, nullptr);
 
-    auto* wb_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(2).first);
+    auto* wb_loop = dynamic_cast<structured_control_flow::Map*>(&new_root.at(2).first);
     EXPECT_NE(wb_loop, nullptr);
     // Writeback loop should iterate 0..8
     EXPECT_TRUE(symbolic::eq(wb_loop->init(), symbolic::integer(0)));
@@ -502,7 +508,7 @@ TEST(OutLocalStorage, WriteOnly) {
     auto* compute_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(0).first);
     EXPECT_NE(compute_loop, nullptr);
 
-    auto* wb_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(1).first);
+    auto* wb_loop = dynamic_cast<structured_control_flow::Map*>(&new_root.at(1).first);
     EXPECT_NE(wb_loop, nullptr);
     EXPECT_TRUE(symbolic::eq(wb_loop->init(), symbolic::integer(0)));
     EXPECT_TRUE(symbolic::eq(wb_loop->condition(), symbolic::Lt(wb_loop->indvar(), symbolic::integer(8))));
@@ -701,7 +707,7 @@ TEST(OutLocalStorage, FlatPointer_Linearized2D) {
     EXPECT_EQ(new_root.size(), 3);
 
     // Init should be a for loop (first dimension)
-    auto* init_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(0).first);
+    auto* init_loop = dynamic_cast<structured_control_flow::Map*>(&new_root.at(0).first);
     EXPECT_NE(init_loop, nullptr);
     // Should iterate 0..4 (first dim extent)
     EXPECT_TRUE(symbolic::eq(init_loop->init(), symbolic::integer(0)));
@@ -710,7 +716,7 @@ TEST(OutLocalStorage, FlatPointer_Linearized2D) {
     // Init loop should contain nested loop for second dimension
     auto& init_body = init_loop->root();
     EXPECT_EQ(init_body.size(), 1);
-    auto* inner_init = dynamic_cast<structured_control_flow::For*>(&init_body.at(0).first);
+    auto* inner_init = dynamic_cast<structured_control_flow::Map*>(&init_body.at(0).first);
     EXPECT_NE(inner_init, nullptr);
     EXPECT_TRUE(symbolic::eq(inner_init->init(), symbolic::integer(0)));
     EXPECT_TRUE(symbolic::eq(inner_init->condition(), symbolic::Lt(inner_init->indvar(), symbolic::integer(8))));
@@ -720,7 +726,7 @@ TEST(OutLocalStorage, FlatPointer_Linearized2D) {
     EXPECT_NE(compute_loop, nullptr);
 
     // Writeback should be a for loop
-    auto* wb_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(2).first);
+    auto* wb_loop = dynamic_cast<structured_control_flow::Map*>(&new_root.at(2).first);
     EXPECT_NE(wb_loop, nullptr);
     EXPECT_TRUE(symbolic::eq(wb_loop->init(), symbolic::integer(0)));
     EXPECT_TRUE(symbolic::eq(wb_loop->condition(), symbolic::Lt(wb_loop->indvar(), symbolic::integer(4))));
@@ -842,7 +848,7 @@ TEST(OutLocalStorage, TiledAccumulator_2D) {
         EXPECT_EQ(k_tile_body.size(), 3);
 
         // Init: nested for loops (MC x KC)
-        auto* init_loop = dynamic_cast<structured_control_flow::For*>(&k_tile_body.at(0).first);
+        auto* init_loop = dynamic_cast<structured_control_flow::Map*>(&k_tile_body.at(0).first);
         EXPECT_NE(init_loop, nullptr);
         EXPECT_TRUE(symbolic::eq(init_loop->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(init_loop->condition(), symbolic::Lt(init_loop->indvar(), MC)));
@@ -850,7 +856,7 @@ TEST(OutLocalStorage, TiledAccumulator_2D) {
         // Check nested second dimension
         auto& init_inner_body = init_loop->root();
         EXPECT_EQ(init_inner_body.size(), 1);
-        auto* init_inner = dynamic_cast<structured_control_flow::For*>(&init_inner_body.at(0).first);
+        auto* init_inner = dynamic_cast<structured_control_flow::Map*>(&init_inner_body.at(0).first);
         EXPECT_NE(init_inner, nullptr);
         EXPECT_TRUE(symbolic::eq(init_inner->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(init_inner->condition(), symbolic::Lt(init_inner->indvar(), KC)));
@@ -860,7 +866,7 @@ TEST(OutLocalStorage, TiledAccumulator_2D) {
         EXPECT_NE(compute_loop, nullptr);
 
         // Writeback: nested for loops (MC x KC)
-        auto* wb_loop = dynamic_cast<structured_control_flow::For*>(&k_tile_body.at(2).first);
+        auto* wb_loop = dynamic_cast<structured_control_flow::Map*>(&k_tile_body.at(2).first);
         EXPECT_NE(wb_loop, nullptr);
         EXPECT_TRUE(symbolic::eq(wb_loop->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(wb_loop->condition(), symbolic::Lt(wb_loop->indvar(), MC)));
@@ -951,7 +957,7 @@ TEST(OutLocalStorage, TiledWriteOnly_1D) {
         EXPECT_NE(compute_loop, nullptr);
 
         // Second: writeback loop (0..TILE)
-        auto* wb_loop = dynamic_cast<structured_control_flow::For*>(&tile_body.at(1).first);
+        auto* wb_loop = dynamic_cast<structured_control_flow::Map*>(&tile_body.at(1).first);
         EXPECT_NE(wb_loop, nullptr);
         EXPECT_TRUE(symbolic::eq(wb_loop->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(wb_loop->condition(), symbolic::Lt(wb_loop->indvar(), TILE)));
@@ -1063,7 +1069,7 @@ TEST(OutLocalStorage, TiledAccumulator_1D_NonZeroBase) {
         EXPECT_EQ(tile_body.size(), 3);
 
         // Init loop: 0..TILE
-        auto* init_loop = dynamic_cast<structured_control_flow::For*>(&tile_body.at(0).first);
+        auto* init_loop = dynamic_cast<structured_control_flow::Map*>(&tile_body.at(0).first);
         EXPECT_NE(init_loop, nullptr);
         EXPECT_TRUE(symbolic::eq(init_loop->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(init_loop->condition(), symbolic::Lt(init_loop->indvar(), TILE)));
@@ -1086,9 +1092,614 @@ TEST(OutLocalStorage, TiledAccumulator_1D_NonZeroBase) {
         EXPECT_NE(compute_loop, nullptr);
 
         // Writeback loop: 0..TILE
-        auto* wb_loop = dynamic_cast<structured_control_flow::For*>(&tile_body.at(2).first);
+        auto* wb_loop = dynamic_cast<structured_control_flow::Map*>(&tile_body.at(2).first);
         EXPECT_NE(wb_loop, nullptr);
         EXPECT_TRUE(symbolic::eq(wb_loop->init(), symbolic::integer(0)));
         EXPECT_TRUE(symbolic::eq(wb_loop->condition(), symbolic::Lt(wb_loop->indvar(), TILE)));
     }
+}
+
+// =========================================================================
+// GPU Cooperative Path Tests
+// =========================================================================
+
+/**
+ * Test: OutLocalStorage with NV_Shared rejects when no cooperative dimension exists
+ *
+ * Setup: GPU Map X (i, 0..N) → For k = 0..K, writing to C[i*K + k]
+ * Tile bases depend on i (the only GPU dim), so no cooperative dim → rejected.
+ */
+TEST(OutLocalStorage, GPU_NoCoop_Rejected) {
+    builder::StructuredSDFGBuilder builder("ols_gpu_nocoop", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    // Single GPU map (X dim): i = 0..N (block_size=32)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // For loop k = 0..K
+    auto& loop = builder.add_for(
+        map_x.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), K),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {symbolic::symbol("k")}, ptr);
+    // C[i*K + k] — base depends on i (GPU indvar)
+    builder.add_computational_memlet(
+        block,
+        tasklet,
+        "_out",
+        c_out,
+        {symbolic::add(symbolic::mul(symbolic::symbol("i"), K), symbolic::symbol("k"))},
+        ptr
+    );
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    transformations::OutLocalStorage ols(loop, c_out, types::StorageType::NV_Shared());
+    EXPECT_FALSE(ols.can_be_applied(builder_opt, am));
+}
+
+/**
+ * Test: OutLocalStorage with NV_Shared on a flat pointer with cooperative writeback
+ *
+ * Setup:
+ *   Map X (i, 0..N, block_size=32) → Map Y (j, 0..M, block_size=8) → For k = 0..M
+ *   C[j*M + k] — linearized pointer access, writes depend on j + loop var k
+ *
+ * N, M symbolic. Tile bases = [j*M], extent = [M]. After substitution M→8.
+ * X-dim (i) NOT in base → cooperative.
+ */
+TEST(OutLocalStorage, GPU_Cooperative_FlatPointer) {
+    builder::StructuredSDFGBuilder builder("ols_gpu_coop", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("M", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+
+    // GPU Map X: i = 0..N (block_size=32)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // GPU Map Y: j = 0..M (block_size=8)
+    auto sched_y = cuda::ScheduleType_CUDA::create();
+    cuda::ScheduleType_CUDA::dimension(sched_y, cuda::CUDADimension::Y);
+    gpu::gpu_block_size(sched_y, symbolic::integer(8));
+    auto& map_y = builder.add_map(
+        map_x.root(),
+        symbolic::symbol("j"),
+        symbolic::Lt(symbolic::symbol("j"), M),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
+        sched_y
+    );
+
+    // For loop: k = 0..M (symbolic, same as Y-dim → resolves to 8)
+    auto& loop = builder.add_for(
+        map_y.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), M),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {symbolic::symbol("i")}, ptr);
+    // C[j*M + k] — base depends on j only; i is free → cooperative
+    builder.add_computational_memlet(
+        block,
+        tasklet,
+        "_out",
+        c_out,
+        {symbolic::add(symbolic::mul(symbolic::symbol("j"), M), symbolic::symbol("k"))},
+        ptr
+    );
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    transformations::OutLocalStorage ols(loop, c_out, types::StorageType::NV_Shared());
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    // Verify: shared buffer was created with resolved size (M→8)
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
+    auto& arr_type = static_cast<const types::Array&>(buf_type);
+    EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(8)));
+
+    // Verify structure: write-only → [main_loop, barrier, writeback_loop, barrier]
+    auto& map_y_body = map_y.root();
+    EXPECT_GE(map_y_body.size(), 4u);
+
+    auto* main_loop = dynamic_cast<structured_control_flow::For*>(&map_y_body.at(0).first);
+    EXPECT_NE(main_loop, nullptr);
+
+    auto* barrier1 = dynamic_cast<structured_control_flow::Block*>(&map_y_body.at(1).first);
+    EXPECT_NE(barrier1, nullptr);
+
+    auto* wb_map = dynamic_cast<structured_control_flow::Map*>(&map_y_body.at(2).first);
+    EXPECT_NE(wb_map, nullptr);
+
+    auto* barrier2 = dynamic_cast<structured_control_flow::Block*>(&map_y_body.at(3).first);
+    EXPECT_NE(barrier2, nullptr);
+}
+
+/**
+ * Test: OutLocalStorage with NV_Shared read-write (has_read = true)
+ *
+ * Setup:
+ *   Map X (i, 0..N, block_size=32) → Map Y (j, 0..M, block_size=8) → For k = 0..N
+ *   C[j*N + k] is both read and written (accumulation: C[j*N+k] += A[i])
+ *
+ * N, M symbolic. Extent = N, resolved to 32 from X-dim. i NOT in base → cooperative.
+ */
+TEST(OutLocalStorage, GPU_Cooperative_ReadWrite) {
+    builder::StructuredSDFGBuilder builder("ols_gpu_rw", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("M", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+
+    // GPU Map X: i = 0..N (block_size=32)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // GPU Map Y: j = 0..M (block_size=8)
+    auto sched_y = cuda::ScheduleType_CUDA::create();
+    cuda::ScheduleType_CUDA::dimension(sched_y, cuda::CUDADimension::Y);
+    gpu::gpu_block_size(sched_y, symbolic::integer(8));
+    auto& map_y = builder.add_map(
+        map_x.root(),
+        symbolic::symbol("j"),
+        symbolic::Lt(symbolic::symbol("j"), M),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
+        sched_y
+    );
+
+    // For loop: k = 0..N (symbolic, resolves to 32)
+    auto& loop = builder.add_for(
+        map_y.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_in = builder.add_access(block, "C");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in2", {symbolic::symbol("i")}, ptr);
+    // C[j*N + k] — both read and written (accumulation), symbolic stride N
+    auto c_subset = symbolic::add(symbolic::mul(symbolic::symbol("j"), N), symbolic::symbol("k"));
+    builder.add_computational_memlet(block, c_in, tasklet, "_in1", {c_subset}, ptr);
+    builder.add_computational_memlet(block, tasklet, "_out", c_out, {c_subset}, ptr);
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    transformations::OutLocalStorage ols(loop, c_out, types::StorageType::NV_Shared());
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    // Verify: shared buffer created with resolved size (N→32)
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
+    EXPECT_EQ(buf_type.type_id(), types::TypeID::Array);
+
+    auto& arr_type = static_cast<const types::Array&>(buf_type);
+    EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(32)));
+
+    // Verify structure: has_read → [barrier, init_copy, barrier, main_loop, barrier, writeback, barrier]
+    auto& map_y_body = map_y.root();
+    EXPECT_GE(map_y_body.size(), 7u);
+
+    auto* b1 = dynamic_cast<structured_control_flow::Block*>(&map_y_body.at(0).first);
+    EXPECT_NE(b1, nullptr);
+    auto* init_map = dynamic_cast<structured_control_flow::Map*>(&map_y_body.at(1).first);
+    EXPECT_NE(init_map, nullptr);
+    auto* b2 = dynamic_cast<structured_control_flow::Block*>(&map_y_body.at(2).first);
+    EXPECT_NE(b2, nullptr);
+    auto* main_loop = dynamic_cast<structured_control_flow::For*>(&map_y_body.at(3).first);
+    EXPECT_NE(main_loop, nullptr);
+    auto* b3 = dynamic_cast<structured_control_flow::Block*>(&map_y_body.at(4).first);
+    EXPECT_NE(b3, nullptr);
+    auto* wb_map = dynamic_cast<structured_control_flow::Map*>(&map_y_body.at(5).first);
+    EXPECT_NE(wb_map, nullptr);
+    auto* b4 = dynamic_cast<structured_control_flow::Block*>(&map_y_body.at(6).first);
+    EXPECT_NE(b4, nullptr);
+}
+
+/**
+ * Test: OutLocalStorage with NV_Shared and both GPU dims cooperative
+ *
+ * Setup:
+ *   Map X (i, 0..N, block_size=32) → Map Y (j, 0..M, block_size=8) → For k = 0..N
+ *   C[k] — access does not depend on any GPU dim
+ *
+ * Neither i nor j appear in bases → both cooperative. Extent N resolves to 32.
+ */
+TEST(OutLocalStorage, GPU_Cooperative_AllDimsFree) {
+    builder::StructuredSDFGBuilder builder("ols_gpu_allfree", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("M", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+
+    // GPU Map X: i = 0..N (block_size=32)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // GPU Map Y: j = 0..M (block_size=8)
+    auto sched_y = cuda::ScheduleType_CUDA::create();
+    cuda::ScheduleType_CUDA::dimension(sched_y, cuda::CUDADimension::Y);
+    gpu::gpu_block_size(sched_y, symbolic::integer(8));
+    auto& map_y = builder.add_map(
+        map_x.root(),
+        symbolic::symbol("j"),
+        symbolic::Lt(symbolic::symbol("j"), M),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
+        sched_y
+    );
+
+    // For loop: k = 0..N (resolves to 32)
+    auto& loop = builder.add_for(
+        map_y.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(
+        block, a_in, tasklet, "_in", {symbolic::add(symbolic::mul(symbolic::symbol("i"), M), symbolic::symbol("j"))}, ptr
+    );
+    // C[k] — no GPU indvar in write access
+    builder.add_computational_memlet(block, tasklet, "_out", c_out, {symbolic::symbol("k")}, ptr);
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    transformations::OutLocalStorage ols(loop, c_out, types::StorageType::NV_Shared());
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    // Verify buffer: extent N resolved to 32
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    auto& arr_type = static_cast<const types::Array&>(buf_type);
+    EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(32)));
+    EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
+}
+
+/**
+ * Test: OutLocalStorage with NV_Shared rejects when extent is unresolvable symbolic
+ *
+ * Setup:
+ *   Map X (i, 0..N, block_size=32) → For k = 0..K
+ *   C[k] — extent K is NOT a bound of any GPU map → stays symbolic → rejected
+ */
+TEST(OutLocalStorage, GPU_SymbolicExtent_Unresolvable_Rejected) {
+    builder::StructuredSDFGBuilder builder("ols_gpu_unresolvable", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    // GPU Map X: i = 0..N (block_size=32)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // For loop: k = 0..K (K not a GPU bound → unresolvable)
+    auto& loop = builder.add_for(
+        map_x.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), K),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {symbolic::symbol("i")}, ptr);
+    // C[k] — base is 0, does not depend on i → cooperative, but extent K is unresolvable
+    builder.add_computational_memlet(block, tasklet, "_out", c_out, {symbolic::symbol("k")}, ptr);
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    transformations::OutLocalStorage ols(loop, c_out, types::StorageType::NV_Shared());
+    EXPECT_FALSE(ols.can_be_applied(builder_opt, am));
+}
+
+/**
+ * Test: OutLocalStorage with NV_Shared resolves symbolic extent from Y-dim
+ *
+ * Setup:
+ *   Map X (i, 0..N, block_size=32) → Map Y (j, 0..M, block_size=8) → For k = 0..M
+ *   C[i*M + k] — base depends on i (X), extent M resolves from Y-dim to 8
+ *
+ * X-dim i is in base → not cooperative on X. But j not in base → cooperative on Y.
+ */
+TEST(OutLocalStorage, GPU_Cooperative_SymbolicBounds) {
+    builder::StructuredSDFGBuilder builder("ols_gpu_symbolic", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("M", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+
+    // GPU Map X: i = 0..N (block_size=32)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // GPU Map Y: j = 0..M (block_size=8)
+    auto sched_y = cuda::ScheduleType_CUDA::create();
+    cuda::ScheduleType_CUDA::dimension(sched_y, cuda::CUDADimension::Y);
+    gpu::gpu_block_size(sched_y, symbolic::integer(8));
+    auto& map_y = builder.add_map(
+        map_x.root(),
+        symbolic::symbol("j"),
+        symbolic::Lt(symbolic::symbol("j"), M),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("j"), symbolic::integer(1)),
+        sched_y
+    );
+
+    // For loop: k = 0..M (symbolic, resolves to 8 from Y-dim)
+    auto& loop = builder.add_for(
+        map_y.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), M),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {symbolic::symbol("j")}, ptr);
+    // C[i*M + k] — base = i*M, depends on i (X-dim), extent = M
+    builder.add_computational_memlet(
+        block,
+        tasklet,
+        "_out",
+        c_out,
+        {symbolic::add(symbolic::mul(symbolic::symbol("i"), M), symbolic::symbol("k"))},
+        ptr
+    );
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    transformations::OutLocalStorage ols(loop, c_out, types::StorageType::NV_Shared());
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    // Verify: buffer created with M→8
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    auto& arr_type = static_cast<const types::Array&>(buf_type);
+    EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(8)));
+    EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
+}
+
+/**
+ * Test: OutLocalStorage CPU_Stack with flat pointer (non-GPU baseline)
+ *
+ * Setup: for i = 0..N: for k = 0..16: C[i*16 + k] = A[k]
+ * After: for loop writes local[k], then Map(0..16) copies local[d] → C[i*16+d]
+ */
+TEST(OutLocalStorage, CPU_FlatPointer_Linearized) {
+    builder::StructuredSDFGBuilder builder("ols_cpu_flatptr", FunctionType_CPU);
+    auto& root = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::UInt64);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    auto i = symbolic::symbol("i");
+    auto k = symbolic::symbol("k");
+
+    // Outer loop: i = 0..100
+    auto& outer_loop = builder.add_for(
+        root, i, symbolic::Lt(i, symbolic::integer(100)), symbolic::integer(0), symbolic::add(i, symbolic::integer(1))
+    );
+
+    // Inner loop: k = 0..16
+    auto& loop = builder.add_for(
+        outer_loop.root(),
+        k,
+        symbolic::Lt(k, symbolic::integer(16)),
+        symbolic::integer(0),
+        symbolic::add(k, symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {k}, ptr);
+    // C[i*16 + k] — flat pointer linearized access
+    builder.add_computational_memlet(
+        block, tasklet, "_out", c_out, {symbolic::add(symbolic::mul(i, symbolic::integer(16)), k)}, ptr
+    );
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    transformations::OutLocalStorage ols(loop, c_out);
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    // Verify: buffer created
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+
+    // Structure inside outer loop = [main_loop, writeback_map]
+    auto& outer_body = outer_loop.root();
+    EXPECT_EQ(outer_body.size(), 2u);
+
+    auto* main_loop = dynamic_cast<structured_control_flow::For*>(&outer_body.at(0).first);
+    EXPECT_NE(main_loop, nullptr);
+
+    auto* wb_map = dynamic_cast<structured_control_flow::Map*>(&outer_body.at(1).first);
+    EXPECT_NE(wb_map, nullptr);
+    EXPECT_TRUE(symbolic::eq(wb_map->init(), symbolic::integer(0)));
+    EXPECT_TRUE(symbolic::eq(wb_map->condition(), symbolic::Lt(wb_map->indvar(), symbolic::integer(16))));
 }

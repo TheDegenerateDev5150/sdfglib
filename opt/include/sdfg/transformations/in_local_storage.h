@@ -1,9 +1,11 @@
 #pragma once
 
 #include "sdfg/data_flow/memlet.h"
+#include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/transformations/transformation.h"
+#include "sdfg/types/type.h"
 
 namespace sdfg {
 namespace transformations {
@@ -48,14 +50,20 @@ private:
     std::string container_;
     std::string local_name_; ///< Name of the created local buffer
     TileInfo tile_info_; ///< Populated by can_be_applied
+    types::StorageType storage_type_; ///< Storage type for the local buffer
 
 public:
     /**
      * @brief Construct an in-local storage transformation
      * @param loop The loop defining the scope for localization
      * @param access_node The access node referencing the container to localize
+     * @param storage_type Storage type for the local buffer (default: CPU_Stack)
      */
-    InLocalStorage(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node);
+    InLocalStorage(
+        structured_control_flow::StructuredLoop& loop,
+        const data_flow::AccessNode& access_node,
+        const types::StorageType& storage_type = types::StorageType::CPU_Stack()
+    );
 
     /**
      * @brief Get the name of this transformation
