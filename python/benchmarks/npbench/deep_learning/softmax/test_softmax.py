@@ -55,7 +55,7 @@ def test_softmax(target):
             verification={
                 "Free": 3,
                 "CMath": 2,
-                "HIGHWAY": 4,
+                "VECTORIZE": 4,
                 "SEQUENTIAL": 16,
                 "FOR": 22,
                 "MAP": 20,

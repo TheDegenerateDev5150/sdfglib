@@ -137,9 +137,9 @@ def test_vadv(target):
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 18,
+                "VECTORIZE": 53,
                 "MAP": 104,
-                "SEQUENTIAL": 86,
+                "SEQUENTIAL": 51,
                 "FOR": 111,
                 "Malloc": 42,
             }
@@ -147,9 +147,9 @@ def test_vadv(target):
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 18,
+                "VECTORIZE": 53,
                 "MAP": 104,
-                "SEQUENTIAL": 86,
+                "SEQUENTIAL": 51,
                 "FOR": 111,
                 "Malloc": 42,
             }
@@ -157,7 +157,7 @@ def test_vadv(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 35,
+                "VECTORIZE": 35,
                 "MAP": 141,
                 "SEQUENTIAL": 106,
                 "FOR": 165,
@@ -167,7 +167,7 @@ def test_vadv(target):
     else:  # rocm
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 25,
+                "VECTORIZE": 25,
                 "MAP": 141,
                 "SEQUENTIAL": 116,
                 "FOR": 165,

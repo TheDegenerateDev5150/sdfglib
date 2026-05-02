@@ -108,8 +108,8 @@ def test_deriche(target):
         verifier = SDFGVerification(
             verification={
                 "Free": 10,
-                "HIGHWAY": 9,
-                "SEQUENTIAL": 18,
+                "VECTORIZE": 22,
+                "SEQUENTIAL": 5,
                 "FOR": 31,
                 "MAP": 27,
                 "CMath": 9,
@@ -135,7 +135,7 @@ def test_deriche(target):
                 "SEQUENTIAL": 0,
                 "CUDA": 0,
                 "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
+                "VECTORIZE": 0,
                 "GEMM": 0,
                 "DOT": 0,
             }
@@ -148,7 +148,7 @@ def test_deriche(target):
                 "SEQUENTIAL": 0,
                 "ROCM": 0,
                 "CPU_PARALLEL": 0,
-                "HIGHWAY": 0,
+                "VECTORIZE": 0,
                 "GEMM": 0,
                 "DOT": 0,
             }

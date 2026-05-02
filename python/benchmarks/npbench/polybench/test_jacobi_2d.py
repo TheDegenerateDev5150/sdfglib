@@ -36,7 +36,7 @@ def test_jacobi_2d(target):
         verifier = SDFGVerification(verification={"MAP": 4, "SEQUENTIAL": 4, "FOR": 5})
     elif target == "sequential":
         verifier = SDFGVerification(
-            verification={"HIGHWAY": 2, "MAP": 4, "SEQUENTIAL": 2, "FOR": 5}
+            verification={"VECTORIZE": 2, "MAP": 4, "SEQUENTIAL": 2, "FOR": 5}
         )
     elif target == "openmp":
         verifier = SDFGVerification(

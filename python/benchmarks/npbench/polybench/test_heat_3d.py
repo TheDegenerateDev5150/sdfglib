@@ -56,9 +56,9 @@ def test_heat_3d(target):
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 2,
+                "VECTORIZE": 5,
                 "MAP": 15,
-                "SEQUENTIAL": 13,
+                "SEQUENTIAL": 10,
                 "FOR": 16,
                 "Malloc": 3,
             }

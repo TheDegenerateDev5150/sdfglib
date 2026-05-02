@@ -20,6 +20,7 @@
 #include <sdfg/transformations/out_local_storage.h>
 #include <sdfg/transformations/replayer.h>
 #include <sdfg/transformations/tile_fusion.h>
+#include <sdfg/transformations/vectorize_transform.h>
 
 namespace sdfg {
 namespace transformations {
@@ -54,6 +55,8 @@ void Replayer::replay(
             this->apply<transformations::OMPTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "HighwayTransform") {
             this->apply<transformations::HighwayTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
+        } else if (transformation_name == "VectorizeTransform") {
+            this->apply<transformations::VectorizeTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "CUDATransform") {
             this->apply<cuda::CUDATransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "CUDAParallelizeNestedMap") {

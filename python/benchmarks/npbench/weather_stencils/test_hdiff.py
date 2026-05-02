@@ -76,8 +76,8 @@ def test_hdiff(target):
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "HIGHWAY": 6,
-                "SEQUENTIAL": 18,
+                "VECTORIZE": 8,
+                "SEQUENTIAL": 16,
                 "FOR": 24,
                 "MAP": 24,
                 "Malloc": 7,
