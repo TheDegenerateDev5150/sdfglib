@@ -6,6 +6,7 @@
 #include "sdfg/targets/highway/plugin.h"
 #include "sdfg/targets/omp/plugin.h"
 #include "sdfg/targets/rocm/plugin.h"
+#include "sdfg/targets/vectorize/plugin.h"
 #include "sdfg/visualizer/dot_visualizer.h"
 
 static std::optional<std::filesystem::path> test_output_dir;
@@ -18,6 +19,7 @@ int main(int argc, char** argv) {
     sdfg::rocm::register_rocm_plugin(context);
     sdfg::serializer::register_default_serializers();
     sdfg::highway::register_highway_plugin();
+    sdfg::vectorize::register_vectorize_plugin();
     sdfg::omp::register_omp_plugin();
 
 

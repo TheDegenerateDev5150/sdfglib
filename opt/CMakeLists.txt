@@ -36,6 +36,7 @@ set(SOURCE_FILES
     src/passes/scheduler/cuda_scheduler.cpp
     src/passes/scheduler/rocm_scheduler.cpp
     src/passes/scheduler/highway_scheduler.cpp
+    src/passes/scheduler/vectorize_scheduler.cpp
     src/passes/scheduler/loop_scheduling_pass.cpp
     src/passes/scheduler/omp_scheduler.cpp
     src/passes/scheduler/scheduler_registry.cpp
@@ -58,6 +59,7 @@ set(SOURCE_FILES
     src/targets/rocm/rocm_map_dispatcher.cpp
     src/targets/gpu/gpu_map_utils.cpp
     src/targets/highway/codegen/highway_map_dispatcher.cpp
+    src/targets/vectorize/codegen/vectorize_map_dispatcher.cpp
     src/targets/offloading/external_offloading_node.cpp
     src/targets/offloading/utils.cpp
     src/targets/omp/codegen/omp_map_dispatcher.cpp
@@ -75,6 +77,7 @@ set(SOURCE_FILES
     src/transformations/offloading/kernel_local_storage.cpp
     src/transformations/collapse_to_depth.cpp
     src/transformations/highway_transform.cpp
+    src/transformations/vectorize_transform.cpp
     src/transformations/omp_transform.cpp
     src/transformations/offloading/offload_transform.cpp
     src/transformations/map_collapse.cpp

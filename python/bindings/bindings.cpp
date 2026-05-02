@@ -43,6 +43,7 @@
 #include <sdfg/targets/highway/plugin.h>
 #include <sdfg/targets/omp/plugin.h>
 #include <sdfg/targets/rocm/plugin.h>
+#include <sdfg/targets/vectorize/plugin.h>
 
 #include <sdfg/passes/statistics.h>
 
@@ -64,6 +65,7 @@ PYBIND11_MODULE(_sdfg, m) {
     sdfg::codegen::register_default_dispatchers();
     sdfg::serializer::register_default_serializers();
     sdfg::omp::register_omp_plugin();
+    sdfg::vectorize::register_vectorize_plugin();
     sdfg::highway::register_highway_plugin();
     sdfg::cuda::register_cuda_plugin(docc_context);
     sdfg::rocm::register_rocm_plugin(docc_context);
