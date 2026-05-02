@@ -390,7 +390,7 @@ void PyStructuredSDFG::schedule(const std::string& target, const std::string& ca
         if (target == "openmp") {
             schedulers.push_back(target);
         }
-        schedulers.push_back("highway");
+        schedulers.push_back("vectorize");
     }
     // GPU Opt Pipeline
     else if (target == "cuda" || target == "rocm") {
