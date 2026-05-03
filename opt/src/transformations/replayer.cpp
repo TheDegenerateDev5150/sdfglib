@@ -8,6 +8,8 @@
 #include <sdfg/transformations/loop_distribute.h>
 #include <sdfg/transformations/loop_interchange.h>
 #include <sdfg/transformations/loop_peeling.h>
+#include <sdfg/transformations/loop_shift.h>
+#include <sdfg/transformations/loop_skewing.h>
 #include <sdfg/transformations/loop_tiling.h>
 #include <sdfg/transformations/offloading/cuda_parallelize_nested_map.h>
 #include <sdfg/transformations/offloading/cuda_transform.h>
@@ -52,6 +54,10 @@ void Replayer::replay(
             this->apply<transformations::InLocalStorage>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "TileFusion") {
             this->apply<transformations::TileFusion>(builder, analysis_manager, desc, skip_if_not_applicable);
+        } else if (transformation_name == "LoopSkewing") {
+            this->apply<transformations::LoopSkewing>(builder, analysis_manager, desc, skip_if_not_applicable);
+        } else if (transformation_name == "LoopShift") {
+            this->apply<transformations::LoopShift>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "OMPTransform") {
             this->apply<transformations::OMPTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "HighwayTransform") {
