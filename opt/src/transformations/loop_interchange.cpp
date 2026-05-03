@@ -286,7 +286,57 @@ bool LoopInterchange::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         } else if (deltas.dimensions.size() == 1) {
             // Only outer dimension — after interchange becomes inner, always safe
         } else {
-            return false;
+            // Multi-dimensional delta set (>2): check if outer/inner indvars are involved
+            bool has_outer = false, has_inner = false;
+            for (auto& dim : deltas.dimensions) {
+                if (dim == outer_indvar_name) has_outer = true;
+                if (dim == inner_indvar_name) has_inner = true;
+            }
+            if (!has_outer && !has_inner) {
+                // Dependency is entirely on nested loop variables — safe for interchange
+                continue;
+            }
+            if (!has_inner) {
+                // Only outer indvar involved — after interchange becomes inner, always safe
+                continue;
+            }
+            // Inner indvar is involved in multi-D delta set — use ISL to check legality
+            // Find the inner dimension index and check non-negativity
+            int inner_dim = -1;
+            for (size_t d = 0; d < deltas.dimensions.size(); d++) {
+                if (deltas.dimensions[d] == inner_indvar_name) {
+                    inner_dim = static_cast<int>(d);
+                    break;
+                }
+            }
+            // Project out all other dimensions and check 1D legality on inner_dim
+            isl_ctx* ctx = isl_ctx_alloc();
+            isl_options_set_on_error(ctx, ISL_ON_ERROR_CONTINUE);
+            isl_set* delta_set = isl_set_read_from_str(ctx, deltas.deltas_str.c_str());
+            if (delta_set) {
+                int n_dims = isl_set_dim(delta_set, isl_dim_set);
+                // Project out all dims except inner_dim
+                // First project out dims after inner_dim
+                if (inner_dim + 1 < n_dims) {
+                    delta_set = isl_set_project_out(delta_set, isl_dim_set, inner_dim + 1, n_dims - inner_dim - 1);
+                }
+                // Then project out dims before inner_dim
+                if (inner_dim > 0) {
+                    delta_set = isl_set_project_out(delta_set, isl_dim_set, 0, inner_dim);
+                }
+                // Now it's 1D — check non-negativity
+                isl_set* neg = isl_set_read_from_str(ctx, "{ [x] : x < 0 }");
+                isl_set* violation = isl_set_intersect(delta_set, neg);
+                bool legal = isl_set_is_empty(violation);
+                isl_set_free(violation);
+                isl_ctx_free(ctx);
+                if (!legal) {
+                    return false;
+                }
+            } else {
+                isl_ctx_free(ctx);
+                return false;
+            }
         }
     }
 
