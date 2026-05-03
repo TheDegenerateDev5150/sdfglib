@@ -80,7 +80,7 @@ TEST(OutLocalStorage, Scalar) {
         if (auto access = dynamic_cast<data_flow::AccessNode*>(&node)) {
             if (access->data() == "C") {
                 c_access = true;
-            } else if (access->data() == "__daisy_out_local_storage_C") {
+            } else if (access->data() == "__daisy_out_local_storage_C0") {
                 a_access = true;
             }
         } else if (auto tasklet = dynamic_cast<data_flow::Tasklet*>(&node)) {
@@ -94,7 +94,7 @@ TEST(OutLocalStorage, Scalar) {
         if (memlet.dst_conn() == "void") {
             auto access = dynamic_cast<data_flow::AccessNode*>(&memlet.dst());
             EXPECT_NE(access, nullptr);
-            EXPECT_EQ(access->data(), "__daisy_out_local_storage_C");
+            EXPECT_EQ(access->data(), "__daisy_out_local_storage_C0");
         } else if (memlet.src_conn() == "void") {
             auto access = dynamic_cast<data_flow::AccessNode*>(&memlet.src());
             EXPECT_NE(access, nullptr);
@@ -116,7 +116,7 @@ TEST(OutLocalStorage, Scalar) {
     for (auto access_node : loop_block->dataflow().data_nodes()) {
         if (access_node->data() == "A") {
             a_access = true;
-        } else if (access_node->data() == "__daisy_out_local_storage_C") {
+        } else if (access_node->data() == "__daisy_out_local_storage_C0") {
             accesses++;
         }
     }
@@ -134,7 +134,7 @@ TEST(OutLocalStorage, Scalar) {
         if (auto access = dynamic_cast<data_flow::AccessNode*>(&node)) {
             if (access->data() == "C") {
                 c_access = true;
-            } else if (access->data() == "__daisy_out_local_storage_C") {
+            } else if (access->data() == "__daisy_out_local_storage_C0") {
                 a_access = true;
             }
         } else if (auto tasklet = dynamic_cast<data_flow::Tasklet*>(&node)) {
@@ -152,7 +152,7 @@ TEST(OutLocalStorage, Scalar) {
         } else if (memlet.src_conn() == "void") {
             auto access = dynamic_cast<data_flow::AccessNode*>(&memlet.src());
             EXPECT_NE(access, nullptr);
-            EXPECT_EQ(access->data(), "__daisy_out_local_storage_C");
+            EXPECT_EQ(access->data(), "__daisy_out_local_storage_C0");
         }
     }
 }
@@ -223,7 +223,7 @@ TEST(OutLocalStorage, Array) {
         if (auto access = dynamic_cast<data_flow::AccessNode*>(&node)) {
             if (access->data() == "C")
                 c_access = true;
-            else if (access->data() == "__daisy_out_local_storage_C")
+            else if (access->data() == "__daisy_out_local_storage_C0")
                 a_access = true;
         }
     }
@@ -243,7 +243,7 @@ TEST(OutLocalStorage, Array) {
     for (auto access_node : loop_block->dataflow().data_nodes()) {
         if (access_node->data() == "A")
             a_access = true;
-        else if (access_node->data() == "__daisy_out_local_storage_C")
+        else if (access_node->data() == "__daisy_out_local_storage_C0")
             accesses++;
     }
     EXPECT_TRUE(a_access);
@@ -265,7 +265,7 @@ TEST(OutLocalStorage, Array) {
         if (auto access = dynamic_cast<data_flow::AccessNode*>(&node)) {
             if (access->data() == "C")
                 c_access = true;
-            else if (access->data() == "__daisy_out_local_storage_C")
+            else if (access->data() == "__daisy_out_local_storage_C0")
                 a_access = true;
         }
     }
@@ -391,7 +391,7 @@ TEST(OutLocalStorage, InnerLoopAccumulator) {
     transformation.apply(builder_opt, am);
 
     // Verify local buffer was created
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
 
     // Structure: root should now contain [init_loop, outer_loop, writeback_loop]
     auto& new_root = builder_opt.subject().root();
@@ -420,7 +420,7 @@ TEST(OutLocalStorage, InnerLoopAccumulator) {
     bool has_c = false, has_local = false;
     for (auto* node : init_block->dataflow().data_nodes()) {
         if (node->data() == "C") has_c = true;
-        if (node->data() == "__daisy_out_local_storage_C") has_local = true;
+        if (node->data() == "__daisy_out_local_storage_C0") has_local = true;
     }
     EXPECT_TRUE(has_c);
     EXPECT_TRUE(has_local);
@@ -434,7 +434,7 @@ TEST(OutLocalStorage, InnerLoopAccumulator) {
     has_local = false;
     for (auto* node : wb_block->dataflow().data_nodes()) {
         if (node->data() == "C") has_c = true;
-        if (node->data() == "__daisy_out_local_storage_C") has_local = true;
+        if (node->data() == "__daisy_out_local_storage_C0") has_local = true;
     }
     EXPECT_TRUE(has_c);
     EXPECT_TRUE(has_local);
@@ -499,7 +499,7 @@ TEST(OutLocalStorage, WriteOnly) {
     transformation.apply(builder_opt, am);
 
     // Verify local buffer was created
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
 
     // Structure: root should now contain [outer_loop, writeback_loop] — NO init!
     auto& new_root = builder_opt.subject().root();
@@ -700,7 +700,7 @@ TEST(OutLocalStorage, FlatPointer_Linearized2D) {
     transformation.apply(builder_opt, am);
 
     // Verify local buffer was created
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
 
     // Structure: [init_loop(s), outer_loop, writeback_loop(s)]
     auto& new_root = builder_opt.subject().root();
@@ -841,7 +841,7 @@ TEST(OutLocalStorage, TiledAccumulator_2D) {
         transformation.apply(builder_opt, am);
 
         // Verify local buffer was created
-        EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+        EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
 
         // Structure: k_tile_loop body should be [init_loops, i_loop, writeback_loops]
         auto& k_tile_body = k_tile_loop.root();
@@ -884,7 +884,7 @@ TEST(OutLocalStorage, TiledAccumulator_2D) {
         bool found_local_read = false;
         bool found_local_write = false;
         for (auto* node : compute_block->dataflow().data_nodes()) {
-            if (node->data() == "__daisy_out_local_storage_C") {
+            if (node->data() == "__daisy_out_local_storage_C0") {
                 auto expected = symbolic::add(symbolic::mul(symbolic::sub(i, i_tile), KC), symbolic::sub(k, k_tile));
                 // Check outgoing memlets (reads from this access node)
                 for (auto& memlet : compute_block->dataflow().out_edges(*node)) {
@@ -980,7 +980,7 @@ TEST(OutLocalStorage, TiledWriteOnly_1D) {
         transformation.apply(builder_opt, am);
 
         // Verify local buffer was created
-        EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+        EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
 
         // Structure: tile_loop body should be [inner_loop, writeback_loop] — NO init!
         auto& tile_body = tile_loop.root();
@@ -1004,7 +1004,7 @@ TEST(OutLocalStorage, TiledWriteOnly_1D) {
         bool has_c = false, has_local = false;
         for (auto* node : wb_block->dataflow().data_nodes()) {
             if (node->data() == "C") has_c = true;
-            if (node->data() == "__daisy_out_local_storage_C") has_local = true;
+            if (node->data() == "__daisy_out_local_storage_C0") has_local = true;
         }
         EXPECT_TRUE(has_c);
         EXPECT_TRUE(has_local);
@@ -1096,7 +1096,7 @@ TEST(OutLocalStorage, TiledAccumulator_1D_NonZeroBase) {
         transformation.apply(builder_opt, am);
 
         // Verify local buffer was created
-        EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+        EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
 
         // Structure: tile_loop body should be [init_loop, j_loop, writeback_loop]
         auto& tile_body = tile_loop.root();
@@ -1116,7 +1116,7 @@ TEST(OutLocalStorage, TiledAccumulator_1D_NonZeroBase) {
         bool has_c = false, has_local = false;
         for (auto* node : init_block->dataflow().data_nodes()) {
             if (node->data() == "C") has_c = true;
-            if (node->data() == "__daisy_out_local_storage_C") has_local = true;
+            if (node->data() == "__daisy_out_local_storage_C0") has_local = true;
         }
         EXPECT_TRUE(has_c);
         EXPECT_TRUE(has_local);
@@ -1292,8 +1292,8 @@ TEST(OutLocalStorage, GPU_Cooperative_FlatPointer) {
     ols.apply(builder_opt, am);
 
     // Verify: shared buffer was created with resolved size (M→8)
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
-    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C0");
     EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
     auto& arr_type = static_cast<const types::Array&>(buf_type);
     EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(8)));
@@ -1397,8 +1397,8 @@ TEST(OutLocalStorage, GPU_Cooperative_ReadWrite) {
     ols.apply(builder_opt, am);
 
     // Verify: shared buffer created with resolved size (N→32)
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
-    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C0");
     EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
     EXPECT_EQ(buf_type.type_id(), types::TypeID::Array);
 
@@ -1506,8 +1506,8 @@ TEST(OutLocalStorage, GPU_Cooperative_AllDimsFree) {
     ols.apply(builder_opt, am);
 
     // Verify buffer: extent N resolved to 32
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
-    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C0");
     auto& arr_type = static_cast<const types::Array&>(buf_type);
     EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(32)));
     EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
@@ -1661,8 +1661,8 @@ TEST(OutLocalStorage, GPU_Cooperative_SymbolicBounds) {
     ols.apply(builder_opt, am);
 
     // Verify: buffer created with M→8
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
-    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C");
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
+    auto& buf_type = builder_opt.subject().type("__daisy_out_local_storage_C0");
     auto& arr_type = static_cast<const types::Array&>(buf_type);
     EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(8)));
     EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
@@ -1723,7 +1723,7 @@ TEST(OutLocalStorage, CPU_FlatPointer_Linearized) {
     ols.apply(builder_opt, am);
 
     // Verify: buffer created
-    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C"));
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
 
     // Structure inside outer loop = [main_loop, writeback_map]
     auto& outer_body = outer_loop.root();
@@ -1745,7 +1745,7 @@ TEST(OutLocalStorage, CPU_FlatPointer_Linearized) {
 
     bool found_local_access = false;
     for (auto* node : compute_block->dataflow().data_nodes()) {
-        if (node->data() == "__daisy_out_local_storage_C") {
+        if (node->data() == "__daisy_out_local_storage_C0") {
             // Check incoming memlets (writes to this access node)
             for (auto& memlet : compute_block->dataflow().in_edges(*node)) {
                 found_local_access = true;
@@ -1757,4 +1757,269 @@ TEST(OutLocalStorage, CPU_FlatPointer_Linearized) {
         }
     }
     EXPECT_TRUE(found_local_access);
+}
+
+// =========================================================================
+// Tile Group Tests: Multiple access groups to the same container
+// =========================================================================
+
+/**
+ * Test: OutLocalStorage with SYR2K-style accumulator C[i*N+j] in k-loop
+ *
+ * Pattern: for k: C[i*N+j] += A[i*K+k] * B[j*K+k]
+ * OLS on C at k_loop → single group (only one write pattern C[i,j]),
+ * creates scalar-like local since tile has extents [1,1] at k-loop level.
+ */
+TEST(OutLocalStorage, TileGroups_SingleWriteGroup) {
+    builder::StructuredSDFGBuilder builder("ols_syr2k_test", FunctionType_CPU);
+
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+    types::Scalar elem_desc(types::PrimitiveType::Float);
+    types::Pointer ptr_desc(elem_desc);
+
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+    builder.add_container("k", sym_desc);
+    builder.add_container("A", ptr_desc, true);
+    builder.add_container("B", ptr_desc, true);
+    builder.add_container("C", ptr_desc);
+
+    auto& root = builder.subject().root();
+
+    auto N = symbolic::symbol("N");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto K = symbolic::integer(16);
+
+    // for i = 0..N
+    auto& i_loop =
+        builder.add_for(root, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::one()));
+
+    // for j = 0..N
+    auto& j_loop =
+        builder.add_for(i_loop.root(), j, symbolic::Lt(j, N), symbolic::integer(0), symbolic::add(j, symbolic::one()));
+
+    // for k = 0..16
+    auto& k_loop =
+        builder.add_for(j_loop.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::one()));
+
+    // Block: C[i*N+j] += A[i*16+k] * B[j*16+k]  (simplified as fp_add)
+    auto& block = builder.add_block(k_loop.root());
+    auto& c_in = builder.add_access(block, "C");
+    auto& c_out = builder.add_access(block, "C");
+    auto& a_in = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_c", "_a"});
+
+    auto lin_c = symbolic::add(symbolic::mul(i, N), j);
+    auto lin_a = symbolic::add(symbolic::mul(i, K), k);
+
+    builder.add_computational_memlet(block, c_in, tasklet, "_c", {lin_c}, ptr_desc);
+    builder.add_computational_memlet(block, a_in, tasklet, "_a", {lin_a}, ptr_desc);
+    builder.add_computational_memlet(block, tasklet, "_out", c_out, {lin_c}, ptr_desc);
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    // Apply OLS on C at k_loop level
+    transformations::OutLocalStorage ols(k_loop, c_in);
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    // Verify: local buffer was created
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
+
+    // j_loop body: [init, k_loop, writeback] (scalar-like since extents are [1,1])
+    // The delinearized tile at k-loop for C is [i,j]->[i,j], extents [1,1]
+    // So it acts like a scalar accumulator
+    auto& j_body = j_loop.root();
+    EXPECT_EQ(j_body.size(), 3u);
+
+    // Verify A access remains untouched in the compute loop
+    auto& k_body = k_loop.root();
+    EXPECT_EQ(k_body.size(), 1u);
+    auto* compute_block = dynamic_cast<structured_control_flow::Block*>(&k_body.at(0).first);
+    ASSERT_NE(compute_block, nullptr);
+
+    bool found_a = false;
+    bool found_local_c = false;
+    for (auto* node : compute_block->dataflow().data_nodes()) {
+        if (node->data() == "A") found_a = true;
+        if (node->data() == "__daisy_out_local_storage_C0") found_local_c = true;
+    }
+    EXPECT_TRUE(found_a);
+    EXPECT_TRUE(found_local_c);
+}
+
+/**
+ * Test: OutLocalStorage with two write groups to the same container
+ *
+ * Pattern: for k: C[i*N+j] += expr1; C[i*N+j+1] += expr2
+ * Two writes with constant-offset bases → merge into one group.
+ * OLS should handle both writes in the same local buffer.
+ */
+TEST(OutLocalStorage, TileGroups_ConstantOffsetMerge) {
+    builder::StructuredSDFGBuilder builder("ols_const_offset_test", FunctionType_CPU);
+
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+    types::Scalar elem_desc(types::PrimitiveType::Float);
+    types::Pointer ptr_desc(elem_desc);
+
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+    builder.add_container("k", sym_desc);
+    builder.add_container("A", ptr_desc, true);
+    builder.add_container("C", ptr_desc);
+
+    auto& root = builder.subject().root();
+
+    auto N = symbolic::symbol("N");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+
+    // for i = 0..N
+    auto& i_loop =
+        builder.add_for(root, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::one()));
+
+    // for j = 0..8
+    auto& j_loop = builder.add_for(
+        i_loop.root(), j, symbolic::Lt(j, symbolic::integer(8)), symbolic::integer(0), symbolic::add(j, symbolic::one())
+    );
+
+    // for k = 0..4
+    auto& k_loop = builder.add_for(
+        j_loop.root(), k, symbolic::Lt(k, symbolic::integer(4)), symbolic::integer(0), symbolic::add(k, symbolic::one())
+    );
+
+    // Block 1: C[i*8 + j] += A[k]
+    auto& block1 = builder.add_block(k_loop.root());
+    auto& c1_in = builder.add_access(block1, "C");
+    auto& c1_out = builder.add_access(block1, "C");
+    auto& a1_in = builder.add_access(block1, "A");
+    auto& t1 = builder.add_tasklet(block1, data_flow::TaskletCode::fp_add, "_out", {"_c", "_a"});
+
+    auto lin_c1 = symbolic::add(symbolic::mul(i, symbolic::integer(8)), j);
+
+    builder.add_computational_memlet(block1, c1_in, t1, "_c", {lin_c1}, ptr_desc);
+    builder.add_computational_memlet(block1, a1_in, t1, "_a", {k}, ptr_desc);
+    builder.add_computational_memlet(block1, t1, "_out", c1_out, {lin_c1}, ptr_desc);
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    // Apply OLS on C at k_loop level — tile should be [1,1] (i and j are constant in k-loop)
+    transformations::OutLocalStorage ols(k_loop, c1_in);
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
+
+    // Structure: j_loop body = [init, k_loop, writeback]
+    auto& j_body = j_loop.root();
+    EXPECT_EQ(j_body.size(), 3u);
+}
+
+/**
+ * Test: OutLocalStorage with SYR2K double-write pattern
+ *
+ * Pattern: for k: C[i*N+j] += A[i*K+k]*B[j*K+k] + B[i*K+k]*A[j*K+k]
+ * Both writes to C[i*N+j] — same group. OLS should work normally.
+ * This mirrors the real SYR2K kernel where the C accumulation is the OLS target.
+ */
+TEST(OutLocalStorage, TileGroups_SYR2K_Accumulator) {
+    builder::StructuredSDFGBuilder builder("ols_syr2k_acc_test", FunctionType_CPU);
+
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+    types::Scalar elem_desc(types::PrimitiveType::Float);
+    types::Pointer ptr_desc(elem_desc);
+
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+    builder.add_container("k", sym_desc);
+    builder.add_container("A", ptr_desc, true);
+    builder.add_container("B", ptr_desc, true);
+    builder.add_container("C", ptr_desc);
+
+    auto& root = builder.subject().root();
+
+    auto N = symbolic::symbol("N");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto K = symbolic::integer(16);
+
+    // for i = 0..N
+    auto& i_loop =
+        builder.add_for(root, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::one()));
+
+    // for j = 0..N
+    auto& j_loop =
+        builder.add_for(i_loop.root(), j, symbolic::Lt(j, N), symbolic::integer(0), symbolic::add(j, symbolic::one()));
+
+    // for k = 0..16
+    auto& k_loop =
+        builder.add_for(j_loop.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::one()));
+
+    auto lin_c = symbolic::add(symbolic::mul(i, N), j);
+
+    // Block 1: C[i*N+j] += A[i*16+k] * B[j*16+k]
+    auto& block1 = builder.add_block(k_loop.root());
+    auto& c1_in = builder.add_access(block1, "C");
+    auto& c1_out = builder.add_access(block1, "C");
+    auto& a1_in = builder.add_access(block1, "A");
+    auto& t1 = builder.add_tasklet(block1, data_flow::TaskletCode::fp_add, "_out", {"_c", "_a"});
+    builder.add_computational_memlet(block1, c1_in, t1, "_c", {lin_c}, ptr_desc);
+    builder.add_computational_memlet(block1, a1_in, t1, "_a", {symbolic::add(symbolic::mul(i, K), k)}, ptr_desc);
+    builder.add_computational_memlet(block1, t1, "_out", c1_out, {lin_c}, ptr_desc);
+
+    // Block 2: C[i*N+j] += B[i*16+k] * A[j*16+k]
+    auto& block2 = builder.add_block(k_loop.root());
+    auto& c2_in = builder.add_access(block2, "C");
+    auto& c2_out = builder.add_access(block2, "C");
+    auto& b2_in = builder.add_access(block2, "B");
+    auto& t2 = builder.add_tasklet(block2, data_flow::TaskletCode::fp_add, "_out", {"_c", "_b"});
+    builder.add_computational_memlet(block2, c2_in, t2, "_c", {lin_c}, ptr_desc);
+    builder.add_computational_memlet(block2, b2_in, t2, "_b", {symbolic::add(symbolic::mul(i, K), k)}, ptr_desc);
+    builder.add_computational_memlet(block2, t2, "_out", c2_out, {lin_c}, ptr_desc);
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    // Apply OLS on C at k_loop level
+    transformations::OutLocalStorage ols(k_loop, c1_in);
+    EXPECT_TRUE(ols.can_be_applied(builder_opt, am));
+    ols.apply(builder_opt, am);
+
+    EXPECT_TRUE(builder_opt.subject().exists("__daisy_out_local_storage_C0"));
+
+    // All C accesses should be rewritten (both blocks write same C[i,j] pattern)
+    auto& k_body = k_loop.root();
+    for (size_t bi = 0; bi < k_body.size(); ++bi) {
+        auto* blk = dynamic_cast<structured_control_flow::Block*>(&k_body.at(bi).first);
+        if (!blk) continue;
+        for (auto* node : blk->dataflow().data_nodes()) {
+            // No raw "C" access should remain
+            EXPECT_NE(node->data(), "C") << "All C accesses should be rewritten to local";
+        }
+    }
+
+    // A and B accesses should remain unchanged
+    bool found_a = false, found_b = false;
+    for (size_t bi = 0; bi < k_body.size(); ++bi) {
+        auto* blk = dynamic_cast<structured_control_flow::Block*>(&k_body.at(bi).first);
+        if (!blk) continue;
+        for (auto* node : blk->dataflow().data_nodes()) {
+            if (node->data() == "A") found_a = true;
+            if (node->data() == "B") found_b = true;
+        }
+    }
+    EXPECT_TRUE(found_a);
+    EXPECT_TRUE(found_b);
 }

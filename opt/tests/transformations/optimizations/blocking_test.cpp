@@ -415,8 +415,8 @@ TEST(BlockingTest, GEMM_Phase2_Packing) {
     // ========================================================================
 
     // Verify containers were created
-    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A"));
-    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_B"));
+    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
+    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_B0"));
 
     // Verify 9 transformations total
     EXPECT_EQ(recorder.get_history().size(), 9u);
@@ -649,9 +649,9 @@ TEST(BlockingTest, GEMM_Phase3_RegisterBlocking) {
     // ========================================================================
 
     // Verify containers were created
-    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A"));
-    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_B"));
-    EXPECT_TRUE(builder.subject().exists("__daisy_out_local_storage_C"));
+    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
+    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_B0"));
+    EXPECT_TRUE(builder.subject().exists("__daisy_out_local_storage_C0"));
 
     // Verify loop structure: computation path should have at least 5 loops
     // (OutLocalStorage adds init/writeback loops outside the main path)
@@ -796,8 +796,8 @@ TEST(BlockingTest, GEMV_Optimized) {
     // ========================================================================
 
     // Verify containers were created
-    EXPECT_TRUE(builder.subject().exists("__daisy_out_local_storage_y"));
-    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_x"));
+    EXPECT_TRUE(builder.subject().exists("__daisy_out_local_storage_y0"));
+    EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_x0"));
 
     // Verify loop structure: i → j_tile → j (3 loops)
     auto final_order = get_loop_order(builder);

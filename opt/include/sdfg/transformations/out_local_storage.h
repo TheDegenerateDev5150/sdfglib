@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_set>
+
 #include "sdfg/data_flow/access_node.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_control_flow/sequence.h"
@@ -67,6 +69,7 @@ private:
     std::string local_name_; ///< Name of the created local buffer
     TileInfo tile_info_; ///< Populated by can_be_applied
     types::StorageType storage_type_; ///< Storage type for the local buffer
+    std::unordered_set<const data_flow::Memlet*> group_memlets_; ///< Memlets in the selected tile group
 
 public:
     /**
