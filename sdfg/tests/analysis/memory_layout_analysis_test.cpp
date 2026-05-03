@@ -1309,3 +1309,378 @@ TEST(MemoryLayoutAnalysisTest, Linearized_2D_TiledLoop_ColMajor) {
     EXPECT_TRUE(symbolic::eq(tile_it->min_subset.at(0), symbolic::zero()));
     EXPECT_TRUE(symbolic::eq(tile_it->min_subset.at(1), symbolic::zero()));
 }
+
+// Test tile groups: SYR2K-style access pattern A[i,k] + A[j,k]
+// Two memlets to the same container with different row indices should produce two groups
+TEST(MemoryLayoutAnalysisTest, TileGroups_TwoIndependentAccesses) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar index_type(types::PrimitiveType::Int64);
+    types::Scalar scalar_type(types::PrimitiveType::Float);
+    types::Pointer pointer_type(scalar_type);
+    builder.add_container("N", index_type, true);
+    builder.add_container("K", index_type, true);
+    builder.add_container("i", index_type);
+    builder.add_container("j", index_type);
+    builder.add_container("k", index_type);
+    builder.add_container("A", pointer_type, true);
+    builder.add_container("tmp", scalar_type);
+
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+
+    // for i in [0, N)
+    auto& i_loop =
+        builder.add_for(root, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::one()));
+
+    // for j in [0, N)
+    auto& j_loop =
+        builder.add_for(i_loop.root(), j, symbolic::Lt(j, N), symbolic::integer(0), symbolic::add(j, symbolic::one()));
+
+    // for k in [0, K)
+    auto& k_loop =
+        builder.add_for(j_loop.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::one()));
+
+    // Block: tmp = A[i*K + k] * A[j*K + k]
+    auto& block = builder.add_block(k_loop.root());
+    auto& access_A_ik = builder.add_access(block, "A");
+    auto& access_A_jk = builder.add_access(block, "A");
+    auto& access_tmp = builder.add_access(block, "tmp");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_a", "_b"});
+
+    auto linearized_ik = symbolic::add(symbolic::mul(i, K), k);
+    auto linearized_jk = symbolic::add(symbolic::mul(j, K), k);
+
+    auto& memlet_A_ik = builder.add_computational_memlet(block, access_A_ik, tasklet, "_a", {linearized_ik});
+    auto& memlet_A_jk = builder.add_computational_memlet(block, access_A_jk, tasklet, "_b", {linearized_jk});
+    builder.add_computational_memlet(block, tasklet, "_out", access_tmp, {});
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    auto& analysis = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
+
+    // Check that raw accesses delinearize correctly
+    auto* acc_ik = analysis.access(memlet_A_ik);
+    ASSERT_NE(acc_ik, nullptr);
+    ASSERT_EQ(acc_ik->subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(acc_ik->subset.at(0), i));
+    EXPECT_TRUE(symbolic::eq(acc_ik->subset.at(1), k));
+
+    auto* acc_jk = analysis.access(memlet_A_jk);
+    ASSERT_NE(acc_jk, nullptr);
+    ASSERT_EQ(acc_jk->subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(acc_jk->subset.at(0), j));
+    EXPECT_TRUE(symbolic::eq(acc_jk->subset.at(1), k));
+
+    // The merged tile at k_loop should still be nullptr or have symbolic extents
+    // because merging A[i,k] and A[j,k] gives min(i,j) which is symbolic
+    // (The existing behavior: tile() may or may not succeed depending on symbolic simplifier)
+
+    // Check tile groups at k_loop: should have 2 groups for container "A"
+    auto* groups = analysis.tile_groups(k_loop, "A");
+    ASSERT_NE(groups, nullptr);
+    ASSERT_EQ(groups->size(), 2);
+
+    // Find which group contains memlet_A_ik and which contains memlet_A_jk
+    auto* group_ik = analysis.tile_group_for(k_loop, memlet_A_ik);
+    auto* group_jk = analysis.tile_group_for(k_loop, memlet_A_jk);
+    ASSERT_NE(group_ik, nullptr);
+    ASSERT_NE(group_jk, nullptr);
+    EXPECT_NE(group_ik, group_jk); // Different groups
+
+    // Group for A[i,k]: tile should be [i, 0] -> [i, K-1], extents [1, K]
+    ASSERT_EQ(group_ik->tile.min_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(group_ik->tile.min_subset.at(0), i));
+    EXPECT_TRUE(symbolic::eq(group_ik->tile.min_subset.at(1), symbolic::zero()));
+
+    ASSERT_EQ(group_ik->tile.max_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(group_ik->tile.max_subset.at(0), i));
+    EXPECT_TRUE(symbolic::eq(group_ik->tile.max_subset.at(1), symbolic::sub(K, symbolic::one())));
+
+    auto ext_ik = group_ik->tile.extents();
+    ASSERT_EQ(ext_ik.size(), 2);
+    EXPECT_TRUE(symbolic::eq(ext_ik.at(0), symbolic::one()));
+    EXPECT_TRUE(symbolic::eq(ext_ik.at(1), K));
+
+    // Group for A[j,k]: tile should be [j, 0] -> [j, K-1], extents [1, K]
+    ASSERT_EQ(group_jk->tile.min_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(group_jk->tile.min_subset.at(0), j));
+    EXPECT_TRUE(symbolic::eq(group_jk->tile.min_subset.at(1), symbolic::zero()));
+
+    ASSERT_EQ(group_jk->tile.max_subset.size(), 2);
+    EXPECT_TRUE(symbolic::eq(group_jk->tile.max_subset.at(0), j));
+    EXPECT_TRUE(symbolic::eq(group_jk->tile.max_subset.at(1), symbolic::sub(K, symbolic::one())));
+
+    auto ext_jk = group_jk->tile.extents();
+    ASSERT_EQ(ext_jk.size(), 2);
+    EXPECT_TRUE(symbolic::eq(ext_jk.at(0), symbolic::one()));
+    EXPECT_TRUE(symbolic::eq(ext_jk.at(1), K));
+
+    // Each group should contain exactly 1 memlet
+    EXPECT_EQ(group_ik->memlets.size(), 1);
+    EXPECT_EQ(group_jk->memlets.size(), 1);
+    EXPECT_EQ(group_ik->memlets[0], &memlet_A_ik);
+    EXPECT_EQ(group_jk->memlets[0], &memlet_A_jk);
+}
+
+// Test tile groups: single access pattern should produce one group
+TEST(MemoryLayoutAnalysisTest, TileGroups_SingleAccess) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar index_type(types::PrimitiveType::Int64);
+    types::Scalar scalar_type(types::PrimitiveType::Float);
+    types::Pointer pointer_type(scalar_type);
+    builder.add_container("N", index_type, true);
+    builder.add_container("M", index_type, true);
+    builder.add_container("i", index_type);
+    builder.add_container("j", index_type);
+    builder.add_container("A", pointer_type, true);
+
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+
+    // for i in [0, N)
+    auto& i_loop =
+        builder.add_for(root, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::one()));
+
+    // for j in [0, M)
+    auto& j_loop =
+        builder.add_for(i_loop.root(), j, symbolic::Lt(j, M), symbolic::integer(0), symbolic::add(j, symbolic::one()));
+
+    // A[i*M + j]
+    auto& block = builder.add_block(j_loop.root());
+    auto& access_in = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    auto linearized = symbolic::add(symbolic::mul(i, M), j);
+    auto& memlet_in = builder.add_computational_memlet(block, access_in, tasklet, "_in", {linearized});
+    auto& memlet_out = builder.add_computational_memlet(block, tasklet, "_out", access_out, {linearized});
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    auto& analysis = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
+
+    // tile_groups at j_loop should have 1 group (both memlets access same [i,j] pattern)
+    auto* groups = analysis.tile_groups(j_loop, "A");
+    ASSERT_NE(groups, nullptr);
+    ASSERT_EQ(groups->size(), 1);
+
+    // The single group should contain both memlets
+    auto& group = (*groups)[0];
+    EXPECT_EQ(group.memlets.size(), 2);
+
+    // Group tile should match the regular tile
+    auto* regular_tile = analysis.tile(j_loop, "A");
+    ASSERT_NE(regular_tile, nullptr);
+
+    EXPECT_TRUE(symbolic::eq(group.tile.min_subset.at(0), regular_tile->min_subset.at(0)));
+    EXPECT_TRUE(symbolic::eq(group.tile.min_subset.at(1), regular_tile->min_subset.at(1)));
+    EXPECT_TRUE(symbolic::eq(group.tile.max_subset.at(0), regular_tile->max_subset.at(0)));
+    EXPECT_TRUE(symbolic::eq(group.tile.max_subset.at(1), regular_tile->max_subset.at(1)));
+
+    // tile_group_for should find both memlets in the same group
+    auto* g_in = analysis.tile_group_for(j_loop, memlet_in);
+    auto* g_out = analysis.tile_group_for(j_loop, memlet_out);
+    ASSERT_NE(g_in, nullptr);
+    ASSERT_NE(g_out, nullptr);
+    EXPECT_EQ(g_in, g_out); // Same group
+}
+
+// Test tile groups: stencil pattern should produce multiple groups but merged tile still works
+TEST(MemoryLayoutAnalysisTest, TileGroups_StencilPattern) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar index_type(types::PrimitiveType::Int64);
+    types::Scalar scalar_type(types::PrimitiveType::Float);
+    types::Pointer pointer_type(scalar_type);
+    builder.add_container("N", index_type, true);
+    builder.add_container("M", index_type, true);
+    builder.add_container("i", index_type);
+    builder.add_container("j", index_type);
+    builder.add_container("A", pointer_type, true);
+
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+
+    // for i in [1, N-1)
+    auto& i_loop = builder.add_for(
+        root,
+        i,
+        symbolic::Lt(i, symbolic::sub(N, symbolic::one())),
+        symbolic::integer(1),
+        symbolic::add(i, symbolic::one())
+    );
+
+    // for j in [1, M-1)
+    auto& j_loop = builder.add_for(
+        i_loop.root(),
+        j,
+        symbolic::Lt(j, symbolic::sub(M, symbolic::one())),
+        symbolic::integer(1),
+        symbolic::add(j, symbolic::one())
+    );
+
+    // Block: 3-point stencil in i: A[i*M+j], A[(i-1)*M+j], A[(i+1)*M+j]
+    auto& block = builder.add_block(j_loop.root());
+    auto& a_center = builder.add_access(block, "A");
+    auto& a_north = builder.add_access(block, "A");
+    auto& a_south = builder.add_access(block, "A");
+    auto& access_out = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_c", "_n", "_s"});
+
+    auto center = symbolic::add(symbolic::mul(i, M), j);
+    auto north = symbolic::add(symbolic::mul(symbolic::sub(i, symbolic::one()), M), j);
+    auto south = symbolic::add(symbolic::mul(symbolic::add(i, symbolic::one()), M), j);
+
+    auto& m_center = builder.add_computational_memlet(block, a_center, tasklet, "_c", {center});
+    auto& m_north = builder.add_computational_memlet(block, a_north, tasklet, "_n", {north});
+    auto& m_south = builder.add_computational_memlet(block, a_south, tasklet, "_s", {south});
+    builder.add_computational_memlet(block, tasklet, "_out", access_out, {center});
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    auto& analysis = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
+
+    // The merged tile at j_loop should still work (extents [3, M-2] are integer)
+    auto* regular_tile = analysis.tile(j_loop, "A");
+    ASSERT_NE(regular_tile, nullptr);
+
+    auto ext = regular_tile->extents();
+    ASSERT_EQ(ext.size(), 2);
+    EXPECT_TRUE(symbolic::eq(ext.at(0), symbolic::integer(3)));
+
+    // Tile groups at j_loop: stencil accesses have bases that differ only by
+    // integer constants: [i-1, 1], [i, 1], [i+1, 1]. These get merged into
+    // a single group because the differences are purely constant offsets.
+    auto* groups = analysis.tile_groups(j_loop, "A");
+    ASSERT_NE(groups, nullptr);
+    // All stencil points merge into 1 group (constant-offset bases)
+    EXPECT_EQ(groups->size(), 1);
+
+    // The single group should contain all 4 memlets (3 inputs + 1 output)
+    auto* g_center = analysis.tile_group_for(j_loop, m_center);
+    ASSERT_NE(g_center, nullptr);
+    EXPECT_EQ(g_center->memlets.size(), 4);
+
+    // All stencil memlets are in the same group
+    auto* g_north = analysis.tile_group_for(j_loop, m_north);
+    auto* g_south = analysis.tile_group_for(j_loop, m_south);
+    ASSERT_NE(g_north, nullptr);
+    ASSERT_NE(g_south, nullptr);
+    EXPECT_EQ(g_center, g_north);
+    EXPECT_EQ(g_center, g_south);
+}
+
+// Test tile groups: tiled SYR2K pattern A[i_tile+i, k] + A[j_tile+j, k]
+TEST(MemoryLayoutAnalysisTest, TileGroups_TiledTwoAccesses) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar index_type(types::PrimitiveType::Int64);
+    types::Scalar scalar_type(types::PrimitiveType::Float);
+    types::Pointer pointer_type(scalar_type);
+    builder.add_container("N", index_type, true);
+    builder.add_container("K", index_type, true);
+    builder.add_container("i_tile", index_type);
+    builder.add_container("j_tile", index_type);
+    builder.add_container("i", index_type);
+    builder.add_container("j", index_type);
+    builder.add_container("k", index_type);
+    builder.add_container("A", pointer_type, true);
+    builder.add_container("tmp", scalar_type);
+
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    auto i_tile = symbolic::symbol("i_tile");
+    auto j_tile = symbolic::symbol("j_tile");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto tile_size = symbolic::integer(8);
+
+    // for i_tile in [0, N) step 8
+    auto& i_tile_loop =
+        builder.add_for(root, i_tile, symbolic::Lt(i_tile, N), symbolic::integer(0), symbolic::add(i_tile, tile_size));
+
+    // for j_tile in [0, N) step 8
+    auto& j_tile_loop = builder.add_for(
+        i_tile_loop.root(), j_tile, symbolic::Lt(j_tile, N), symbolic::integer(0), symbolic::add(j_tile, tile_size)
+    );
+
+    // for i in [i_tile, min(i_tile+8, N))
+    auto& i_loop = builder.add_for(
+        j_tile_loop.root(),
+        i,
+        symbolic::And(symbolic::Lt(i, symbolic::add(i_tile, tile_size)), symbolic::Lt(i, N)),
+        i_tile,
+        symbolic::add(i, symbolic::one())
+    );
+
+    // for j in [j_tile, min(j_tile+8, N))
+    auto& j_loop = builder.add_for(
+        i_loop.root(),
+        j,
+        symbolic::And(symbolic::Lt(j, symbolic::add(j_tile, tile_size)), symbolic::Lt(j, N)),
+        j_tile,
+        symbolic::add(j, symbolic::one())
+    );
+
+    // for k in [0, K)
+    auto& k_loop =
+        builder.add_for(j_loop.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::one()));
+
+    // Block: tmp = A[i*K + k] * A[j*K + k]
+    auto& block = builder.add_block(k_loop.root());
+    auto& access_A_ik = builder.add_access(block, "A");
+    auto& access_A_jk = builder.add_access(block, "A");
+    auto& access_tmp = builder.add_access(block, "tmp");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_a", "_b"});
+
+    auto linearized_ik = symbolic::add(symbolic::mul(i, K), k);
+    auto linearized_jk = symbolic::add(symbolic::mul(j, K), k);
+
+    auto& memlet_A_ik = builder.add_computational_memlet(block, access_A_ik, tasklet, "_a", {linearized_ik});
+    auto& memlet_A_jk = builder.add_computational_memlet(block, access_A_jk, tasklet, "_b", {linearized_jk});
+    builder.add_computational_memlet(block, tasklet, "_out", access_tmp, {});
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    auto& analysis = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
+
+    // At the k_loop level, tile groups should separate A[i,k] from A[j,k]
+    auto* k_groups = analysis.tile_groups(k_loop, "A");
+    ASSERT_NE(k_groups, nullptr);
+    ASSERT_EQ(k_groups->size(), 2);
+
+    auto* group_ik = analysis.tile_group_for(k_loop, memlet_A_ik);
+    auto* group_jk = analysis.tile_group_for(k_loop, memlet_A_jk);
+    ASSERT_NE(group_ik, nullptr);
+    ASSERT_NE(group_jk, nullptr);
+    EXPECT_NE(group_ik, group_jk);
+
+    // Group for A[i,k]: extents should be [1, K] (integer!)
+    auto ext_ik = group_ik->tile.extents();
+    ASSERT_EQ(ext_ik.size(), 2);
+    EXPECT_TRUE(symbolic::eq(ext_ik.at(0), symbolic::one()));
+    EXPECT_TRUE(symbolic::eq(ext_ik.at(1), K));
+
+    // Group for A[j,k]: extents should also be [1, K] (integer!)
+    auto ext_jk = group_jk->tile.extents();
+    ASSERT_EQ(ext_jk.size(), 2);
+    EXPECT_TRUE(symbolic::eq(ext_jk.at(0), symbolic::one()));
+    EXPECT_TRUE(symbolic::eq(ext_jk.at(1), K));
+}
