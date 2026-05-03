@@ -8,6 +8,7 @@
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 
+#include <symengine/functions.h>
 #include <symengine/logic.h>
 
 namespace sdfg {
@@ -33,13 +34,58 @@ static symbolic::Expression extract_upper_bound(const symbolic::Condition& cond,
 }
 
 /// Determine if `bound - init` simplifies to a positive integer constant.
+/// Also handles the case where init is a max() expression: if bound - any_arg
+/// gives a positive integer constant, the loop has a bounded trip count.
 static bool is_constant_trip_bound(const symbolic::Expression& bound, const symbolic::Expression& init) {
-    auto diff = symbolic::sub(bound, init);
+    auto diff = symbolic::expand(symbolic::sub(bound, init));
     if (SymEngine::is_a<SymEngine::Integer>(*diff)) {
         auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(diff);
         return val->as_int() > 0;
     }
+    // If init is max(a, b, ...), check if bound - arg is constant for any arg.
+    // trip_count = bound - max(a, b, ...) = min(bound-a, bound-b, ...)
+    // If any (bound - arg) is a positive constant, then the trip count is at most that constant.
+    if (SymEngine::is_a<SymEngine::Max>(*init)) {
+        auto max_op = SymEngine::rcp_static_cast<const SymEngine::Max>(init);
+        auto args = max_op->get_args();
+        for (auto& arg : args) {
+            auto arg_diff = symbolic::expand(symbolic::sub(bound, arg));
+            if (SymEngine::is_a<SymEngine::Integer>(*arg_diff)) {
+                auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(arg_diff);
+                if (val->as_int() > 0) {
+                    return true;
+                }
+            }
+        }
+    }
     return false;
+}
+
+/// Get the constant trip count for a bound/init pair that passes is_constant_trip_bound.
+/// Returns the positive integer trip count, handling max() in init.
+static int64_t get_constant_trip_count(const symbolic::Expression& bound, const symbolic::Expression& init) {
+    auto diff = symbolic::expand(symbolic::sub(bound, init));
+    if (SymEngine::is_a<SymEngine::Integer>(*diff)) {
+        return SymEngine::rcp_static_cast<const SymEngine::Integer>(diff)->as_int();
+    }
+    // For init = max(a, b, ...), find the smallest positive constant among (bound - arg)
+    if (SymEngine::is_a<SymEngine::Max>(*init)) {
+        auto max_op = SymEngine::rcp_static_cast<const SymEngine::Max>(init);
+        auto args = max_op->get_args();
+        int64_t best = INT64_MAX;
+        for (auto& arg : args) {
+            auto arg_diff = symbolic::expand(symbolic::sub(bound, arg));
+            if (SymEngine::is_a<SymEngine::Integer>(*arg_diff)) {
+                auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(arg_diff)->as_int();
+                if (val > 0 && val < best) {
+                    best = val;
+                }
+            }
+        }
+        return best;
+    }
+    // Should not reach here if is_constant_trip_bound returned true
+    return 0;
 }
 
 /// Check if a loop has a compound condition with at least one canonical bound.
@@ -82,19 +128,16 @@ static symbolic::Expression find_canonical_bound(structured_control_flow::Struct
     auto init = loop.init();
 
     symbolic::Expression canonical = SymEngine::null;
+    int64_t canonical_trip = INT64_MAX;
     for (auto& conjunct : conjuncts) {
         auto bound = extract_upper_bound(conjunct, indvar);
         if (bound == SymEngine::null) continue;
         if (!is_constant_trip_bound(bound, init)) continue;
 
-        if (canonical == SymEngine::null) {
+        auto trip = get_constant_trip_count(bound, init);
+        if (canonical == SymEngine::null || trip < canonical_trip) {
             canonical = bound;
-        } else {
-            auto existing_trip = SymEngine::rcp_static_cast<const SymEngine::Integer>(symbolic::sub(canonical, init));
-            auto new_trip = SymEngine::rcp_static_cast<const SymEngine::Integer>(symbolic::sub(bound, init));
-            if (new_trip->as_int() < existing_trip->as_int()) {
-                canonical = bound;
-            }
+            canonical_trip = trip;
         }
     }
     return canonical;
@@ -118,6 +161,35 @@ static symbolic::Condition build_loop_peeling_condition(
         // canonical_bound <= this dynamic/looser bound
         result = symbolic::And(result, symbolic::Le(canonical_bound, bound));
     }
+
+    // If init is max(a, b, ...), we need to ensure the max resolves to the arg
+    // that gives the constant trip count. Add conditions: chosen_arg >= other_args.
+    if (SymEngine::is_a<SymEngine::Max>(*init)) {
+        auto max_op = SymEngine::rcp_static_cast<const SymEngine::Max>(init);
+        auto args = max_op->get_args();
+        // Find the arg that gives the constant trip (smallest constant trip)
+        symbolic::Expression chosen_arg = SymEngine::null;
+        int64_t best_trip = INT64_MAX;
+        for (auto& arg : args) {
+            auto arg_diff = symbolic::expand(symbolic::sub(canonical_bound, arg));
+            if (SymEngine::is_a<SymEngine::Integer>(*arg_diff)) {
+                auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(arg_diff)->as_int();
+                if (val > 0 && val < best_trip) {
+                    best_trip = val;
+                    chosen_arg = arg;
+                }
+            }
+        }
+        // Add conditions: chosen_arg >= each other arg (so max resolves to chosen_arg)
+        if (chosen_arg != SymEngine::null) {
+            for (auto& arg : args) {
+                if (!symbolic::eq(arg, chosen_arg)) {
+                    result = symbolic::And(result, symbolic::Le(arg, chosen_arg));
+                }
+            }
+        }
+    }
+
     return result;
 }
 
@@ -190,8 +262,28 @@ void LoopPeeling::apply(builder::StructuredSDFGBuilder& builder, analysis::Analy
         auto indvar = loop->indvar();
         auto init = loop->init();
 
-        // Compute constant trip count: canonical_bound - init
-        auto trip_count = symbolic::sub(info.canonical_bound, init);
+        // Compute constant trip count: canonical_bound - init (using helper for max() cases)
+        auto trip_count = symbolic::integer(get_constant_trip_count(info.canonical_bound, init));
+
+        // Resolve effective init for the then-branch.
+        // If init = max(a, b, ...) and canonical_bound - b is the constant trip,
+        // then in the then-branch (where peeling condition guarantees max = b), use b directly.
+        symbolic::Expression effective_init = init;
+        if (SymEngine::is_a<SymEngine::Max>(*init)) {
+            auto max_op = SymEngine::rcp_static_cast<const SymEngine::Max>(init);
+            auto args = max_op->get_args();
+            int64_t best_trip = INT64_MAX;
+            for (auto& arg : args) {
+                auto arg_diff = symbolic::expand(symbolic::sub(info.canonical_bound, arg));
+                if (SymEngine::is_a<SymEngine::Integer>(*arg_diff)) {
+                    auto val = SymEngine::rcp_static_cast<const SymEngine::Integer>(arg_diff)->as_int();
+                    if (val > 0 && val < best_trip) {
+                        best_trip = val;
+                        effective_init = arg;
+                    }
+                }
+            }
+        }
 
         // New loop: indvar goes from 0 to trip_count
         auto zero_condition = symbolic::Lt(indvar, trip_count);
@@ -215,8 +307,8 @@ void LoopPeeling::apply(builder::StructuredSDFGBuilder& builder, analysis::Analy
                      .add_for(*current_parent, indvar, zero_condition, zero_init, loop->update(), {}, loop->debug_info());
         }
 
-        // Record substitution: in the body, original indvar usage = new_indvar + init
-        substitutions.push_back({indvar, init});
+        // Record substitution: in the body, original indvar usage = new_indvar + effective_init
+        substitutions.push_back({indvar, effective_init});
         current_parent = &new_loop->root();
     }
 
