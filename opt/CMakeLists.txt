@@ -90,6 +90,7 @@ set(SOURCE_FILES
     src/transformations/loop_condition_normalize.cpp
     src/transformations/loop_indvar_finalize.cpp
     src/transformations/loop_interchange.cpp
+    src/transformations/loop_peeling.cpp
     src/transformations/loop_rotate.cpp
     src/transformations/loop_shift.cpp
     src/transformations/loop_skewing.cpp

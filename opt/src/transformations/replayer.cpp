@@ -7,6 +7,7 @@
 #include <sdfg/transformations/in_local_storage.h>
 #include <sdfg/transformations/loop_distribute.h>
 #include <sdfg/transformations/loop_interchange.h>
+#include <sdfg/transformations/loop_peeling.h>
 #include <sdfg/transformations/loop_tiling.h>
 #include <sdfg/transformations/offloading/cuda_parallelize_nested_map.h>
 #include <sdfg/transformations/offloading/cuda_transform.h>
@@ -55,6 +56,8 @@ void Replayer::replay(
             this->apply<transformations::OMPTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "HighwayTransform") {
             this->apply<transformations::HighwayTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
+        } else if (transformation_name == "LoopPeeling") {
+            this->apply<transformations::LoopPeeling>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "VectorizeTransform") {
             this->apply<transformations::VectorizeTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "CUDATransform") {
