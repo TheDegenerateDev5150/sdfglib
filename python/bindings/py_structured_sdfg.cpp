@@ -32,7 +32,6 @@
 #include <sdfg/passes/opt_pipeline.h>
 #include <sdfg/passes/pipeline.h>
 #include <sdfg/passes/scheduler/cuda_scheduler.h>
-#include <sdfg/passes/scheduler/highway_scheduler.h>
 #include <sdfg/passes/scheduler/loop_scheduling_pass.h>
 #include <sdfg/passes/scheduler/omp_scheduler.h>
 #include <sdfg/passes/scheduler/scheduler_registry.h>
@@ -502,7 +501,6 @@ std::string PyStructuredSDFG::compile(
     if (target_handler) {
         target_handler->apply_additional_compile_options(compile_builder);
     }
-    docc::target::add_highway_build_support(compile_builder);
 
     auto fcomp_handler = compile_builder.build();
     docc::compile::CodegenBuildPool pool((threads > 0) ? threads : std::thread::hardware_concurrency());

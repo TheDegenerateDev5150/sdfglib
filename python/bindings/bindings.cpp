@@ -40,7 +40,6 @@
 #include <sdfg/plugins/plugins.h>
 #include <sdfg/serializer/json_serializer.h>
 #include <sdfg/targets/cuda/plugin.h>
-#include <sdfg/targets/highway/plugin.h>
 #include <sdfg/targets/omp/plugin.h>
 #include <sdfg/targets/rocm/plugin.h>
 #include <sdfg/targets/vectorize/plugin.h>
@@ -66,7 +65,6 @@ PYBIND11_MODULE(_sdfg, m) {
     sdfg::serializer::register_default_serializers();
     sdfg::omp::register_omp_plugin();
     sdfg::vectorize::register_vectorize_plugin();
-    sdfg::highway::register_highway_plugin();
     sdfg::cuda::register_cuda_plugin(docc_context);
     sdfg::rocm::register_rocm_plugin(docc_context);
     docc::target::register_builtin_targets(docc_context);

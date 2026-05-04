@@ -1,6 +1,5 @@
 #include "docc/target/docc_target.h"
 #include <filesystem>
-#include <sdfg/targets/highway/codegen/highway_map_dispatcher.h>
 
 #include "docc/compile/src_file_compiler_builder.h"
 
@@ -49,15 +48,6 @@ static DoccTarget rocm_target = {
         return true;
     }
 };
-
-bool add_highway_build_support(compile::SrcFileCompilerBuilder& builder) {
-    compile::SrcFileCompilerBuilder highway_builder;
-    highway_builder.inherit(builder, true);
-    highway_builder.contribute_parent_link_options({"-lhwy"});
-
-    builder.redirect_snippet(sdfg::highway::HIGHWAY_SNIPPET_EXT, std::move(highway_builder));
-    return true;
-}
 
 /**
  * Temporary workaround. Ideally, these should live with the plugins themselves.

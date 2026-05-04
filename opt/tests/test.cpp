@@ -3,7 +3,6 @@
 #include "sdfg/codegen/dispatchers/node_dispatcher_registry.h"
 #include "sdfg/serializer/json_serializer.h"
 #include "sdfg/targets/cuda/plugin.h"
-#include "sdfg/targets/highway/plugin.h"
 #include "sdfg/targets/omp/plugin.h"
 #include "sdfg/targets/rocm/plugin.h"
 #include "sdfg/targets/vectorize/plugin.h"
@@ -18,7 +17,6 @@ int main(int argc, char** argv) {
     sdfg::cuda::register_cuda_plugin(context);
     sdfg::rocm::register_rocm_plugin(context);
     sdfg::serializer::register_default_serializers();
-    sdfg::highway::register_highway_plugin();
     sdfg::vectorize::register_vectorize_plugin();
     sdfg::omp::register_omp_plugin();
 
