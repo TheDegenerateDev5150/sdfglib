@@ -32,13 +32,10 @@ set(TEST_FILES
     passes/offloading/cuda_library_node_rewriter_pass_test.cpp
     passes/offloading/rocm_library_node_rewriter_pass_test.cpp
     passes/scheduler/cuda_scheduler_test.cpp
-    passes/scheduler/highway_scheduler_test.cpp
     passes/scheduler/omp_scheduler_test.cpp
     targets/omp/codegen/omp_map_dispatcher_test.cpp
     targets/omp/schedule_test.cpp
-    targets/highway/codegen/highway_map_dispatcher_test.cpp
     transformations/collapse_to_depth_test.cpp
-    transformations/highway_transform_test.cpp
     transformations/omp_transform_test.cpp
     transformations/map_collapse_test.cpp
     transformations/einsum2gemm_test.cpp

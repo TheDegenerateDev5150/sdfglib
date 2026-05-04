@@ -3,7 +3,6 @@
 #include <sdfg/transformations/einsum_expand.h>
 #include <sdfg/transformations/einsum_extend.h>
 #include <sdfg/transformations/einsum_lift.h>
-#include <sdfg/transformations/highway_transform.h>
 #include <sdfg/transformations/in_local_storage.h>
 #include <sdfg/transformations/loop_distribute.h>
 #include <sdfg/transformations/loop_interchange.h>
@@ -60,8 +59,6 @@ void Replayer::replay(
             this->apply<transformations::LoopShift>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "OMPTransform") {
             this->apply<transformations::OMPTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
-        } else if (transformation_name == "HighwayTransform") {
-            this->apply<transformations::HighwayTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "LoopPeeling") {
             this->apply<transformations::LoopPeeling>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "VectorizeTransform") {

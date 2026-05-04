@@ -17,7 +17,6 @@
 #include <sdfg/transformations/loop_tiling.h>
 #include <sdfg/transformations/out_local_storage.h>
 
-#include <sdfg/transformations/highway_transform.h>
 #include <sdfg/transformations/offloading/cuda_parallelize_nested_map.h>
 #include <sdfg/transformations/offloading/cuda_transform.h>
 #include <sdfg/transformations/offloading/gpu_condition_propagation.h>
@@ -208,14 +207,6 @@ TEST(TransformationSerializationTest, OtherScheduleTransformationsShape) {
     ValidateSerialization(jo, 1);
     auto omp_t2 = transformations::OMPTransform::from_json(f.builder, jo);
     ASSERT_EQ(omp_t2.name(), omp_t.name());
-
-    // HighwayTransform
-    transformations::HighwayTransform hw_t(*f.outer_map);
-    nlohmann::json jh;
-    hw_t.to_json(jh);
-    ValidateSerialization(jh, 1);
-    auto hw_t2 = transformations::HighwayTransform::from_json(f.builder, jh);
-    ASSERT_EQ(hw_t2.name(), hw_t.name());
 
 #ifdef DOCC_HAS_TARGET_TENSTORRENT
     // TenstorrentTransform
