@@ -620,7 +620,10 @@ KernelLocalStorage KernelLocalStorage::from_json(builder::StructuredSDFGBuilder&
     if (!element) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
     }
-    auto outer_loop = dynamic_cast<structured_control_flow::For*>(element);
+    auto outer_loop = dynamic_cast<structured_control_flow::StructuredLoop*>(element);
+    if (!outer_loop) {
+        throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " is not a loop.");
+    }
 
     auto access_node = dynamic_cast<
         data_flow::AccessNode*>(builder.find_element_by_id(desc.at("subgraph").at("1").at("element_id").get<size_t>()));

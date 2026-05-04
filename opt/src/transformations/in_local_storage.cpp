@@ -64,25 +64,42 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
         return false;
     }
 
-    // Use MemoryLayoutAnalysis tile API
+    // Use MemoryLayoutAnalysis tile group API
     auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
-    auto* tile = mla.tile(loop_, this->container_);
-    if (!tile) {
+
+    // Find a representative memlet from the access node to identify its group
+    const data_flow::Memlet* representative_memlet = nullptr;
+    auto& dfg = access_node_.get_parent();
+    for (auto& memlet : dfg.out_edges(access_node_)) {
+        representative_memlet = &memlet;
+        break;
+    }
+    if (!representative_memlet) {
         return false;
     }
 
+    auto* group = mla.tile_group_for(loop_, *representative_memlet);
+    if (!group) {
+        return false;
+    }
+
+    auto& tile = group->tile;
+
+    // Store group memlets for use in apply()
+    group_memlets_.clear();
+    group_memlets_.insert(group->memlets.begin(), group->memlets.end());
+
     // Get overapproximated extents (integer upper bounds)
-    auto extents = tile->extents_approx();
+    auto extents = tile.extents_approx();
     if (extents.empty()) {
         return false;
     }
 
     // Store tile info (before substitution, bases/strides stay symbolic)
     tile_info_.dimensions = extents;
-    tile_info_.bases = tile->min_subset;
-    tile_info_.strides =
-        std::vector<symbolic::Expression>(tile->layout.strides().begin(), tile->layout.strides().end());
-    tile_info_.offset = tile->layout.offset();
+    tile_info_.bases = tile.min_subset;
+    tile_info_.strides = std::vector<symbolic::Expression>(tile.layout.strides().begin(), tile.layout.strides().end());
+    tile_info_.offset = tile.layout.offset();
 
     // GPU shared memory: resolve symbolic extents using GPU block sizes and
     // require at least one cooperative dimension
@@ -180,7 +197,7 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
     types::Scalar scalar_type(type.primitive_type());
 
     // Create local buffer name
-    local_name_ = "__daisy_in_local_storage_" + this->container_;
+    local_name_ = builder.find_new_name("__daisy_in_local_storage_" + this->container_);
 
     // Collect varying dimensions (extent > 1) and compute buffer layout
     std::vector<size_t> varying_dims;
@@ -306,7 +323,7 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
         // Each thread loads elements strided by total_coop_threads
         // Thread t loads elements: t, t + total_threads, t + 2*total_threads, ...
         // We emit a loop: for (idx = coop_flat; idx < total_size; idx += total_coop_threads)
-        auto idx_name = "__daisy_ils_coop_" + this->container_;
+        auto idx_name = builder.find_new_name("__daisy_ils_coop_" + this->container_);
         types::Scalar idx_type(types::PrimitiveType::UInt64);
         builder.add_container(idx_name, idx_type);
         auto idx_var = symbolic::symbol(idx_name);
@@ -376,7 +393,7 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
 
         for (size_t i = 0; i < varying_dims.size(); i++) {
             size_t d = varying_dims[i];
-            auto indvar_name = "__daisy_ils_" + this->container_ + "_d" + std::to_string(d);
+            auto indvar_name = builder.find_new_name("__daisy_ils_" + this->container_ + "_d" + std::to_string(d));
             types::Scalar indvar_type(types::PrimitiveType::UInt64);
             builder.add_container(indvar_name, indvar_type);
             auto indvar = symbolic::symbol(indvar_name);
@@ -443,8 +460,13 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
             auto& dfg = block->dataflow();
             for (auto* access : dfg.data_nodes()) {
                 if (access->data() != this->container_) continue;
+                bool all_rewritten = true;
                 // Rewrite outgoing memlets (reads from this access node)
                 for (auto& memlet : dfg.out_edges(*access)) {
+                    if (group_memlets_.count(&memlet) == 0) {
+                        all_rewritten = false;
+                        continue;
+                    }
                     auto* acc = mla.access(memlet);
                     if (acc && acc->subset.size() == tile_info_.dimensions.size()) {
                         std::vector<symbolic::Expression> local_indices;
@@ -460,6 +482,10 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
                 }
                 // Rewrite incoming memlets (writes to this access node)
                 for (auto& memlet : dfg.in_edges(*access)) {
+                    if (group_memlets_.count(&memlet) == 0) {
+                        all_rewritten = false;
+                        continue;
+                    }
                     auto* acc = mla.access(memlet);
                     if (acc && acc->subset.size() == tile_info_.dimensions.size()) {
                         std::vector<symbolic::Expression> local_indices;
@@ -473,8 +499,10 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
                         memlet.set_base_type(buffer_type);
                     }
                 }
-                // Rename the access node to the local buffer
-                access->data(local_name_);
+                // Rename the access node only if all its memlets belong to our group
+                if (all_rewritten) {
+                    access->data(local_name_);
+                }
             }
         } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(&node)) {
             for (size_t i = 0; i < seq->size(); i++) {

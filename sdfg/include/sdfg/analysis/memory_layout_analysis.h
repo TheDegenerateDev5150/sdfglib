@@ -12,6 +12,7 @@
 #include <map>
 #include <set>
 #include <unordered_map>
+#include <vector>
 
 #include <string>
 
@@ -51,6 +52,11 @@ struct MemoryTile {
     std::pair<symbolic::Expression, symbolic::Expression> contiguous_range() const;
 };
 
+struct MemoryTileGroup {
+    MemoryTile tile; // Bounding box for this group
+    std::vector<const data_flow::Memlet*> memlets; // Memlets belonging to this group
+};
+
 /**
  * @class MemoryLayoutAnalysis
  * @brief Analysis that infers the assumed memory layouts of memlets
@@ -67,6 +73,8 @@ class MemoryLayoutAnalysis : public Analysis {
 private:
     std::unordered_map<const data_flow::Memlet*, MemoryAccess> accesses_;
     std::map<std::pair<const structured_control_flow::StructuredLoop*, std::string>, MemoryTile> tiles_;
+    std::map<std::pair<const structured_control_flow::StructuredLoop*, std::string>, std::vector<MemoryTileGroup>>
+        tile_groups_;
 
     void traverse(structured_control_flow::ControlFlowNode& node, analysis::AnalysisManager& analysis_manager);
 
@@ -77,6 +85,16 @@ private:
         const std::vector<const data_flow::Memlet*>& memlets_before,
         const std::set<std::pair<const structured_control_flow::StructuredLoop*, std::string>>& tiles_before,
         analysis::AnalysisManager& analysis_manager
+    );
+
+    void compute_tile_groups(
+        structured_control_flow::StructuredLoop& loop,
+        const std::string& container,
+        const std::vector<const data_flow::Memlet*>& memlets,
+        const MemoryLayout& reference_layout,
+        size_t ndims,
+        const symbolic::SymbolSet& parameters,
+        const symbolic::Assumptions& assumptions
     );
 
 protected:
@@ -101,6 +119,24 @@ public:
      * @return A pointer to the memory layout at that loop level, nullptr if not available
      */
     const MemoryTile* tile(const structured_control_flow::StructuredLoop& loop, const std::string& container) const;
+
+    /**
+     * @brief Get tile groups for a container at a specific loop level
+     * @param loop The loop to query
+     * @param container The container name
+     * @return A pointer to the vector of tile groups, nullptr if not available
+     */
+    const std::vector<MemoryTileGroup>*
+    tile_groups(const structured_control_flow::StructuredLoop& loop, const std::string& container) const;
+
+    /**
+     * @brief Get the tile group containing a specific memlet at a loop level
+     * @param loop The loop to query
+     * @param memlet The memlet to find
+     * @return A pointer to the tile group containing the memlet, nullptr if not found
+     */
+    const MemoryTileGroup*
+    tile_group_for(const structured_control_flow::StructuredLoop& loop, const data_flow::Memlet& memlet) const;
 };
 
 } // namespace analysis

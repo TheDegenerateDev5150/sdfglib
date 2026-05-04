@@ -130,21 +130,30 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
             if (new_dim.is_null()) {
                 better = true;
             } else {
-                // Prefer provably larger lower bound (always positive-stride oriented).
-                if (lb != SymEngine::null && best_lb != SymEngine::null && provably_gt(lb, best_lb)) {
+                // Primary: structural complexity (deterministic, independent of iteration order).
+                // A symbolic stride like M (complexity 1) always beats a constant stride 1 (complexity 0).
+                if (complexity > best_complexity) {
                     better = true;
-                }
-                // If lower bounds are tied/unknown, prefer larger upper bound.
-                if (!better && ub != SymEngine::null && best_ub != SymEngine::null && provably_gt(ub, best_ub)) {
-                    better = true;
-                }
-                // Structural fallback that accounts for repeated symbols and pow.
-                if (!better && complexity > best_complexity) {
-                    better = true;
-                }
-                // Final deterministic fallback.
-                if (!better && complexity == best_complexity && atom_count > max_atom_count) {
-                    better = true;
+                } else if (complexity == best_complexity) {
+                    // Secondary: provably larger lower bound (when complexities are tied).
+                    if (lb != SymEngine::null && best_lb != SymEngine::null && provably_gt(lb, best_lb)) {
+                        better = true;
+                    }
+                    // Tertiary: provably larger upper bound.
+                    if (!better && ub != SymEngine::null && best_ub != SymEngine::null && provably_gt(ub, best_ub)) {
+                        better = true;
+                    }
+                    // Quaternary: atom count.
+                    if (!better && atom_count > max_atom_count) {
+                        better = true;
+                    }
+                    // Final deterministic fallback: lexicographic symbol name to ensure
+                    // consistent results regardless of unordered_map iteration order.
+                    if (!better && atom_count == max_atom_count) {
+                        if (sym->get_name() > new_dim->get_name()) {
+                            better = true;
+                        }
+                    }
                 }
             }
 
