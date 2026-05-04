@@ -1,5 +1,6 @@
 #include "sdfg/analysis/memory_layout_analysis.h"
 
+#include <algorithm>
 #include <optional>
 #include <set>
 #include <unordered_set>
@@ -204,6 +205,13 @@ void MemoryLayoutAnalysis::merge_loop_layouts(
             continue;
         }
         all_container_groups[acc.container].push_back(memlet_ptr);
+    }
+
+    // Sort memlets within each container group by element_id for deterministic processing order
+    for (auto& [container, memlets] : all_container_groups) {
+        std::sort(memlets.begin(), memlets.end(), [](const data_flow::Memlet* a, const data_flow::Memlet* b) {
+            return a->element_id() < b->element_id();
+        });
     }
 
     auto& assumptions_analysis = analysis_manager.get<AssumptionsAnalysis>();

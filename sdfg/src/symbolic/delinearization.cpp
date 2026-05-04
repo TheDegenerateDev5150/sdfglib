@@ -143,9 +143,16 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
                     if (!better && ub != SymEngine::null && best_ub != SymEngine::null && provably_gt(ub, best_ub)) {
                         better = true;
                     }
-                    // Final deterministic fallback: atom count.
+                    // Quaternary: atom count.
                     if (!better && atom_count > max_atom_count) {
                         better = true;
+                    }
+                    // Final deterministic fallback: lexicographic symbol name to ensure
+                    // consistent results regardless of unordered_map iteration order.
+                    if (!better && atom_count == max_atom_count) {
+                        if (sym->get_name() > new_dim->get_name()) {
+                            better = true;
+                        }
                     }
                 }
             }
