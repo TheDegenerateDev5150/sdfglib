@@ -67,18 +67,42 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
     // Use MemoryLayoutAnalysis tile group API
     auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
 
-    // Find a representative memlet from the access node to identify its group
-    const data_flow::Memlet* representative_memlet = nullptr;
+    // Find a representative memlet from the access node to identify its group.
+    // An access node may have multiple out-edges belonging to different tile
+    // groups (e.g., A[i,k] and A[j,k]).  We iterate all out-edges and select
+    // the first one whose tile group has provably integer extents (i.e., can
+    // actually be applied).  This avoids picking a group with symbolic extents
+    // when another group on the same node would succeed.
+    // For GPU shared memory, extents may be symbolic until GPU block size
+    // substitution, so we accept the first valid group unconditionally.
+    const analysis::MemoryTileGroup* group = nullptr;
     auto& dfg = access_node_.get_parent();
     for (auto& memlet : dfg.out_edges(access_node_)) {
-        representative_memlet = &memlet;
-        break;
-    }
-    if (!representative_memlet) {
-        return false;
-    }
+        auto* candidate = mla.tile_group_for(loop_, memlet);
+        if (!candidate) continue;
 
-    auto* group = mla.tile_group_for(loop_, *representative_memlet);
+        auto extents = candidate->tile.extents_approx();
+        if (extents.empty()) continue;
+
+        if (storage_type_.is_nv_shared()) {
+            // GPU path: accept first valid group (substitution happens later)
+            group = candidate;
+            break;
+        }
+
+        // CPU path: require provably integer extents
+        bool all_integer = true;
+        for (auto& ext : extents) {
+            if (!SymEngine::is_a<SymEngine::Integer>(*ext)) {
+                all_integer = false;
+                break;
+            }
+        }
+        if (all_integer) {
+            group = candidate;
+            break;
+        }
+    }
     if (!group) {
         return false;
     }
@@ -458,13 +482,28 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
     rewrite_accesses = [&](structured_control_flow::ControlFlowNode& node) {
         if (auto* block = dynamic_cast<structured_control_flow::Block*>(&node)) {
             auto& dfg = block->dataflow();
-            for (auto* access : dfg.data_nodes()) {
-                if (access->data() != this->container_) continue;
-                bool all_rewritten = true;
-                // Rewrite outgoing memlets (reads from this access node)
+
+            // Collect access nodes to process (avoid iterator invalidation)
+            std::vector<data_flow::AccessNode*> access_nodes;
+            for (auto* access_node : dfg.data_nodes()) {
+                if (access_node->data() == this->container_) {
+                    access_nodes.push_back(access_node);
+                }
+            }
+
+            for (auto* access : access_nodes) {
+                // Classify memlets: group vs non-group
+                struct MemletRewrite {
+                    data_flow::Memlet* memlet;
+                    data_flow::Subset local_subset;
+                    bool is_outgoing;
+                };
+                std::vector<MemletRewrite> group_rewrites;
+                bool all_in_group = true;
+
                 for (auto& memlet : dfg.out_edges(*access)) {
                     if (group_memlets_.count(&memlet) == 0) {
-                        all_rewritten = false;
+                        all_in_group = false;
                         continue;
                     }
                     auto* acc = mla.access(memlet);
@@ -476,14 +515,12 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
                             }
                         }
                         symbolic::Expression linear_idx = linearize_exprs(local_indices);
-                        memlet.set_subset({linear_idx});
-                        memlet.set_base_type(buffer_type);
+                        group_rewrites.push_back({&memlet, {linear_idx}, true});
                     }
                 }
-                // Rewrite incoming memlets (writes to this access node)
                 for (auto& memlet : dfg.in_edges(*access)) {
                     if (group_memlets_.count(&memlet) == 0) {
-                        all_rewritten = false;
+                        all_in_group = false;
                         continue;
                     }
                     auto* acc = mla.access(memlet);
@@ -495,13 +532,41 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
                             }
                         }
                         symbolic::Expression linear_idx = linearize_exprs(local_indices);
-                        memlet.set_subset({linear_idx});
-                        memlet.set_base_type(buffer_type);
+                        group_rewrites.push_back({&memlet, {linear_idx}, false});
                     }
                 }
-                // Rename the access node only if all its memlets belong to our group
-                if (all_rewritten) {
+
+                if (group_rewrites.empty()) continue;
+
+                if (all_in_group) {
+                    // Simple case: all memlets in group → rewrite in-place and rename
+                    for (auto& rw : group_rewrites) {
+                        rw.memlet->set_subset(rw.local_subset);
+                        rw.memlet->set_base_type(buffer_type);
+                    }
                     access->data(local_name_);
+                } else {
+                    // Mixed case: split — create new local access node, redirect group memlets
+                    auto& local_access = builder.add_access(*block, local_name_);
+                    for (auto& rw : group_rewrites) {
+                        if (rw.is_outgoing) {
+                            // outgoing: access→tasklet  →  local_access→tasklet
+                            auto& dst_node = rw.memlet->dst();
+                            auto dst_conn = rw.memlet->dst_conn();
+                            builder.remove_memlet(*block, *rw.memlet);
+                            builder.add_memlet(
+                                *block, local_access, "void", dst_node, dst_conn, rw.local_subset, buffer_type, {}
+                            );
+                        } else {
+                            // incoming: tasklet→access  →  tasklet→local_access
+                            auto& src_node = rw.memlet->src();
+                            auto src_conn = rw.memlet->src_conn();
+                            builder.remove_memlet(*block, *rw.memlet);
+                            builder.add_memlet(
+                                *block, src_node, src_conn, local_access, "void", rw.local_subset, buffer_type, {}
+                            );
+                        }
+                    }
                 }
             }
         } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(&node)) {
