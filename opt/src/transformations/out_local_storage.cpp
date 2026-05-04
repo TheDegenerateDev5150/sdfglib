@@ -74,24 +74,28 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
 
     auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
 
-    // Find a representative memlet from the access node to identify its group
-    const data_flow::Memlet* representative_memlet = nullptr;
+    // Find a representative memlet from the access node to identify its group.
+    // An access node may have multiple edges belonging to different tile groups.
+    // We iterate all edges and select the first one whose tile group is valid
+    // at the target loop level.
+    const analysis::MemoryTileGroup* group = nullptr;
     auto& dfg = access_node_.get_parent();
     for (auto& memlet : dfg.in_edges(access_node_)) {
-        representative_memlet = &memlet;
-        break;
-    }
-    if (!representative_memlet) {
-        for (auto& memlet : dfg.out_edges(access_node_)) {
-            representative_memlet = &memlet;
+        auto* candidate = mla.tile_group_for(loop_, memlet);
+        if (candidate) {
+            group = candidate;
             break;
         }
     }
-    if (!representative_memlet) {
-        return false;
+    if (!group) {
+        for (auto& memlet : dfg.out_edges(access_node_)) {
+            auto* candidate = mla.tile_group_for(loop_, memlet);
+            if (candidate) {
+                group = candidate;
+                break;
+            }
+        }
     }
-
-    auto* group = mla.tile_group_for(loop_, *representative_memlet);
     if (!group) {
         return false;
     }
