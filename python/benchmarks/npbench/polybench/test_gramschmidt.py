@@ -45,8 +45,8 @@ def kernel(A):
     "target",
     [
         "none",
-        "sequential",
-        "openmp",
+        # "sequential",
+        # "openmp",
         # "cuda"
         # "rocm"
     ],

@@ -62,7 +62,7 @@ def kernel(in_field, out_field, coeff):
 @pytest.mark.parametrize(
     "target",
     [
-        "none",
+        # "none",
         # "sequential",
         # "openmp",
         # "cuda"

@@ -70,6 +70,13 @@ private:
 
     std::unordered_map<structured_control_flow::StructuredLoop*, std::vector<LoopCarriedDependencyPair>> pairs_;
 
+    // Owned, detailed `DataDependencyAnalysis` instance constructed manually
+    // (not through the shared `AnalysisManager` cache). LCDA needs the
+    // precise symbolic-subset boundary information; the manager-cached DDA
+    // runs in conservative mode for performance.
+    std::unique_ptr<DataDependencyAnalysis> detailed_dda_;
+    DataDependencyAnalysis& detailed_dda();
+
     void analyze_loop(analysis::AnalysisManager& analysis_manager, structured_control_flow::StructuredLoop& loop);
 
 public:

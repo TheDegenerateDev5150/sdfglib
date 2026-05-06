@@ -48,6 +48,14 @@ private:
 
     std::list<std::unique_ptr<User>> undefined_users_;
 
+    // When false (default), the symbolic-subset/disjointness helpers below
+    // (`supersedes_restrictive`, `intersects`, `closes`, `depends`) take
+    // conservative shortcuts and skip the expensive ISL queries. Sound but
+    // less precise. `LoopCarriedDependencyAnalysis` constructs its own
+    // detailed instance manually with `detailed_ = true` to obtain the
+    // precise boundary information it requires.
+    bool detailed_ = false;
+
     bool supersedes_restrictive(User& previous, User& current, analysis::AnalysisManager& analysis_manager);
 
     bool intersects(User& previous, User& current, analysis::AnalysisManager& analysis_manager);
@@ -71,6 +79,11 @@ public:
     DataDependencyAnalysis(StructuredSDFG& sdfg);
 
     DataDependencyAnalysis(StructuredSDFG& sdfg, structured_control_flow::Sequence& node);
+
+    // Enable detailed symbolic subset/disjointness checks. Off by default;
+    // `LoopCarriedDependencyAnalysis` flips it on for its own manually
+    // constructed instance.
+    void set_detailed(bool detailed) { detailed_ = detailed; }
 
     std::string name() const override { return "DataDependencyAnalysis"; }
 

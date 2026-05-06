@@ -30,6 +30,14 @@ LoopCarriedDependencyAnalysis::LoopCarriedDependencyAnalysis(StructuredSDFG& sdf
 LoopCarriedDependencyAnalysis::LoopCarriedDependencyAnalysis(StructuredSDFG& sdfg, structured_control_flow::Sequence& node)
     : Analysis(sdfg), node_(node) {}
 
+DataDependencyAnalysis& LoopCarriedDependencyAnalysis::detailed_dda() {
+    if (!detailed_dda_) {
+        detailed_dda_ = std::make_unique<DataDependencyAnalysis>(this->sdfg_, this->node_);
+        detailed_dda_->set_detailed(true);
+    }
+    return *detailed_dda_;
+}
+
 void LoopCarriedDependencyAnalysis::analyze_loop(
     analysis::AnalysisManager& /*analysis_manager*/, structured_control_flow::StructuredLoop& /*loop*/
 ) {
@@ -266,7 +274,8 @@ void LoopCarriedDependencyAnalysis::run(analysis::AnalysisManager& analysis_mana
     //                                       cont(W) = cont(R), Δ ≠ ∅ }
     //            ∪ { (W₁,W₂, WAW, Δ_L(W₁,W₂)) : W₁,W₂ ∈ esc(L),
     //                                           cont(W₁) = cont(W₂), Δ ≠ ∅ }
-    auto& dda = analysis_manager.get<analysis::DataDependencyAnalysis>();
+    auto& dda = detailed_dda();
+    dda.run(analysis_manager);
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
 

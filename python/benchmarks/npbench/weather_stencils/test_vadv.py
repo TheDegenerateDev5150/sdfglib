@@ -147,11 +147,11 @@ def test_vadv(target):
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
+                "CPU_PARALLEL": 2,
                 "VECTORIZE": 51,
                 "MAP": 102,
                 "SEQUENTIAL": 49,
-                "CPU_PARALLEL": 2,
-                "FOR": 111,
+                "FOR": 109,
                 "Malloc": 42,
             }
         )

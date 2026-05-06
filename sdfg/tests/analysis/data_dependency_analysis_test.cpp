@@ -195,6 +195,7 @@ TEST(DataDependencyAnalysisTest, Block_Undefined_Array_Subset) {
     // Run analysis
     analysis::AnalysisManager analysis_manager(builder.subject());
     analysis::DataDependencyAnalysis analysis(builder.subject());
+    analysis.set_detailed(true);
     auto& users = analysis_manager.get<analysis::Users>();
 
     std::unordered_set<analysis::User*> undefined;
@@ -510,6 +511,7 @@ TEST(DataDependencyAnalysisTest, Sequence_Close_Array) {
     // Run analysis
     analysis::AnalysisManager analysis_manager(builder.subject());
     analysis::DataDependencyAnalysis analysis(builder.subject());
+    analysis.set_detailed(true);
     auto& users = analysis_manager.get<analysis::Users>();
 
     std::unordered_set<analysis::User*> undefined;
@@ -783,6 +785,7 @@ TEST(DataDependencyAnalysisTest, IfElse_Define_Array) {
     // Run analysis
     analysis::AnalysisManager analysis_manager(builder.subject());
     analysis::DataDependencyAnalysis analysis(builder.subject());
+    analysis.set_detailed(true);
     auto& users = analysis_manager.get<analysis::Users>();
 
     std::unordered_set<analysis::User*> undefined;
@@ -903,6 +906,7 @@ TEST(DataDependencyAnalysisTest, IfElse_Close_Array) {
     // Run analysis
     analysis::AnalysisManager analysis_manager(builder.subject());
     analysis::DataDependencyAnalysis analysis(builder.subject());
+    analysis.set_detailed(true);
     auto& users = analysis_manager.get<analysis::Users>();
 
     std::unordered_set<analysis::User*> undefined;

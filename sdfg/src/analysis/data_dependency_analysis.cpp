@@ -688,6 +688,15 @@ bool DataDependencyAnalysis::
         return false;
     }
 
+    // Conservative shortcut: skip the full symbolic subset analysis and
+    // assume the previous write does NOT fully cover `current`. Sound
+    // (downstream consumers treat the read as potentially upward-exposed)
+    // and avoids ISL queries that have caused fixed-point hangs in the
+    // wider pass pipeline.
+    if (!detailed_) {
+        return false;
+    }
+
     auto& assumptions_analysis = analysis_manager.get<analysis::AssumptionsAnalysis>();
     auto& previous_subsets = previous.subsets();
     auto& current_subsets = current.subsets();
@@ -729,6 +738,20 @@ bool DataDependencyAnalysis::fully_covered(
         return false;
     }
     if (this->is_undefined_user(current)) {
+        return false;
+    }
+
+    // Conservative shortcut: assume coverage holds (treat the read as
+    // satisfied by some open writer, equivalent to `depends`'s
+    // intersect-any semantics). Sound: it allows the previous detection
+    // path to drop the read into `undefined` only when truly unmatched,
+    // matching pre-`fully_covered` behavior, while skipping ISL queries.
+    if (!detailed_) {
+        for (auto& w : open_definitions) {
+            if (w.first->container() == current.container() && !this->is_undefined_user(*w.first)) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -782,6 +805,13 @@ bool DataDependencyAnalysis::intersects(User& previous, User& current, analysis:
         return true;
     }
 
+    // Conservative shortcut: assume the two subsets may intersect. Sound
+    // for dependence tracking (we may report spurious dependencies but
+    // never miss a real one) and avoids ISL hangs.
+    if (!detailed_) {
+        return true;
+    }
+
     auto& previous_subsets = previous.subsets();
     auto& current_subsets = current.subsets();
 
@@ -832,6 +862,13 @@ bool DataDependencyAnalysis::
         return true;
     }
 
+    // Conservative shortcut: assume `current` does not fully overwrite
+    // `previous`. Sound (we just keep more open definitions live) and
+    // avoids ISL hangs.
+    if (!detailed_) {
+        return false;
+    }
+
     // Collect memlets and assumptions
     auto& assumptions_analysis = analysis_manager.get<analysis::AssumptionsAnalysis>();
     auto previous_scope = Users::scope(&previous);
@@ -873,7 +910,11 @@ bool DataDependencyAnalysis::depends(analysis::AnalysisManager& analysis_manager
         return true;
     }
 
-    // Collect memlets and assumptions
+    // Conservative shortcut: assume `current` may depend on `previous`.
+    if (!detailed_) {
+        return true;
+    }
+
     auto& assumptions_analysis = analysis_manager.get<analysis::AssumptionsAnalysis>();
     auto previous_scope = Users::scope(&previous);
     auto current_scope = Users::scope(&current);
