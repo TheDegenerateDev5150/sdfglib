@@ -137,9 +137,9 @@ def test_vadv(target):
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "VECTORIZE": 53,
+                "VECTORIZE": 52,
                 "MAP": 104,
-                "SEQUENTIAL": 51,
+                "SEQUENTIAL": 52,
                 "FOR": 111,
                 "Malloc": 42,
             }
@@ -147,9 +147,10 @@ def test_vadv(target):
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "VECTORIZE": 53,
-                "MAP": 104,
-                "SEQUENTIAL": 51,
+                "VECTORIZE": 51,
+                "MAP": 102,
+                "SEQUENTIAL": 49,
+                "CPU_PARALLEL": 2,
                 "FOR": 111,
                 "Malloc": 42,
             }

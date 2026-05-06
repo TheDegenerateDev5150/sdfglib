@@ -121,8 +121,17 @@ void DataDependencyAnalysis::visit_block(
                                 found_undefined_user = this->is_undefined_user(*user.first);
                             }
                         }
-                        // If no definition found or undefined user found, mark as undefined
-                        if (!found_user || found_undefined_user) {
+                        // If no definition found, undefined user found, or
+                        // the read's subset footprint is only partially
+                        // covered by the matching open writers, mark as
+                        // upward-exposed (undefined). `depends` uses
+                        // intersect-any across the cartesian product of
+                        // subsets, which silently swallows partial-cover
+                        // multi-subset reads (e.g. an access node with two
+                        // out-edges where only one edge is killed inside
+                        // the current scope).
+                        if (!found_user || found_undefined_user ||
+                            !this->fully_covered(analysis_manager, *current_user, open_definitions)) {
                             undefined.insert(current_user);
                         }
                     }
@@ -338,6 +347,39 @@ void DataDependencyAnalysis::visit_for(
     for (auto& user : to_close) {
         closed_definitions.insert({user, open_definitions.at(user)});
         open_definitions.erase(user);
+    }
+
+    // Cross-iteration linkage for SCALARS only.
+    //
+    // An in-body upward-exposed read may be satisfied (in some non-first
+    // iteration) by an in-body open writer. We must record those
+    // (write -> read) edges in `open_definitions_for` so that public
+    // queries like `defined_by(read)` return the in-body writer in
+    // addition to any pre-loop write -- otherwise consumers (e.g.
+    // SymbolPropagation) treat the read as having a single dominating
+    // definition and incorrectly fold the loop-carried value away.
+    //
+    // We restrict to scalar containers because:
+    //   - For scalars, every access touches the same cell, so the
+    //     prior-iteration writer always reaches the in-body read --
+    //     this is sound and precise.
+    //   - For arrays, deciding whether a writer flows across iterations
+    //     requires precise per-pair delta analysis (done in LCDA).
+    //     Adding edges via the over-approximate `depends` predicate
+    //     would create spurious in-body RAW links that pollute
+    //     consumers reasoning about precise dataflow on arrays.
+    //
+    // This must run BEFORE the snapshot below and BEFORE merging into the
+    // outer `open_definitions`, since both perform by-value copies of the
+    // (writer -> readers) sets we are mutating.
+    for (auto* open_read : undefined_for) {
+        auto& type = this->sdfg_.type(open_read->container());
+        if (!dynamic_cast<const types::Scalar*>(&type)) continue;
+        for (auto& write_entry : open_definitions_for) {
+            if (write_entry.first->container() != open_read->container()) continue;
+            if (this->is_undefined_user(*write_entry.first)) continue;
+            write_entry.second.insert(open_read);
+        }
     }
 
     // Snapshot loop boundary sets so LoopCarriedDependencyAnalysis can compute LCDs.
@@ -668,6 +710,61 @@ bool DataDependencyAnalysis::
         }
     }
 
+    return true;
+}
+
+bool DataDependencyAnalysis::fully_covered(
+    analysis::AnalysisManager& analysis_manager,
+    User& current,
+    const std::unordered_map<User*, std::unordered_set<User*>>& open_definitions
+) {
+    // Scalar reads: container-level open definition is full coverage.
+    auto& type = this->sdfg_.type(current.container());
+    if (dynamic_cast<const types::Scalar*>(&type)) {
+        for (auto& w : open_definitions) {
+            if (w.first->container() == current.container() && !this->is_undefined_user(*w.first)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    if (this->is_undefined_user(current)) {
+        return false;
+    }
+
+    auto& current_subsets = current.subsets();
+    if (current_subsets.empty()) {
+        // Symbol use / no real read footprint -- fall back to existence of any
+        // matching open definition (depends() semantics).
+        for (auto& w : open_definitions) {
+            if (w.first->container() == current.container() && !this->is_undefined_user(*w.first)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    auto& assumptions_analysis = analysis_manager.get<analysis::AssumptionsAnalysis>();
+    auto& current_assumptions = assumptions_analysis.get(*Users::scope(&current), true);
+
+    // Each read subset must be contained in some single open writer's subset.
+    for (auto& read_subset : current_subsets) {
+        bool covered = false;
+        for (auto& w_entry : open_definitions) {
+            auto* w = w_entry.first;
+            if (w->container() != current.container()) continue;
+            if (this->is_undefined_user(*w)) continue;
+            auto& w_assumptions = assumptions_analysis.get(*Users::scope(w), true);
+            for (auto& w_subset : w->subsets()) {
+                if (symbolic::is_subset(read_subset, w_subset, current_assumptions, w_assumptions)) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (covered) break;
+        }
+        if (!covered) return false;
+    }
     return true;
 }
 

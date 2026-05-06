@@ -88,11 +88,6 @@ bool LoopDistribute::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
     //   - RAW pairs are safe iff writer and reader stay in the same group.
     //     A cross-group RAW would force the reader to see a different write
     //     after the groups are serialized.
-    //
-    // Loop-local containers whose only loop-carried interaction is WAW remain
-    // a special exception: such locals can be renamed/expanded by later
-    // passes even if their accesses straddle pieces.
-    auto& users = analysis_manager.get<analysis::Users>();
     auto& lcd = analysis_manager.get<analysis::LoopCarriedDependencyAnalysis>();
     auto& scope_analysis = analysis_manager.get<analysis::ScopeAnalysis>();
     if (!lcd.available(this->loop_)) {
@@ -100,7 +95,6 @@ bool LoopDistribute::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
     }
 
     auto indvar_name = this->loop_.indvar()->get_name();
-    auto loop_locals = users.locals(this->loop_.root());
 
     // Classify a user into its piece (direct child index in body) and from
     // there into its destination group: 0 = prefix, 1 = center, 2 = suffix.
@@ -119,6 +113,11 @@ bool LoopDistribute::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
         return 2; // suffix
     };
 
+    // (1) Cross-iteration loop-carried pairs (from LCDA).
+    std::unordered_set<std::string> lc_containers;
+    for (auto& pair : lcd.pairs(this->loop_)) {
+        lc_containers.insert(pair.writer->container());
+    }
     for (auto& pair : lcd.pairs(this->loop_)) {
         const std::string& container = pair.writer->container();
         if (container == indvar_name) continue;
@@ -139,11 +138,66 @@ bool LoopDistribute::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
             continue; // WAW always safe under program-order-preserving split
         }
 
-        // RAW cross-group: only safe for loop-locals (renamed downstream).
-        bool is_loop_local = loop_locals.find(container) != loop_locals.end();
-        if (is_loop_local) continue;
-
+        // Cross-group RAW: unsafe. After distribution the writer's piece runs
+        // to completion across all iterations before the reader's piece, so
+        // the reader sees a different (later) value than in the fused order.
         return false;
+    }
+
+    // (2) Intra-iteration cross-piece RAW on scalars (from DDA).
+    //
+    // LCDA captures only loop-carried (cross-iteration) flow. A reader that
+    // is satisfied within the same iteration by a writer in a different piece
+    // becomes loop-carried after distribution: the writer's piece runs all
+    // iterations before the reader's piece.
+    //
+    // For array containers this is generally safe: if no LC pair exists on
+    // the container the writer's per-iter footprint is disjoint, so the
+    // intra-iter cell flow is preserved. If LC pairs DO exist on the array,
+    // LCDA still distinguishes which specific (writer, reader) pairs flow
+    // across iterations via delta-set computation, so the LC pass above
+    // catches the unsafe ones.
+    //
+    // For SCALAR containers (empty subset) every access is to the same single
+    // cell. If the scalar has any LC dependence in this loop (i.e. it is
+    // overwritten / re-read across iters rather than being a loop-invariant
+    // constant), an intra-iter cross-piece RAW becomes unsafe under
+    // distribution: the reader's piece would see the writer's last-iteration
+    // value instead of the matching iteration's value. DDA's reaching-defs
+    // also drop these cross-piece reads from `ue_reads` (they are killed
+    // intra-iter by the same-iter writer in the middle piece), so LCDA
+    // never sees them as loop-carried -- we must catch them directly.
+    auto& dda = analysis_manager.get<analysis::DataDependencyAnalysis>();
+    auto& users = analysis_manager.get<analysis::Users>();
+    analysis::UsersView body_view(users, this->loop_.root());
+    for (auto* writer : body_view.writes()) {
+        if (writer->container() == indvar_name) continue;
+        if (lc_containers.find(writer->container()) == lc_containers.end()) {
+            continue; // no LC dep on this container
+        }
+        if (!writer->subsets().empty()) {
+            // Array-typed access: per-pair LC analysis above is precise enough.
+            bool any_nonempty = false;
+            for (auto& s : writer->subsets()) {
+                if (!s.empty()) {
+                    any_nonempty = true;
+                    break;
+                }
+            }
+            if (any_nonempty) continue;
+        }
+        size_t w_piece = piece_of(writer);
+        if (w_piece == body.size()) continue;
+        for (auto* reader : dda.defines(*writer)) {
+            size_t r_piece = piece_of(reader);
+            if (r_piece == body.size()) continue;
+            if (w_piece == r_piece) continue;
+            int w_group = group_of(w_piece);
+            int r_group = group_of(r_piece);
+            if (w_group == r_group) continue;
+            // Cross-group intra-iter scalar RAW: unsafe under distribution.
+            return false;
+        }
     }
 
     return true;

@@ -197,6 +197,60 @@ DelinearizeResult delinearize(const Expression& expr, const Assumptions& assums)
         return {MultiExpression{dim}, MultiExpression{}, true};
     }
 
+    // Step 1b: Merge sibling groups sharing an index when at least one of them
+    // has a stride that cannot stand alone as a leading dimension stride
+    // (i.e. its provable lower bound is not >= 1, including symbolic strides
+    // like `-4*_s0`). Such non-free-standing strides represent additive
+    // contributions to a parametric stride sharing the same index. This
+    // recovers expanded forms like `_s0^2*i - 4*_s0*i + 4*i + _s0*j - 2*j + k`
+    // into the 3-dim shape `(_s0-2)^2*i + (_s0-2)*j + k`. Cases like
+    // `j*N + j` (strides {N, 1}, both >= 1) remain unmerged as 2 dims.
+    auto stride_is_free_standing = [&](const Expression& s) -> bool {
+        auto lb = minimum(s, {}, assums, false);
+        if (lb == SymEngine::null) return false;
+        return symbolic::is_true(symbolic::Ge(lb, symbolic::one()));
+    };
+    {
+        // Collect indices that have any non-free-standing sibling.
+        std::vector<Expression> merge_indices;
+        for (size_t a = 0; a < groups.size(); ++a) {
+            if (stride_is_free_standing(groups[a].first)) continue;
+            // Skip if no sibling shares this index.
+            bool has_sibling = false;
+            for (size_t b = 0; b < groups.size(); ++b) {
+                if (b != a && symbolic::eq(groups[b].second, groups[a].second)) {
+                    has_sibling = true;
+                    break;
+                }
+            }
+            if (!has_sibling) continue;
+            bool already = false;
+            for (auto& mi : merge_indices) {
+                if (symbolic::eq(mi, groups[a].second)) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) merge_indices.push_back(groups[a].second);
+        }
+        // For each such index, sum all groups with that index into one.
+        for (const auto& idx : merge_indices) {
+            Expression combined = SymEngine::null;
+            for (size_t k = groups.size(); k-- > 0;) {
+                if (symbolic::eq(groups[k].second, idx)) {
+                    combined = combined.is_null() ? groups[k].first : symbolic::add(groups[k].first, combined);
+                    groups.erase(groups.begin() + k);
+                }
+            }
+            if (!combined.is_null()) {
+                // Factor the merged stride to recover patterns like
+                // `_s0^2 - 4*_s0 + 4` -> `(_s0-2)^2` so that bound analysis
+                // (`minimum`) can prove it's >= 1.
+                groups.push_back({symbolic::factor(symbolic::expand(combined)), idx});
+            }
+        }
+    }
+
     // Step 2: Peel-off groups in dominance order.
     DelinearizeResult result;
     MultiExpression strides; // strides in peel order

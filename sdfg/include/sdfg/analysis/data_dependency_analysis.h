@@ -56,6 +56,17 @@ private:
 
     bool depends(analysis::AnalysisManager& analysis_manager, User& previous, User& current);
 
+    // True iff every read-subset of `current` is contained in some single
+    // open writer's subset (per-subset coverage). For scalars / undefined
+    // users / symbol uses this degrades to `depends`. Used to detect partial
+    // coverage that `depends` (intersect-any) would otherwise hide, which
+    // would cause upward-exposed reads to be silently swallowed.
+    bool fully_covered(
+        analysis::AnalysisManager& analysis_manager,
+        User& current,
+        const std::unordered_map<User*, std::unordered_set<User*>>& open_definitions
+    );
+
 public:
     DataDependencyAnalysis(StructuredSDFG& sdfg);
 
