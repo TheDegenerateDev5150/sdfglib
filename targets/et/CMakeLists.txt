@@ -24,6 +24,7 @@ target_compile_definitions(docc-target-et PUBLIC
     DOCC_HAS_TARGET_ET
 )
 
+target_compile_options(docc-target-et PRIVATE ${SDFG_COMPILE_OPTS})
 # Sanitizers
 if(SDFG_ENABLE_SANITIZER)
   target_compile_options(docc-target-et PUBLIC ${_SAN_COMPILE_OPTS})

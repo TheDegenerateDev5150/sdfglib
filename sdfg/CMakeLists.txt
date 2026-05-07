@@ -223,6 +223,8 @@ target_include_directories(sdfglib
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/3rdParty/symengine/symengine/utilities/cereal/include>
 )
 
+target_compile_options(sdfglib PRIVATE ${SDFG_COMPILE_OPTS})
+# Sanitizers
 if(SDFG_ENABLE_SANITIZER)
   target_compile_options(sdfglib PUBLIC ${_SAN_COMPILE_OPTS})
   target_link_options   (sdfglib PUBLIC ${_SAN_LINK_OPTS})

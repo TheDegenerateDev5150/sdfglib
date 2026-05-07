@@ -29,6 +29,7 @@ target_compile_definitions(docc-target-tenstorrent PUBLIC
     DOCC_HAS_TARGET_TENSTORRENT
 )
 
+target_compile_options(docc-target-tenstorrent PRIVATE ${SDFG_COMPILE_OPTS})
 # Sanitizers
 if(SDFG_ENABLE_SANITIZER)
   target_compile_options(docc-target-tenstorrent PUBLIC ${_SAN_COMPILE_OPTS})

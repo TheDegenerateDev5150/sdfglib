@@ -122,6 +122,7 @@ target_include_directories(sdfgopt
         $<INSTALL_INTERFACE:include>
 )
 
+target_compile_options(sdfgopt PRIVATE ${SDFG_COMPILE_OPTS})
 # Sanitizers
 if(SDFG_ENABLE_SANITIZER)
   target_compile_options(sdfgopt PUBLIC ${_SAN_COMPILE_OPTS})
