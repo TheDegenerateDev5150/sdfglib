@@ -471,6 +471,7 @@ std::string PyStructuredSDFG::compile(
         .set_output_dir(build_path)
         .add_common_option("-fPIC")
         .add_common_option("-fstack-protector-strong")
+        .add_common_option("-D_FORTIFY_SOURCE=3")
         .add_common_option("-O3")
         .add_common_option("-march=native")
         .add_common_option("-mtune=native")
