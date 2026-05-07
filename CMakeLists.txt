@@ -31,6 +31,12 @@ endif()
 # Tests Options
 option(SDFG_BUILD_TESTS "Build tests" ON)
 
+# Compiler options
+set(SDFG_COMPILE_OPTS
+  -fstack-protector-strong
+  -D_FORTIFY_SOURCE=3
+)
+
 # Sanitizer Options
 option(SDFG_ENABLE_SANITIZER "Enable Address/Memory/Undefined/Leak/Thread sanitizers" OFF)
 set(SDFG_SANITIZER "address" CACHE STRING

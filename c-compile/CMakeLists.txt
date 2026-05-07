@@ -20,6 +20,7 @@ target_include_directories(docc-c-compile
         $<INSTALL_INTERFACE:include>
 )
 
+target_compile_options(docc-c-compile PRIVATE ${SDFG_COMPILE_OPTS})
 # Sanitizers
 if(SDFG_ENABLE_SANITIZER)
   target_compile_options(docc-c-compile PUBLIC ${_SAN_COMPILE_OPTS})

@@ -14,6 +14,8 @@ target_include_directories(daisy_rtl PUBLIC
     $<INSTALL_INTERFACE:${PARENT_PROJECT_INSTALL_PREFIX}include>
 )
 
+target_compile_options(daisy_rtl PRIVATE ${SDFG_COMPILE_OPTS})
+
 # Don't link against PAPI!
 # Just link against the dynamic linker
 target_link_libraries(daisy_rtl PRIVATE dl sdfg::arg_capture_io)
