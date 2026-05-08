@@ -163,8 +163,16 @@ endif()
 
 # Add coverage flags if enabled
 if(SDFG_ENABLE_COVERAGE)
-    target_compile_options(docc_llvm_pass_internal PUBLIC --coverage)
-    target_link_options(docc_llvm_pass_internal PUBLIC --coverage)
+  target_compile_options(docc_llvm_pass_internal PRIVATE
+    -fprofile-instr-generate
+    -fcoverage-mapping
+    -O0
+    -g
+    -fno-inline
+  )
+  target_link_options(docc_llvm_pass_internal PRIVATE
+    -fprofile-instr-generate
+  )
 endif()
 
 add_subdirectory(driver)

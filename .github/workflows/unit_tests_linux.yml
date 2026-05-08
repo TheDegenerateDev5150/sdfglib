@@ -311,7 +311,7 @@ jobs:
           submodules: recursive
 
       - name: Mark GitHub Actions workdir as safe
-        run: git config --global --add safe.directory /__w/docc/docc
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Formatting
         shell: bash
@@ -342,8 +342,13 @@ jobs:
       - name: Unit Tests
         run: |
           cd build
-          ./llvm/tests/docc_llvm_pass_test
-          gcovr --gcov-executable "llvm-cov-19 gcov" --filter ../llvm/include/ --filter ../llvm/src/ --coveralls coveralls.json -r ../
+          LLVM_PROFILE_FILE="docc_llvm_pass_test.profraw" ./llvm/tests/docc_llvm_pass_test
+
+          # Run coverage
+          llvm-profdata-19 merge -sparse docc_llvm_pass_test.profraw -o default.profdata
+          cd ../
+          llvm-cov-19 export ./build/llvm/tests/docc_llvm_pass_test -instr-profile=build/default.profdata -format=lcov > build/coverage_full.lcov
+          lcov --ignore-errors unused --extract build/coverage_full.lcov '*/llvm/src/*' '*/llvm/include/*' --output-file build/coverage.lcov
 
       - name: Integration Tests
         run: |
@@ -360,6 +365,9 @@ jobs:
         uses: coverallsapp/github-action@v2
         with:
           flag-name: llvm
+          parallel: true
+          format: lcov
+          file: build/coverage.lcov
 
   finish:
     needs: [cpp-tests-linux, python-tests-linux, mlir-tests-linux, llvm-tests-linux]

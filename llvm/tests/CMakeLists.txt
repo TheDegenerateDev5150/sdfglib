@@ -22,6 +22,16 @@ add_executable(docc_llvm_pass_test ${TEST_FILES})
 target_include_directories(docc_llvm_pass_test PRIVATE ./)
 target_link_libraries(docc_llvm_pass_test gtest_main docc_llvm_pass_internal)
 
+if(SDFG_ENABLE_COVERAGE)
+target_compile_options(docc_llvm_pass_test PRIVATE
+  -fprofile-instr-generate
+  -fcoverage-mapping
+)
+target_link_options(docc_llvm_pass_test PRIVATE
+  -fprofile-instr-generate
+)
+endif()
+
 add_test(NAME docc_llvm_pass_test_test COMMAND docc_llvm_pass_test)
 
 include(GoogleTest)
