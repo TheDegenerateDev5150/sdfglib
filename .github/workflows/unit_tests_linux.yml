@@ -308,9 +308,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.PAT }}
           submodules: recursive
-          lfs: true
 
       - name: Mark GitHub Actions workdir as safe
         run: git config --global --add safe.directory /__w/docc-llvm/docc-llvm
