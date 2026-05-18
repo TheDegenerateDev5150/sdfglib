@@ -53,6 +53,9 @@
 #ifdef DOCC_HAS_TARGET_ET
 #include <docc/target/et/target.h>
 #endif
+#include <docc/target/tenstorrent/target.h>
+
+#include "targets/target_mapping.h"
 
 namespace py = pybind11;
 using namespace sdfg::types;
@@ -71,6 +74,7 @@ PYBIND11_MODULE(_sdfg, m) {
 #ifdef DOCC_HAS_TARGET_ET
     docc::target::et::register_plugin(docc_context);
 #endif
+    docc::target::tenstorrent::register_plugin(docc_context);
 
     register_types(m);
     register_data_flow_node(m);
@@ -152,6 +156,18 @@ PYBIND11_MODULE(_sdfg, m) {
         .def_property_readonly("end_line", &sdfg::DebugInfo::end_line)
         .def_property_readonly("end_column", &sdfg::DebugInfo::end_column);
 
+    py::class_<docc::target::TargetOptions>(m, "TargetOptions")
+        .def(py::init<>())
+        .def(
+            py::init<std::string, std::string, bool>(),
+            py::arg("target"),
+            py::arg("category"),
+            py::arg("remote_tuning") = false
+        )
+        .def_readwrite<>("target", &docc::target::TargetOptions::target)
+        .def_readwrite<>("category", &docc::target::TargetOptions::category)
+        .def_readwrite<>("remote_tuning", &docc::target::TargetOptions::remote_tuning);
+
     // Register SDFG class
     py::class_<PyStructuredSDFG>(m, "StructuredSDFG")
         .def_static(
@@ -186,16 +202,21 @@ PYBIND11_MODULE(_sdfg, m) {
         .def_property_readonly("arguments", &PyStructuredSDFG::arguments)
         .def_property_readonly("containers", &PyStructuredSDFG::containers)
         .def("validate", &PyStructuredSDFG::validate, "Validates the SDFG")
-        .def("expand", &PyStructuredSDFG::expand, "Expands all library nodes")
         .def(
-            "expand_cuda",
-            &PyStructuredSDFG::expand_cuda,
-            "Expands library nodes with CUDA-specific implementations where available"
+            "expand",
+            static_cast<void (PyStructuredSDFG::*)()>(&PyStructuredSDFG::expand),
+            "Expand step w/o target support for backwards compatibility"
         )
         .def(
-            "expand_rocm",
-            &PyStructuredSDFG::expand_rocm,
-            "Expands library nodes with ROCm-specific implementations where available"
+            "expand",
+            static_cast<void (PyStructuredSDFG::*)(const std::string&, const std::string&)>(&PyStructuredSDFG::expand),
+            "Expand step"
+        )
+        .def(
+            "expand",
+            static_cast<void (PyStructuredSDFG::*)(const docc::target::TargetOptions&)>(&PyStructuredSDFG::expand),
+            py::arg("options"),
+            "Expand step"
         )
         .def("simplify", &PyStructuredSDFG::simplify, "Simplify the SDFG")
         .def(
@@ -210,10 +231,17 @@ PYBIND11_MODULE(_sdfg, m) {
         .def("normalize", &PyStructuredSDFG::normalize, "Normalize the SDFG")
         .def(
             "schedule",
-            &PyStructuredSDFG::schedule,
+            static_cast<
+                void (PyStructuredSDFG::*)(const std::string&, const std::string&, bool)>(&PyStructuredSDFG::schedule),
             py::arg("target"),
             py::arg("category"),
             py::arg("remote_tuning") = false,
+            "Schedule the SDFG"
+        )
+        .def(
+            "schedule",
+            static_cast<void (PyStructuredSDFG::*)(const docc::target::TargetOptions&)>(&PyStructuredSDFG::schedule),
+            py::arg("options"),
             "Schedule the SDFG"
         )
         .def(
