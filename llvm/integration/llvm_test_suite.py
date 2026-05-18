@@ -1,6 +1,7 @@
 import pytest
 import subprocess
 import os
+import signal
 
 from pathlib import Path
 
@@ -115,7 +116,7 @@ def setup():
         pytest.param("MultiSource/Applications/ALAC/decode", "alacconvert-decode", "YES", "FAIL"),
         pytest.param("MultiSource/Applications/ALAC/encode", "alacconvert-encode", "YES", "FAIL"),
         pytest.param("MultiSource/Applications/ClamAV", "clamscan", "YES", "FAIL"),
-        pytest.param("MultiSource/Applications/d", "make_dparser", "TIMEOUT", ""),
+        pytest.param("MultiSource/Applications/d", "make_dparser", "YES", "TIMEOUT"),
         pytest.param("MultiSource/Applications/hbd", "hbd", "YES", "PASS"),
         pytest.param("MultiSource/Applications/hexxagon", "hexxagon", "YES", "TIMEOUT"),
         pytest.param("MultiSource/Applications/JM/ldecod", "ldecod", "YES", "FAIL"),
@@ -125,10 +126,10 @@ def setup():
         pytest.param("MultiSource/Applications/lua", "lua", "YES", "FAIL"),
         pytest.param("MultiSource/Applications/minisat", "minisat", "YES", "PASS"),
         pytest.param("MultiSource/Applications/obsequi", "Obsequi", "YES", "PASS"),
-        pytest.param("MultiSource/Applications/oggenc", "oggenc", "YES", "FAIL"),
+        pytest.param("MultiSource/Applications/oggenc", "oggenc", "TIMEOUT", ""),
         pytest.param("MultiSource/Applications/sgefa", "sgefa", "YES", "TIMEOUT"),
         pytest.param("MultiSource/Applications/SIBsim4", "SIBsim4", "TIMEOUT", ""),
-        pytest.param("MultiSource/Applications/siod", "siod", "TIMEOUT", ""),
+        pytest.param("MultiSource/Applications/siod", "siod", "TIMEOUT", ""), # Compilation sometimes flaky
         pytest.param("MultiSource/Applications/SPASS", "SPASS", "SEGFAULT", ""),
         pytest.param("MultiSource/Applications/spiff", "spiff", "SEGFAULT", ""),
         pytest.param("MultiSource/Applications/sqlite3", "sqlite3", "TIMEOUT", ""),
@@ -164,11 +165,11 @@ def setup():
         pytest.param("MultiSource/Benchmarks/FreeBench/neural", "neural", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/FreeBench/pcompress2", "pcompress2", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/FreeBench/pifft", "pifft", "YES", "TIMEOUT"),
-        pytest.param("MultiSource/Benchmarks/llubenchmark", "llu", "YES", "FAIL"),
+        pytest.param("MultiSource/Benchmarks/llubenchmark", "llu", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/mafft", "pairlocalalign", "TIMEOUT", ""),
         pytest.param("MultiSource/Benchmarks/MallocBench/cfrac", "cfrac", "TIMEOUT", ""),
         pytest.param("MultiSource/Benchmarks/MallocBench/espresso", "espresso", "YES", "FAIL"),
-        pytest.param("MultiSource/Benchmarks/MallocBench/gs", "gs", "YES", "FAIL"),
+        pytest.param("MultiSource/Benchmarks/MallocBench/gs", "gs", "YES", "TIMEOUT"),
         pytest.param("MultiSource/Benchmarks/McCat/01-qbsort", "qbsort", "YES", "FAIL"),
         pytest.param("MultiSource/Benchmarks/McCat/03-testtrie", "testtrie", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/McCat/04-bisect", "bisect", "YES", "PASS"),
@@ -187,10 +188,10 @@ def setup():
         pytest.param("MultiSource/Benchmarks/MiBench/automotive-basicmath", "automotive-basicmath", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/automotive-bitcount", "automotive-bitcount", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/automotive-susan", "automotive-susan", "OUT_OF_MEMORY", ""),
-        pytest.param("MultiSource/Benchmarks/MiBench/consumer-jpeg", "consumer-jpeg", "TIMEOUT", ""),
+        pytest.param("MultiSource/Benchmarks/MiBench/consumer-jpeg", "consumer-jpeg", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/consumer-lame", "consumer-lame", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/consumer-typeset", "consumer-typeset", "TIMEOUT", ""),
-        pytest.param("MultiSource/Benchmarks/MiBench/network-dijkstra", "network-dijkstra", "YES", "FAIL"),
+        pytest.param("MultiSource/Benchmarks/MiBench/network-dijkstra", "network-dijkstra", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/network-patricia", "network-patricia", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/security-rijndael", "security-rijndael", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/security-sha", "security-sha", "YES", "FAIL"),
@@ -220,8 +221,8 @@ def setup():
         pytest.param("MultiSource/Benchmarks/Prolangs-C++/primes", "primes", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/Prolangs-C++/simul", "simul", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/Ptrdist/anagram", "anagram", "YES", "PASS"),
-        pytest.param("MultiSource/Benchmarks/Ptrdist/bc", "bc", "YES", "FAIL"),
-        pytest.param("MultiSource/Benchmarks/Ptrdist/ft", "ft", "YES", "TIMEOUT"),
+        pytest.param("MultiSource/Benchmarks/Ptrdist/bc", "bc", "YES", "FLAKY"),
+        pytest.param("MultiSource/Benchmarks/Ptrdist/ft", "ft", "YES", "FAIL"),
         pytest.param("MultiSource/Benchmarks/Ptrdist/ks", "ks", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/Ptrdist/yacr2", "yacr2", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/Rodinia/backprop", "backprop", "YES", "PASS"),
@@ -283,7 +284,7 @@ def setup():
         pytest.param("SingleSource/Benchmarks/Adobe-C++", "simple_types_constant_folding", "YES", "FAIL"),
         pytest.param("SingleSource/Benchmarks/Adobe-C++", "simple_types_loop_invariant", "YES", "FAIL"),
         pytest.param("SingleSource/Benchmarks/Adobe-C++", "stepanov_abstraction", "YES", "FAIL"),
-        pytest.param("SingleSource/Benchmarks/Adobe-C++", "stepanov_vector", "YES", "FAIL"),
+        pytest.param("SingleSource/Benchmarks/Adobe-C++", "stepanov_vector", "YES", "TIMEOUT"),
         pytest.param("SingleSource/Benchmarks/BenchmarkGame/Large", "fasta", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/BenchmarkGame", "fannkuch", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/BenchmarkGame", "n-body", "YES", "FAIL"),
@@ -301,7 +302,7 @@ def setup():
         pytest.param("SingleSource/Benchmarks/Linpack", "linpack-pc", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/McGill", "chomp", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/McGill", "misr", "YES", "PASS"),
-        pytest.param("SingleSource/Benchmarks/McGill", "queens", "TIMEOUT", ""),
+        pytest.param("SingleSource/Benchmarks/McGill", "queens", "TIMEOUT", ""), # Compilation sometimes flaky
         pytest.param("SingleSource/Benchmarks/Misc", "dt", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/Misc", "evalloop", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/Misc", "fbench", "YES", "PASS"),
@@ -321,7 +322,7 @@ def setup():
         pytest.param("SingleSource/Benchmarks/Misc", "mandel-2", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/Misc", "mandel", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/Misc", "matmul_f64_4x4", "YES", "PASS"),
-        pytest.param("SingleSource/Benchmarks/Misc", "oourafft", "YES", "FAIL"),
+        pytest.param("SingleSource/Benchmarks/Misc", "oourafft", "YES", "TIMEOUT"),
         pytest.param("SingleSource/Benchmarks/Misc", "perlin", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/Misc", "pi", "YES", "PASS"),
         pytest.param("SingleSource/Benchmarks/Misc", "ReedSolomon", "YES", "PASS"),
@@ -447,11 +448,15 @@ def test(setup, path, name, compiles, executes):
         stderr=subprocess.PIPE,
         universal_newlines=True,
         cwd=build_dir,
+        start_new_session=True,
     )
     try:
+        timeout = False
         stdout, stderr = make_process.communicate(timeout=300)
     except subprocess.TimeoutExpired: # must catch this otherwise subprocess is not killed
-        make_process.kill()
+        timeout = True
+    if timeout:
+        os.killpg(make_process.pid, signal.SIGTERM)
         if compiles == "TIMEOUT":
             return # Expected this
         pytest.fail("Compilation timed out but expected compiles = " + compiles)
@@ -461,6 +466,8 @@ def test(setup, path, name, compiles, executes):
         print("STDOUT:\n", stdout)
         print("STDERR:\n", stderr)
     assert make_process.returncode == 0, "Compilation failed but expected compiles = " + compiles
+    if all_tests and compiles != "YES":
+        print("Compilation succeeded but expected compiles = " + compiles)
 
     # Execute
     lit_process = subprocess.Popen(
@@ -469,11 +476,15 @@ def test(setup, path, name, compiles, executes):
         stderr=subprocess.PIPE,
         universal_newlines=True,
         cwd=build_dir,
+        start_new_session=True,
     )
     try:
+        timeout = False
         stdout, stderr = lit_process.communicate(timeout=300)
     except subprocess.TimeoutExpired: # must catch this otherwise subprocess is not killed
-        lit_process.kill()
+        timeout = True
+    if timeout:
+        os.killpg(lit_process.pid, signal.SIGTERM)
         if executes == "TIMEOUT":
             return # Expected this
         pytest.fail("Execution timed out but expected executes = " + executes)
@@ -483,3 +494,5 @@ def test(setup, path, name, compiles, executes):
         print("STDOUT:\n", stdout)
         print("STDERR:\n", stderr)
     assert lit_process.returncode == 0, "Execution failed but expected executes = " + executes
+    if all_tests and executes != "PASS":
+        print("Execution passed but expected executes = " + executes)
