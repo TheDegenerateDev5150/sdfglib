@@ -20,10 +20,6 @@ except ImportError:
     print("Error: ultralytics not installed. Please install with: pip install ultralytics")
     sys.exit(1)
 
-import docc.torch
-
-docc.torch.set_backend_options(target="openmp", category="server")
-
 
 def compare_outputs(res, res_ref, rtol=1e-2, atol=1e-3):
     """Recursively compare outputs that may be nested structures of tensors."""
@@ -55,7 +51,7 @@ print()
 # Compile only the backbone with docc
 print("--- Compile Times ---")
 start = time.perf_counter()
-compiled_backbone = torch.compile(model.model[0], backend="docc")
+compiled_backbone = torch.compile(model.model[0], backend="docc", options={"target": "none", "category": "server"})
 docc_compile_time = time.perf_counter() - start
 print(f"Backbone compile (docc): {docc_compile_time:.4f} s")
 

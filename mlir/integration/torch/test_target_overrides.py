@@ -8,7 +8,7 @@ from docc.torch import register_target_overrides, register_target
 from typing import Callable, Optional, Dict, Any
 
 
-def _schedule(sdfg, cat: str, kwargs: Dict[str, any]):
+def _schedule(sdfg, cat: str, kwargs: Dict[str, Any]):
     print("hooking scheduling")
     sdfg.schedule("sequential", cat, False)
 

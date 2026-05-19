@@ -3,7 +3,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from docc.torch import compile_torch
+from integration.torch.check import check_backend
 
 
 @pytest.mark.skip("Requires tensor.extract_slice")
@@ -15,16 +15,7 @@ def test_reflection_pad_1d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ReflectionPad1dNet()
-    model_ref = ReflectionPad1dNet()
-    example_input = torch.arange(8, dtype=torch.float).reshape(1, 2, 4)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ReflectionPad1dNet().eval(), torch.arange(8, dtype=torch.float).reshape(1, 2, 4))
 
 @pytest.mark.skip("Requires tensor.extract_slice")
 def test_reflection_pad_2d():
@@ -35,16 +26,7 @@ def test_reflection_pad_2d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ReflectionPad2dNet()
-    model_ref = ReflectionPad2dNet()
-    example_input = torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ReflectionPad2dNet().eval(), torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3))
 
 @pytest.mark.skip("Requires tensor.extract_slice")
 def test_reflection_pad_3d():
@@ -55,16 +37,7 @@ def test_reflection_pad_3d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ReflectionPad3dNet()
-    model_ref = ReflectionPad3dNet()
-    example_input = torch.arange(8, dtype=torch.float).reshape(1, 1, 2, 2, 2)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ReflectionPad3dNet().eval(), torch.arange(8, dtype=torch.float).reshape(1, 1, 2, 2, 2))
 
 @pytest.mark.skip("Requires tensor.extract_slice")
 def test_replicateion_pad_1d():
@@ -75,16 +48,7 @@ def test_replicateion_pad_1d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ReplicationPad1dNet()
-    model_ref = ReplicationPad1dNet()
-    example_input = torch.arange(8, dtype=torch.float).reshape(1, 2, 4)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ReplicationPad1dNet().eval(), torch.arange(8, dtype=torch.float).reshape(1, 2, 4))
 
 @pytest.mark.skip("Requires tensor.extract_slice")
 def test_replicateion_pad_2d():
@@ -95,16 +59,7 @@ def test_replicateion_pad_2d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ReplicationPad2dNet()
-    model_ref = ReplicationPad2dNet()
-    example_input = torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ReplicationPad2dNet().eval(), torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3))
 
 @pytest.mark.skip("Requires tensor.extract_slice")
 def test_replicateion_pad_3d():
@@ -115,16 +70,7 @@ def test_replicateion_pad_3d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ReplicationPad3dNet()
-    model_ref = ReplicationPad3dNet()
-    example_input = torch.randn(16, 3, 8, 320, 480)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ReplicationPad3dNet().eval(), torch.randn(16, 3, 8, 320, 480))
 
 def test_zero_pad_1d():
     class ZeroPad1dNet(nn.Module):
@@ -134,16 +80,7 @@ def test_zero_pad_1d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ZeroPad1dNet()
-    model_ref = ZeroPad1dNet()
-    example_input = torch.randn(1, 2, 4)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ZeroPad1dNet().eval(), torch.randn(1, 2, 4))
 
 def test_zero_pad_2d():
     class ZeroPad2dNet(nn.Module):
@@ -153,16 +90,7 @@ def test_zero_pad_2d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
     
-    model = ZeroPad2dNet()
-    model_ref = ZeroPad2dNet()
-    example_input = torch.randn(1, 1, 3, 3)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ZeroPad2dNet().eval(), torch.randn(1, 1, 3, 3))
 
 def test_zero_pad_3d():
     class ZeroPad3dNet(nn.Module):
@@ -172,16 +100,7 @@ def test_zero_pad_3d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
     
-    model = ZeroPad3dNet()
-    model_ref = ZeroPad3dNet()
-    example_input = torch.randn(16, 3, 10, 20, 30)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ZeroPad3dNet().eval(), torch.randn(16, 3, 10, 20, 30))
 
 def test_constant_pad_1d():
     class ConstantPad1dNet(nn.Module):
@@ -191,16 +110,7 @@ def test_constant_pad_1d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
 
-    model = ConstantPad1dNet()
-    model_ref = ConstantPad1dNet()
-    example_input = torch.randn(1, 2, 4)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ConstantPad1dNet().eval(), torch.randn(1, 2, 4))
 
 def test_constant_pad_2d():
     class ConstantPad2dNet(nn.Module):
@@ -210,16 +120,7 @@ def test_constant_pad_2d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
     
-    model = ConstantPad2dNet()
-    model_ref = ConstantPad2dNet()
-    example_input = torch.randn(1, 2, 2)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ConstantPad2dNet().eval(), torch.randn(1, 2, 2))
 
 def test_constant_pad_3d():
     class ConstantPad3dNet(nn.Module):
@@ -229,16 +130,7 @@ def test_constant_pad_3d():
         def forward(self, x: torch.Tensor):
             return self.pad(x)
     
-    model = ConstantPad3dNet()
-    model_ref = ConstantPad3dNet()
-    example_input = torch.randn(16, 3, 10, 20, 30)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-
-    assert torch.allclose(res, ref)
+    check_backend(ConstantPad3dNet().eval(), torch.randn(16, 3, 10, 20, 30))
 
 # @pytest.mark.skip("Unsupported by torch-mlir")
 # def test_circular_pad_1d():
@@ -249,16 +141,7 @@ def test_constant_pad_3d():
 #         def forward(self, x: torch.Tensor):
 #             return self.pad(x)
 
-#     model = CircularPad1dNet()
-#     model_ref = CircularPad1dNet()
-#     example_input = torch.arange(8, dtype=torch.float).reshape(1, 2, 4)
-
-#     program = torch.compile(model, backend="docc")
-#     with torch.no_grad():
-#         res = program(example_input)
-#         ref = model_ref(example_input)
-
-#     assert torch.allclose(res, ref)
+#     check_backend(CircularPad1dNet().eval(), torch.arange(8, dtype=torch.float).reshape(1, 2, 4))
 
 # @pytest.mark.skip("Unsupported by torch-mlir")
 # def test_circular_pad_2d():
@@ -269,16 +152,7 @@ def test_constant_pad_3d():
 #         def forward(self, x: torch.Tensor):
 #             return self.pad(x)
 
-#     model = CircularPad2dNet()
-#     model_ref = CircularPad2dNet()
-#     example_input = torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3)
-
-#     program = torch.compile(model, backend="docc")
-#     with torch.no_grad():
-#         res = program(example_input)
-#         ref = model_ref(example_input)
-
-#     assert torch.allclose(res, ref)
+#     check_backend(CircularPad2dNet().eval(), torch.arange(9, dtype=torch.float).reshape(1, 1, 3, 3))
 
 # @pytest.mark.skip("Unsupported by torch-mlir")
 # def test_circular_pad_3d():
@@ -289,13 +163,4 @@ def test_constant_pad_3d():
 #         def forward(self, x: torch.Tensor):
 #             return self.pad(x)
 
-#     model = CircularPad3dNet()
-#     model_ref = CircularPad3dNet()
-#     example_input = torch.randn(16, 3, 8, 320, 480)
-
-#     program = torch.compile(model, backend="docc")
-#     with torch.no_grad():
-#         res = program(example_input)
-#         ref = model_ref(example_input)
-
-#     assert torch.allclose(res, ref)
+#     check_backend(CircularPad3dNet().eval(), torch.randn(16, 3, 8, 320, 480))

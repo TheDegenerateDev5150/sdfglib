@@ -505,39 +505,17 @@ def compile_torch(
 # torch.compile backend registration
 # ============================================================================
 
-# Global options for the docc backend (can be set before calling torch.compile)
-_backend_options = {
-    "target": "none",
-    "category": "server",
-}
+def _docc_get_backend_options(options: None | dict[str, str]) -> tuple[str, str]:
+    target = "none"
+    category = "server"
+    if options:
+        if "target" in options:
+            target = options["target"]
+        if "category" in options:
+            category = options["category"]
+    return target, category
 
-
-def reset_backend_options():
-    _backend_options["target"] = "none"
-    _backend_options["category"] = "server"
-    reset_target_registry()
-
-
-def set_backend_options(target: str = "none", category: str = "server"):
-    """Set global options for the docc torch.compile backend.
-
-    Call this before using torch.compile(backend="docc") to configure
-    the compilation target and category.
-
-    Args:
-        target: Compilation target ("none", "cuda", "openmp", etc.)
-        category: Target category ("server", "server", etc.)
-
-    Example:
-        >>> from docc.torch import set_backend_options
-        >>> set_backend_options(target="cuda", category="server")
-        >>> compiled_model = torch.compile(model, backend="docc")
-    """
-    _backend_options["target"] = target
-    _backend_options["category"] = category
-
-
-def _docc_dynamo_compiler(gm, example_inputs):
+def _docc_dynamo_compiler(gm, example_inputs, backend_options):
     """Dynamic Compiler based on TorchProgram (inference only)."""
     import torch
 
@@ -546,11 +524,12 @@ def _docc_dynamo_compiler(gm, example_inputs):
     else:
         example_input = tuple(example_inputs)
 
+    target, category = _docc_get_backend_options(backend_options)
     program = TorchProgram(
         gm,
         example_input=example_input,
-        target=_backend_options["target"],
-        category=_backend_options["category"],
+        target=target,
+        category=category,
     )
 
     def compiled_fn(*args):
@@ -562,31 +541,34 @@ def _docc_dynamo_compiler(gm, example_inputs):
     return compiled_fn
 
 
-def _docc_aot_compiler(gm, example_inputs):
-    """AOTAutograd Compiler based on TorchProgram (inference and training)."""
-    from functorch.compile import make_boxed_func
+def _docc_aot_compiler_wrapper(target: str, category: str):
+    def _docc_aot_compiler(gm, example_inputs):
+        """AOTAutograd Compiler based on TorchProgram (inference and training)."""
+        from functorch.compile import make_boxed_func
 
-    import torch
+        import torch
 
-    if len(example_inputs) == 1:
-        example_input = example_inputs[0]
-    else:
-        example_input = tuple(example_inputs)
+        if len(example_inputs) == 1:
+            example_input = example_inputs[0]
+        else:
+            example_input = tuple(example_inputs)
 
-    program = TorchProgram(
-        gm,
-        example_input=example_input,
-        target=_backend_options["target"],
-        category=_backend_options["category"],
-    )
+        program = TorchProgram(
+            gm,
+            example_input=example_input,
+            target=target,
+            category=category,
+        )
 
-    def compiled_fn(*args):
-        result = program(*args)
-        if isinstance(result, (tuple, list)):
-            return result
-        return (result,)
+        def compiled_fn(*args):
+            result = program(*args)
+            if isinstance(result, (tuple, list)):
+                return result
+            return (result,)
 
-    return make_boxed_func(compiled_fn)
+        return make_boxed_func(compiled_fn)
+
+    return _docc_aot_compiler
 
 
 def _needs_autograd(gm, example_inputs):
@@ -603,7 +585,7 @@ def _needs_autograd(gm, example_inputs):
     return torch.is_grad_enabled()
 
 
-def _docc_backend(gm, example_inputs):
+def _docc_backend(gm, example_inputs, *, options=None):
     """Unified docc backend for torch.compile.
 
     Automatically selects the compilation strategy at runtime:
@@ -616,13 +598,14 @@ def _docc_backend(gm, example_inputs):
     if _needs_autograd(gm, example_inputs):
         from torch._dynamo.backends.common import aot_autograd
 
+        target, category = _docc_get_backend_options(options)
         aot_backend = aot_autograd(
-            fw_compiler=_docc_aot_compiler,
-            bw_compiler=_docc_aot_compiler,
+            fw_compiler=_docc_aot_compiler_wrapper(target, category),
+            bw_compiler=_docc_aot_compiler_wrapper(target, category),
         )
         return aot_backend(gm, example_inputs)
     else:
-        return _docc_dynamo_compiler(gm, example_inputs)
+        return _docc_dynamo_compiler(gm, example_inputs, options)
 
 
 def _register_backend():

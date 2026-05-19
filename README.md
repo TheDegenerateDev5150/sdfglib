@@ -91,9 +91,6 @@ For this, make sure to use the `torch.no_grad()` mode to enforce inference via t
 import torch
 import torch.nn as nn
 
-import docc.torch
-docc.torch.set_backend_options(target="openmp", category="server")
-
 class LinearRegression(nn.Module):
     def __init__(self, in_features=4, out_features=2):
         super().__init__()
@@ -107,7 +104,7 @@ example_input = torch.randn(2, 4)
 
 # Compile model
 with torch.no_grad():
-    compiled_model = torch.compile(model, backend="docc")
+    compiled_model = torch.compile(model, backend="docc", options={"target": "openmp", "category": "server"})
 
 # Forward
 res = compiled_model(example_input)
@@ -118,10 +115,6 @@ Similarly, we have experimental support for training models via an AOTAutograd i
 ```python
 import torch
 import torch.nn as nn
-
-import docc.torch
-
-docc.torch.set_backend_options(target="openmp", category="server")
 
 class LinearRegression(nn.Module):
     def __init__(self):
@@ -134,7 +127,7 @@ class LinearRegression(nn.Module):
 torch.manual_seed(42)
 model = LinearRegression()
 
-program = torch.compile(model, backend="docc")
+program = torch.compile(model, backend="docc", options={"target": "openmp", "category": "server"})
 optimizer = torch.optim.SGD(program.parameters(), lr=0.5)
 criterion = nn.MSELoss()
 

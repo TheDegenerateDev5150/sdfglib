@@ -1,37 +1,7 @@
-import copy
-
-import pytest
-
 import torch
 import torch.nn as nn
 
-import docc.torch
-
-
-# --- helpers ---
-
-
-def _check(model, example_input, rtol=1e-4, atol=1e-5):
-    model_ref = copy.deepcopy(model)
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-    assert torch.allclose(res, ref, rtol=rtol, atol=atol)
-
-
-def _check_compile(model, example_input, rtol=1e-4, atol=1e-5):
-    model_ref = copy.deepcopy(model)
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        ref = model_ref(example_input)
-    assert torch.allclose(res, ref, rtol=rtol, atol=atol)
-
-
-def _check_backend(model, example_input, rtol=1e-4, atol=1e-5):
-    docc.torch.set_backend_options(target="none", category="server")
-    _check(model, example_input, rtol=rtol, atol=atol)
+from integration.torch.check import check_backend, check_compile
 
 
 # --- Normalize last dim ---
@@ -46,7 +16,7 @@ def test_layernorm_last_dim_compile():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_compile(LNLastDimCompile().eval(), torch.randn(4, 16, 128))
+    check_compile(LNLastDimCompile().eval(), torch.randn(4, 16, 128))
 
 
 def test_layernorm_last_dim_backend():
@@ -58,7 +28,7 @@ def test_layernorm_last_dim_backend():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_backend(LNLastDimBackend().eval(), torch.randn(4, 16, 128))
+    check_backend(LNLastDimBackend().eval(), torch.randn(4, 16, 128))
 
 
 # --- Normalize last two dims ---
@@ -73,7 +43,7 @@ def test_layernorm_2d_shape_compile():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_compile(LN2dShapeCompile().eval(), torch.randn(4, 8, 16))
+    check_compile(LN2dShapeCompile().eval(), torch.randn(4, 8, 16))
 
 
 def test_layernorm_2d_shape_backend():
@@ -85,7 +55,7 @@ def test_layernorm_2d_shape_backend():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_backend(LN2dShapeBackend().eval(), torch.randn(4, 8, 16))
+    check_backend(LN2dShapeBackend().eval(), torch.randn(4, 8, 16))
 
 
 # --- Large hidden dim ---
@@ -100,7 +70,7 @@ def test_layernorm_large_compile():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_compile(LNLargeCompile().eval(), torch.randn(2, 32, 512))
+    check_compile(LNLargeCompile().eval(), torch.randn(2, 32, 512))
 
 
 def test_layernorm_large_backend():
@@ -112,7 +82,7 @@ def test_layernorm_large_backend():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_backend(LNLargeBackend().eval(), torch.randn(2, 32, 512))
+    check_backend(LNLargeBackend().eval(), torch.randn(2, 32, 512))
 
 
 # --- No affine ---
@@ -127,7 +97,7 @@ def test_layernorm_no_affine_compile():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_compile(LNNoAffineCompile().eval(), torch.randn(4, 8, 64))
+    check_compile(LNNoAffineCompile().eval(), torch.randn(4, 8, 64))
 
 
 def test_layernorm_no_affine_backend():
@@ -139,7 +109,7 @@ def test_layernorm_no_affine_backend():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_backend(LNNoAffineBackend().eval(), torch.randn(4, 8, 64))
+    check_backend(LNNoAffineBackend().eval(), torch.randn(4, 8, 64))
 
 
 # --- 2-D input (batch, features) ---
@@ -154,7 +124,7 @@ def test_layernorm_2d_input_compile():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_compile(LN2dInputCompile().eval(), torch.randn(8, 64))
+    check_compile(LN2dInputCompile().eval(), torch.randn(8, 64))
 
 
 def test_layernorm_2d_input_backend():
@@ -166,7 +136,7 @@ def test_layernorm_2d_input_backend():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_backend(LN2dInputBackend().eval(), torch.randn(8, 64))
+    check_backend(LN2dInputBackend().eval(), torch.randn(8, 64))
 
 
 # --- 4-D input (batch, C, H, W) — normalize last 3 dims ---
@@ -181,7 +151,7 @@ def test_layernorm_4d_input_compile():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_compile(LN4dInputCompile().eval(), torch.randn(2, 32, 4, 4))
+    check_compile(LN4dInputCompile().eval(), torch.randn(2, 32, 4, 4))
 
 
 def test_layernorm_4d_input_backend():
@@ -193,4 +163,4 @@ def test_layernorm_4d_input_backend():
         def forward(self, x: torch.Tensor):
             return self.ln(x)
 
-    _check_backend(LN4dInputBackend().eval(), torch.randn(2, 32, 4, 4))
+    check_backend(LN4dInputBackend().eval(), torch.randn(2, 32, 4, 4))
