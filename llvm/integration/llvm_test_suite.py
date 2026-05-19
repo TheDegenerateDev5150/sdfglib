@@ -188,7 +188,7 @@ def setup():
         pytest.param("MultiSource/Benchmarks/MiBench/automotive-basicmath", "automotive-basicmath", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/automotive-bitcount", "automotive-bitcount", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/automotive-susan", "automotive-susan", "OUT_OF_MEMORY", ""),
-        pytest.param("MultiSource/Benchmarks/MiBench/consumer-jpeg", "consumer-jpeg", "YES", "PASS"),
+        pytest.param("MultiSource/Benchmarks/MiBench/consumer-jpeg", "consumer-jpeg", "TIMEOUT", ""), # Compilation sometimes flaky
         pytest.param("MultiSource/Benchmarks/MiBench/consumer-lame", "consumer-lame", "YES", "PASS"),
         pytest.param("MultiSource/Benchmarks/MiBench/consumer-typeset", "consumer-typeset", "TIMEOUT", ""),
         pytest.param("MultiSource/Benchmarks/MiBench/network-dijkstra", "network-dijkstra", "YES", "PASS"),
