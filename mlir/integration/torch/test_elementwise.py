@@ -3,8 +3,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-from docc.torch import compile_torch
-
 
 def test_abs():
     class AbsNet(nn.Module):

@@ -96,8 +96,7 @@ def test_submodel_backend(start, end):
 
     model_ref = copy.deepcopy(model)
 
-    docc.torch.set_backend_options(target="none", category="server")
-    program = torch.compile(model, backend="docc")
+    program = torch.compile(model, backend="docc", options={"target": "none", "category": "server"})
     with torch.no_grad():
         res = program(x)
         res_ref = model_ref(x)

@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-import pytest
 
-import docc.torch
+from integration.torch.check import check_backend, check_compile
 
 # --- Single Conv2d (no bias) ---
 
@@ -16,17 +15,7 @@ def test_single_nobias_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = SingleConv2dNet()
-    model_ref = SingleConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=3e-4)
+    check_compile(SingleConv2dNet().eval(), torch.randn(1, 3, 32, 32), rtol=3e-4)
 
 
 def test_single_nobias_backend():
@@ -38,18 +27,7 @@ def test_single_nobias_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = SingleConv2dNet()
-    model_ref = SingleConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    docc.torch.set_backend_options(target="none", category="server")
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=3e-4)
+    check_backend(SingleConv2dNet().eval(), torch.randn(1, 3, 32, 32), rtol=3e-4)
 
 
 # --- Single Conv2d (with bias) ---
@@ -64,17 +42,7 @@ def test_single_bias_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = SingleConv2dBiasNet()
-    model_ref = SingleConv2dBiasNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref)
+    check_compile(SingleConv2dBiasNet().eval(), torch.randn(1, 3, 32, 32))
 
 
 def test_single_bias_backend():
@@ -86,17 +54,7 @@ def test_single_bias_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = SingleConv2dBiasNet()
-    model_ref = SingleConv2dBiasNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref)
+    check_backend(SingleConv2dBiasNet().eval(), torch.randn(1, 3, 32, 32))
 
 
 # --- Chained Conv2d layers ---
@@ -112,17 +70,7 @@ def test_chained_compile():
         def forward(self, x: torch.Tensor):
             return self.conv2(self.conv1(x))
 
-    model = ChainedConv2dNet()
-    model_ref = ChainedConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-5)
+    check_compile(ChainedConv2dNet().eval(), torch.randn(1, 3, 32, 32), atol=1e-5)
 
 
 def test_chained_backend():
@@ -135,17 +83,7 @@ def test_chained_backend():
         def forward(self, x: torch.Tensor):
             return self.conv2(self.conv1(x))
 
-    model = ChainedConv2dNet()
-    model_ref = ChainedConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-5)
+    check_backend(ChainedConv2dNet().eval(), torch.randn(1, 3, 32, 32), atol=1e-5)
 
 
 # --- Different kernel sizes ---
@@ -160,17 +98,7 @@ def test_kernel_1x1_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = Conv1x1Net()
-    model_ref = Conv1x1Net()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-04)
+    check_compile(Conv1x1Net().eval(), torch.randn(1, 3, 32, 32), rtol=1e-04)
 
 
 def test_kernel_1x1_backend():
@@ -182,17 +110,7 @@ def test_kernel_1x1_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = Conv1x1Net()
-    model_ref = Conv1x1Net()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-04)
+    check_backend(Conv1x1Net().eval(), torch.randn(1, 3, 32, 32), rtol=1e-04)
 
 
 def test_kernel_5x5_compile():
@@ -204,17 +122,7 @@ def test_kernel_5x5_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = Conv5x5Net()
-    model_ref = Conv5x5Net()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_compile(Conv5x5Net().eval(), torch.randn(1, 3, 32, 32), atol=1e-06)
 
 
 def test_kernel_5x5_backend():
@@ -226,17 +134,7 @@ def test_kernel_5x5_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = Conv5x5Net()
-    model_ref = Conv5x5Net()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_backend(Conv5x5Net().eval(), torch.randn(1, 3, 32, 32), atol=1e-06)
 
 
 # --- Padding ---
@@ -251,17 +149,7 @@ def test_padding_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = PaddedConv2dNet()
-    model_ref = PaddedConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_compile(PaddedConv2dNet().eval(), torch.randn(1, 3, 32, 32), atol=1e-06)
 
 
 def test_padding_backend():
@@ -273,17 +161,7 @@ def test_padding_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = PaddedConv2dNet()
-    model_ref = PaddedConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_backend(PaddedConv2dNet().eval(), torch.randn(1, 3, 32, 32), atol=1e-06)
 
 
 # --- Stride > 1 ---
@@ -298,17 +176,7 @@ def test_stride_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = StridedConv2dNet()
-    model_ref = StridedConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_compile(StridedConv2dNet(), torch.randn(1, 3, 32, 32), atol=1e-06)
 
 
 def test_stride_backend():
@@ -320,17 +188,7 @@ def test_stride_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = StridedConv2dNet()
-    model_ref = StridedConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_backend(StridedConv2dNet().eval(), torch.randn(1, 3, 32, 32), atol=1e-06)
 
 
 # --- Batch size > 1 ---
@@ -345,17 +203,7 @@ def test_batch_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = BatchConv2dNet()
-    model_ref = BatchConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(4, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_compile(BatchConv2dNet().eval(), torch.randn(4, 3, 32, 32), atol=1e-06)
 
 
 def test_batch_backend():
@@ -367,17 +215,7 @@ def test_batch_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = BatchConv2dNet()
-    model_ref = BatchConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(4, 3, 32, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-06)
+    check_backend(BatchConv2dNet().eval(), torch.randn(4, 3, 32, 32), atol=1e-06)
 
 
 # --- Single output channel ---
@@ -392,17 +230,7 @@ def test_single_channel_out_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = SingleChannelOutNet()
-    model_ref = SingleChannelOutNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-07)
+    check_compile(SingleChannelOutNet().eval(), torch.randn(1, 3, 32, 32), atol=1e-07)
 
 
 def test_single_channel_out_backend():
@@ -414,18 +242,7 @@ def test_single_channel_out_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = SingleChannelOutNet()
-    model_ref = SingleChannelOutNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 3, 32, 32)
-
-    docc.torch.set_backend_options(target="none", category="server")
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, atol=1e-07)
+    check_backend(SingleChannelOutNet().eval(), torch.randn(1, 3, 32, 32), atol=1e-07)
 
 
 # --- Depthwise Conv2d (groups=in_channels) ---
@@ -440,17 +257,7 @@ def test_depthwise_compile():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = DepthwiseConv2dNet()
-    model_ref = DepthwiseConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 16, 32, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref)
+    check_compile(DepthwiseConv2dNet().eval(), torch.randn(1, 16, 32, 32))
 
 
 def test_depthwise_backend():
@@ -462,15 +269,4 @@ def test_depthwise_backend():
         def forward(self, x: torch.Tensor):
             return self.conv(x)
 
-    model = DepthwiseConv2dNet()
-    model_ref = DepthwiseConv2dNet()
-    model_ref.load_state_dict(model.state_dict())
-    example_input = torch.randn(1, 16, 32, 32)
-
-    docc.torch.set_backend_options(target="none", category="server")
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref)
+    check_backend(DepthwiseConv2dNet().eval(), torch.randn(1, 16, 32, 32))

@@ -19,11 +19,9 @@ def test_fasterrcnn_resnet50_backbone():
     """docc backend compiling only the backbone matches PyTorch eager output."""
     model, x = setup()
     model_ref = copy.deepcopy(model)
-
-    docc.torch.set_backend_options(target="none", category="server")
     
     # Compile only the backbone with docc
-    compiled_backbone = torch.compile(model.backbone, backend="docc")
+    compiled_backbone = torch.compile(model.backbone, backend="docc", options={"target": "none", "category": "server"})
     model.backbone = compiled_backbone
     
     with torch.no_grad():

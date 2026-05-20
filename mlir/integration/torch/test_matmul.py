@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-import pytest
 
-import docc.torch
+from integration.torch.check import check_backend, check_compile
 
 
 # --- Self matmul (x @ x) ---
@@ -17,17 +16,7 @@ def test_quadratic_self_backend():
             h1 = torch.matmul(x, x)
             return h1
 
-    model = SelfMatmulNet()
-    model_ref = SelfMatmulNet()
-
-    example_input = torch.randn(10, 10)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(SelfMatmulNet().eval(), torch.randn(10, 10), rtol=1e-4)
 
 
 def test_quadratic_self_compile():
@@ -39,17 +28,7 @@ def test_quadratic_self_compile():
             h1 = torch.matmul(x, x)
             return h1
 
-    model = SelfMatmulNet()
-    example_input = torch.randn(10, 10)
-
-    model_ref = SelfMatmulNet()
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(SelfMatmulNet().eval(), torch.randn(10, 10), rtol=1e-4)
 
 
 # --- torch.matmul with nn.Parameter weight ---
@@ -65,16 +44,7 @@ def test_parameter_weight_compile():
             return torch.matmul(x, self.W)
 
     weight = torch.randn(10, 5)
-    model = ParamWeightNet(weight)
-    model_ref = ParamWeightNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(ParamWeightNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 def test_parameter_weight_backend():
@@ -87,16 +57,7 @@ def test_parameter_weight_backend():
             return torch.matmul(x, self.W)
 
     weight = torch.randn(10, 5)
-    model = ParamWeightNet(weight)
-    model_ref = ParamWeightNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(ParamWeightNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 # --- @ operator ---
@@ -112,16 +73,7 @@ def test_at_operator_compile():
             return x @ self.W
 
     weight = torch.randn(10, 5)
-    model = AtOperatorNet(weight)
-    model_ref = AtOperatorNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(AtOperatorNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 def test_at_operator_backend():
@@ -134,16 +86,7 @@ def test_at_operator_backend():
             return x @ self.W
 
     weight = torch.randn(10, 5)
-    model = AtOperatorNet(weight)
-    model_ref = AtOperatorNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(AtOperatorNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 # --- torch.mm (strict 2D matmul) ---
@@ -159,16 +102,7 @@ def test_mm_compile():
             return torch.mm(x, self.W)
 
     weight = torch.randn(10, 5)
-    model = MmNet(weight)
-    model_ref = MmNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(MmNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 def test_mm_backend():
@@ -181,16 +115,7 @@ def test_mm_backend():
             return torch.mm(x, self.W)
 
     weight = torch.randn(10, 5)
-    model = MmNet(weight)
-    model_ref = MmNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(MmNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 # --- Non-square matrices ---
@@ -206,16 +131,7 @@ def test_non_square_compile():
             return torch.matmul(x, self.W)
 
     weight = torch.randn(32, 7)
-    model = NonSquareNet(weight)
-    model_ref = NonSquareNet(weight.clone())
-    example_input = torch.randn(4, 32)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(NonSquareNet(weight).eval(), torch.randn(4, 32), rtol=1e-4)
 
 
 def test_non_square_backend():
@@ -228,16 +144,7 @@ def test_non_square_backend():
             return torch.matmul(x, self.W)
 
     weight = torch.randn(32, 7)
-    model = NonSquareNet(weight)
-    model_ref = NonSquareNet(weight.clone())
-    example_input = torch.randn(4, 32)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(NonSquareNet(weight).eval(), torch.randn(4, 32), rtol=1e-4)
 
 
 # --- Transposed weight (x @ W.T) ---
@@ -253,16 +160,7 @@ def test_transposed_weight_compile():
             return torch.matmul(x, self.W.T)
 
     weight = torch.randn(5, 10)
-    model = TransposedWeightNet(weight)
-    model_ref = TransposedWeightNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(TransposedWeightNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 def test_transposed_weight_backend():
@@ -275,16 +173,7 @@ def test_transposed_weight_backend():
             return torch.matmul(x, self.W.T)
 
     weight = torch.randn(5, 10)
-    model = TransposedWeightNet(weight)
-    model_ref = TransposedWeightNet(weight.clone())
-    example_input = torch.randn(8, 10)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(TransposedWeightNet(weight).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 # --- Batched matmul (3D) ---
@@ -300,16 +189,7 @@ def test_batched_matmul_compile():
             return torch.matmul(x, self.W)
 
     weight = torch.randn(4, 10, 5)
-    model = BatchedMatmulNet(weight)
-    model_ref = BatchedMatmulNet(weight.clone())
-    example_input = torch.randn(4, 8, 10)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(BatchedMatmulNet(weight).eval(), torch.randn(4, 8, 10), rtol=1e-4)
 
 
 def test_batched_matmul_backend():
@@ -322,16 +202,7 @@ def test_batched_matmul_backend():
             return torch.matmul(x, self.W)
 
     weight = torch.randn(4, 10, 5)
-    model = BatchedMatmulNet(weight)
-    model_ref = BatchedMatmulNet(weight.clone())
-    example_input = torch.randn(4, 8, 10)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(BatchedMatmulNet(weight).eval(), torch.randn(4, 8, 10), rtol=1e-4)
 
 
 # --- Chained matmul (x @ W1 @ W2) ---
@@ -349,16 +220,7 @@ def test_chained_matmul_compile():
 
     w1 = torch.randn(10, 16)
     w2 = torch.randn(16, 3)
-    model = ChainedMatmulNet(w1, w2)
-    model_ref = ChainedMatmulNet(w1.clone(), w2.clone())
-    example_input = torch.randn(8, 10)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(ChainedMatmulNet(w1, w2).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 def test_chained_matmul_backend():
@@ -373,16 +235,7 @@ def test_chained_matmul_backend():
 
     w1 = torch.randn(10, 16)
     w2 = torch.randn(16, 3)
-    model = ChainedMatmulNet(w1, w2)
-    model_ref = ChainedMatmulNet(w1.clone(), w2.clone())
-    example_input = torch.randn(8, 10)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(ChainedMatmulNet(w1, w2).eval(), torch.randn(8, 10), rtol=1e-4)
 
 
 # --- Expand / Collapse (reshape around matmul) ---
@@ -403,16 +256,7 @@ def test_expand_collapse_compile():
             return out.reshape(B, S, -1)  # expand: 2D -> 3D
 
     weight = torch.randn(16, 8)
-    model = ExpandCollapseNet(weight)
-    model_ref = ExpandCollapseNet(weight.clone())
-    example_input = torch.randn(4, 6, 16)
-
-    program = docc.torch.compile_torch(model, example_input)
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_compile(ExpandCollapseNet(weight).eval(), torch.randn(4, 6, 16), rtol=1e-4)
 
 
 def test_expand_collapse_backend():
@@ -430,13 +274,4 @@ def test_expand_collapse_backend():
             return out.reshape(B, S, -1)
 
     weight = torch.randn(16, 8)
-    model = ExpandCollapseNet(weight)
-    model_ref = ExpandCollapseNet(weight.clone())
-    example_input = torch.randn(4, 6, 16)
-
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(example_input)
-        res_ref = model_ref(example_input)
-
-    assert torch.allclose(res, res_ref, rtol=1e-4)
+    check_backend(ExpandCollapseNet(weight).eval(), torch.randn(4, 6, 16), rtol=1e-4)

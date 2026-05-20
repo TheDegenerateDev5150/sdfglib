@@ -1,10 +1,7 @@
-import copy
-
 import torch
 import torchvision.models as models
-import pytest
 
-import docc.torch
+from integration.torch.check import check_backend, check_compile
 
 
 def setup():
@@ -18,25 +15,10 @@ def setup():
 def test_resnet18_compile():
     """docc backend output matches PyTorch eager output (default compile path)."""
     model, x = setup()
-    model_ref = copy.deepcopy(model)
-
-    program = docc.torch.compile_torch(model, x)
-    with torch.no_grad():
-        res = program(x)
-        res_ref = model_ref(x)
-
-    assert torch.allclose(res, res_ref, rtol=1e-3, atol=1e-4)
+    check_compile(model, x, rtol=1e-3, atol=1e-4)
 
 
 def test_resnet18_backend():
     """docc backend with target='none' output matches PyTorch eager output."""
     model, x = setup()
-    model_ref = copy.deepcopy(model)
-
-    docc.torch.set_backend_options(target="none", category="server")
-    program = torch.compile(model, backend="docc")
-    with torch.no_grad():
-        res = program(x)
-        res_ref = model_ref(x)
-
-    assert torch.allclose(res, res_ref, rtol=1e-3, atol=1e-4)
+    check_backend(model, x, rtol=1e-3, atol=1e-4)

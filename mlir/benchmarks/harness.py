@@ -23,11 +23,10 @@ def run_benchmark(setup_func, name):
             print(f"{name} torch execution time: {end - start:.6f} seconds")
     
     if args.docc:
-        docc.torch.set_backend_options(target=args.target, category="server")
         for _ in range(args.n_runs):
             start = time.time()
             with torch.no_grad():
-                program = torch.compile(model, backend="docc")
+                program = torch.compile(model, backend="docc", options={"target": args.target, "category": "server"})
                 program(model_input)
             end = time.time()
             print(f"{name} docc execution time: {end - start:.6f} seconds")

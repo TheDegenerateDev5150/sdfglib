@@ -59,11 +59,9 @@ def test_yolov8_backbone():
     """docc backend compiling only the backbone matches PyTorch eager output for YOLOv8."""
     model, x = setup_yolo()
     model_ref = copy.deepcopy(model)
-
-    docc.torch.set_backend_options(target="none", category="server")
     
     # Compile only the backbone with docc
-    compiled_backbone = torch.compile(model.model[0], backend="docc")
+    compiled_backbone = torch.compile(model.model[0], backend="docc", options={"target": "none", "category": "server"})
     model.model[0] = compiled_backbone
     
     with torch.no_grad():
