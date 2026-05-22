@@ -17,13 +17,12 @@ namespace transformations {
  * @note The tile size must be greater than 1
  */
 class LoopTiling : public Transformation {
+protected:
     structured_control_flow::StructuredLoop& loop_;
     size_t tile_size_;
-    size_t tile_size_2_ = 0;
     bool applied_ = false;
 
     structured_control_flow::StructuredLoop* inner_loop_ = nullptr;
-    structured_control_flow::StructuredLoop* middle_loop_ = nullptr;
     structured_control_flow::StructuredLoop* outer_loop_ = nullptr;
 
 
@@ -34,14 +33,6 @@ public:
      * @param tile_size The size of each tile (must be > 1)
      */
     LoopTiling(structured_control_flow::StructuredLoop& loop, size_t tile_size);
-
-    /**
-     * @brief Construct a two-level loop tiling transformation
-     * @param loop The loop to be tiled
-     * @param tile_size The size of the outer tile (must be > 1)
-     * @param tile_size_2 The size of the inner tile (must be > 1 and < tile_size)
-     */
-    LoopTiling(structured_control_flow::StructuredLoop& loop, size_t tile_size, size_t tile_size_2);
 
     /**
      * @brief Get the name of this transformation
@@ -80,7 +71,6 @@ public:
     static LoopTiling from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& j);
 
     structured_control_flow::StructuredLoop* inner_loop();
-    structured_control_flow::StructuredLoop* middle_loop();
     structured_control_flow::StructuredLoop* outer_loop();
 };
 
