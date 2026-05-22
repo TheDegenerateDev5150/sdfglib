@@ -6,8 +6,8 @@
 
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/einsum_node.h"
 #include "sdfg/data_flow/tasklet.h"
-#include "sdfg/einsum/einsum.h"
 #include "sdfg/function.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/types/pointer.h"
@@ -70,7 +70,7 @@ TEST(EinsumLiftTest, Simple_fp_add) {
     EXPECT_EQ(dfg.library_nodes().size(), 1);
 
     auto* libnode = *dfg.library_nodes().begin();
-    auto* einsum_node = dynamic_cast<einsum::EinsumNode*>(libnode);
+    auto* einsum_node = dynamic_cast<math::tensor::EinsumNode*>(libnode);
     ASSERT_TRUE(einsum_node);
     EXPECT_EQ(einsum_node->outputs(), std::vector<std::string>({"__einsum_out"}));
     EXPECT_EQ(einsum_node->inputs(), std::vector<std::string>({"_in2", "__einsum_out"}));
@@ -131,7 +131,7 @@ TEST(EinsumLiftTest, Simple_fp_fma) {
     EXPECT_EQ(dfg.library_nodes().size(), 1);
 
     auto* libnode = *dfg.library_nodes().begin();
-    auto* einsum_node = dynamic_cast<einsum::EinsumNode*>(libnode);
+    auto* einsum_node = dynamic_cast<math::tensor::EinsumNode*>(libnode);
     ASSERT_TRUE(einsum_node);
     EXPECT_EQ(einsum_node->outputs(), std::vector<std::string>({"__einsum_out"}));
     EXPECT_EQ(einsum_node->inputs(), std::vector<std::string>({"_in1", "_in2", "__einsum_out"}));
@@ -167,7 +167,7 @@ TEST(EinsumLiftTest, Simple_fp_sub) {
     EXPECT_EQ(dfg.library_nodes().size(), 1);
 
     auto* libnode = *dfg.library_nodes().begin();
-    auto* einsum_node = dynamic_cast<einsum::EinsumNode*>(libnode);
+    auto* einsum_node = dynamic_cast<math::tensor::EinsumNode*>(libnode);
     ASSERT_TRUE(einsum_node);
     EXPECT_EQ(einsum_node->outputs(), std::vector<std::string>({"__einsum_out"}));
     EXPECT_EQ(einsum_node->inputs(), std::vector<std::string>({"_in2", "__einsum_const", "__einsum_out"}));
@@ -218,4 +218,74 @@ TEST(EinsumLiftTest, NonEqualSubsets) {
     analysis::AnalysisManager analysis_manager(sdfg);
     transformations::EinsumLift transformation(tasklet);
     EXPECT_FALSE(transformation.can_be_applied(builder, analysis_manager));
+}
+
+TEST(EinsumLiftTest, SameContainerDifferentSubset) {
+    builder::StructuredSDFGBuilder builder("sdfg_1", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Pointer desc(base_desc);
+    builder.add_container("a", desc);
+
+    auto& block = builder.add_block(root);
+    auto& a_in = builder.add_access(block, "a");
+    auto& a_out = builder.add_access(block, "a");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in1", {symbolic::zero()});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in2", {symbolic::one()});
+    builder.add_computational_memlet(block, tasklet, "_out", a_out, {symbolic::zero()});
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    transformations::EinsumLift transformation(tasklet);
+    ASSERT_TRUE(transformation.can_be_applied(builder, analysis_manager));
+    ASSERT_NO_THROW(transformation.apply(builder, analysis_manager));
+    ASSERT_NO_THROW(sdfg.validate());
+
+    auto& dfg = block.dataflow();
+    EXPECT_EQ(dfg.data_nodes().size(), 2);
+    EXPECT_EQ(dfg.tasklets().size(), 0);
+    EXPECT_EQ(dfg.library_nodes().size(), 1);
+
+    auto* libnode = *dfg.library_nodes().begin();
+    auto* einsum_node = dynamic_cast<math::tensor::EinsumNode*>(libnode);
+    ASSERT_TRUE(einsum_node);
+    EXPECT_EQ(einsum_node->outputs(), std::vector<std::string>({"__einsum_out"}));
+    EXPECT_EQ(einsum_node->inputs(), std::vector<std::string>({"_in2", "__einsum_out"}));
+}
+
+TEST(EinsumLiftTest, SameContainerSameSubset) {
+    builder::StructuredSDFGBuilder builder("sdfg_1", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Pointer desc(base_desc);
+    builder.add_container("a", desc);
+
+    auto& block = builder.add_block(root);
+    auto& a_in = builder.add_access(block, "a");
+    auto& a_out = builder.add_access(block, "a");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in1", {symbolic::zero()});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in2", {symbolic::zero()});
+    builder.add_computational_memlet(block, tasklet, "_out", a_out, {symbolic::zero()});
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    transformations::EinsumLift transformation(tasklet);
+    ASSERT_TRUE(transformation.can_be_applied(builder, analysis_manager));
+    ASSERT_NO_THROW(transformation.apply(builder, analysis_manager));
+    ASSERT_NO_THROW(sdfg.validate());
+
+    auto& dfg = block.dataflow();
+    EXPECT_EQ(dfg.data_nodes().size(), 2);
+    EXPECT_EQ(dfg.tasklets().size(), 0);
+    EXPECT_EQ(dfg.library_nodes().size(), 1);
+
+    auto* libnode = *dfg.library_nodes().begin();
+    auto* einsum_node = dynamic_cast<math::tensor::EinsumNode*>(libnode);
+    ASSERT_TRUE(einsum_node);
+    EXPECT_EQ(einsum_node->outputs(), std::vector<std::string>({"__einsum_out"}));
+    EXPECT_EQ(einsum_node->inputs(), std::vector<std::string>({"_in2", "__einsum_out"}));
 }

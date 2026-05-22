@@ -18,7 +18,6 @@
 #include <sdfg/codegen/instrumentation/arg_capture_plan.h>
 #include <sdfg/codegen/instrumentation/instrumentation_plan.h>
 #include <sdfg/codegen/loop_report.h>
-#include <sdfg/einsum/einsum.h>
 #include <sdfg/passes/dataflow/constant_propagation.h>
 #include <sdfg/passes/dataflow/dead_data_elimination.h>
 #include <sdfg/passes/dataflow/local_buffer_reuse.h>
@@ -139,6 +138,27 @@ pybind11::dict PyStructuredSDFG::containers() const {
 
 void PyStructuredSDFG::validate() { sdfg_->validate(); }
 
+void PyStructuredSDFG::einsum() {
+    sdfg::builder::StructuredSDFGBuilder builder_opt(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+
+    // Promote tasklets into symbolic assignments
+    sdfg::passes::SymbolPromotion symbol_promotion_pass;
+    symbol_promotion_pass.run(builder_opt, analysis_manager);
+
+    // Run dataflow simplification pipeline, but ignore library nodes
+    sdfg::passes::Pipeline dataflow_simplification = sdfg::passes::Pipeline::dataflow_simplification(true);
+    dataflow_simplification.run(builder_opt, analysis_manager);
+
+    // Lift Einsum nodes to detect more library nodes (offloading)
+    sdfg::passes::EinsumDetectionPass einsum_detection_pass;
+    einsum_detection_pass.run(builder_opt, analysis_manager);
+
+    // Convert einsum into blas nodes (best-effort)
+    sdfg::passes::EinsumConversionPass einsum_conversion_pass;
+    einsum_conversion_pass.run(builder_opt, analysis_manager);
+}
+
 void PyStructuredSDFG::expand() {
     docc::target::TargetOptions opt{.target = "none", .category = "", .remote_tuning = false};
     expand(opt);
@@ -161,19 +181,6 @@ void PyStructuredSDFG::expand(const docc::target::TargetOptions& options) {
 
     auto local_buffer_reuse_pipeline = sdfg::passes::local_buffer_reuse_pipeline();
     local_buffer_reuse_pipeline.run(builder_opt, analysis_manager);
-
-    // Preparation: Lift Einsum nodes to detect more library nodes (offloading)
-    // BUT: Place after simplify (e.g., schedule())
-    // sdfg::passes::EinsumLiftPass einsum_lift_pass;
-    // einsum_lift_pass.run(builder_opt, analysis_manager);
-    // sdfg::passes::EinsumExtendPass einsum_extend_pass;
-    // einsum_extend_pass.run(builder_opt, analysis_manager);
-    // sdfg::passes::EinsumExpandPass einsum_expand_pass;
-    // einsum_expand_pass.run(builder_opt, analysis_manager);
-
-    // Convert einsum into blas nodes (best-effort)
-    sdfg::passes::EinsumConversionPass einsum_conversion_pass;
-    einsum_conversion_pass.run(builder_opt, analysis_manager);
 
     // Expand library nodes
     sdfg::passes::Pipeline libnode_expansion = sdfg::passes::Pipeline::expansion();

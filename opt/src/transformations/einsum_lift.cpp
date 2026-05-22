@@ -8,9 +8,9 @@
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/access_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/einsum_node.h"
 #include "sdfg/data_flow/memlet.h"
 #include "sdfg/data_flow/tasklet.h"
-#include "sdfg/einsum/einsum.h"
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/transformations/transformation.h"
 #include "sdfg/types/scalar.h"
@@ -112,7 +112,7 @@ void EinsumLift::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
 
         for (auto& iedge : dfg.in_edges(this->tasklet_)) {
             auto& in = static_cast<data_flow::AccessNode&>(iedge.src());
-            if (in.data() == out_container) {
+            if (reduction_conn.empty() && in.data() == out_container && this->subsets_eq(out_indices, iedge.subset())) {
                 reduction_conn = iedge.dst_conn();
             } else {
                 inputs.push_back(iedge.dst_conn());
@@ -125,7 +125,7 @@ void EinsumLift::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
 
         reduction_conn = this->tasklet_.inputs().back();
         for (auto& iedge : dfg.in_edges(this->tasklet_)) {
-            if (iedge.dst_conn() != reduction_conn) {
+            if (iedge.dst_conn() != reduction_conn || !this->subsets_eq(out_indices, iedge.subset())) {
                 inputs.push_back(iedge.dst_conn());
                 in_indices.push_back(iedge.subset());
             }
@@ -136,7 +136,7 @@ void EinsumLift::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
 
         reduction_conn = this->tasklet_.inputs().front();
         for (auto& iedge : dfg.in_edges(this->tasklet_)) {
-            if (iedge.dst_conn() != reduction_conn) {
+            if (iedge.dst_conn() != reduction_conn || !this->subsets_eq(out_indices, iedge.subset())) {
                 inputs.push_back(iedge.dst_conn());
                 in_indices.push_back(iedge.subset());
             }
@@ -148,9 +148,9 @@ void EinsumLift::apply(builder::StructuredSDFGBuilder& builder, analysis::Analys
 
     // Create EinsumNode
     auto& libnode = builder.add_library_node<
-        einsum::EinsumNode,
+        math::tensor::EinsumNode,
         const std::vector<std::string>&,
-        const std::vector<einsum::EinsumDimension>&,
+        const std::vector<math::tensor::EinsumDimension>&,
         const data_flow::Subset&,
         const std::vector<data_flow::Subset>&>(*block, this->tasklet_.debug_info(), inputs, {}, out_indices, in_indices);
 
