@@ -14,8 +14,18 @@ set(TEST_FILES
 
 # Now simply link against gtest or gtest_main as needed. Eg
 add_executable(sdfgrpc_test ${TEST_FILES})
-target_include_directories(sdfgrpc_test PRIVATE ./)
+target_include_directories(sdfgrpc_test PRIVATE ./ ${CMAKE_CURRENT_SOURCE_DIR}/../../opt/tests)
 target_link_libraries(sdfgrpc_test gtest_main sdfgrpc)
+
+# Daisytuner RPC tests (polybench transfer tuning regression tests)
+set(DAISYTUNER_RPC_TEST_FILES
+    passes/rpc/polybench_transfertuning_test.cpp
+    test_daisytuner_rpc.cpp
+)
+
+add_executable(sdfgrpc_daisytuner_rpc_test ${DAISYTUNER_RPC_TEST_FILES})
+target_include_directories(sdfgrpc_daisytuner_rpc_test PRIVATE ./ ${CMAKE_CURRENT_SOURCE_DIR}/../../opt/tests)
+target_link_libraries(sdfgrpc_daisytuner_rpc_test gtest_main sdfgrpc)
 if(SDFG_ENABLE_COVERAGE)
   target_compile_options(sdfgrpc_test PRIVATE
     -fprofile-instr-generate
@@ -24,9 +34,17 @@ if(SDFG_ENABLE_COVERAGE)
   target_link_options(sdfgrpc_test PRIVATE
     -fprofile-instr-generate
   )
+  target_compile_options(sdfgrpc_daisytuner_rpc_test PRIVATE
+    -fprofile-instr-generate
+    -fcoverage-mapping
+  )
+  target_link_options(sdfgrpc_daisytuner_rpc_test PRIVATE
+    -fprofile-instr-generate
+  )
 endif()
 
 add_test(NAME sdfgrpc_test_test COMMAND rpc_test)
 
 include(GoogleTest)
 gtest_discover_tests(sdfgrpc_test)
+gtest_discover_tests(sdfgrpc_daisytuner_rpc_test)
