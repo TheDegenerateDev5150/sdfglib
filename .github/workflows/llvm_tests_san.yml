@@ -18,6 +18,7 @@ jobs:
     container:
       image: daisytuner/docc-build-env-llvm19-ubuntu-24.04:latest-amd64
     strategy:
+      fail-fast: false
       matrix:
         san: ["address", "leak", "undefined"]
 
@@ -48,6 +49,8 @@ jobs:
             -DBUILD_BENCHMARKS_GOOGLE:BOOL=OFF \
             ..
           ninja -j$(nproc)
+          cpack -G DEB
+          apt-get install -y ./docc-llvm*.deb
 
       - name: Unit Tests
         run: |
@@ -69,11 +72,6 @@ jobs:
 
       - name: Integration Tests
         run: |
-          export PATH=$PATH:$GITHUB_WORKSPACE/build/llvm/driver
-          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$GITHUB_WORKSPACE/build/llvm
-          export LIBRARY_PATH=$LIBRARY_PATH:$GITHUB_WORKSPACE/build/rtl
-          export LIBRARY_PATH=$LIBRARY_PATH:$GITHUB_WORKSPACE/build/arg-capture-io
-          export CPATH=$CPATH:$GITHUB_WORKSPACE/rtl/include
           export LLVM_SYMBOLIZER_PATH=$(which llvm-symbolizer-19)
 
           cd llvm/integration
