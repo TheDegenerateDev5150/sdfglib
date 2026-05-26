@@ -53,6 +53,7 @@ set(TEST_FILES
     transformations/loop_tiling_test.cpp
     transformations/loop_unit_stride_test.cpp
     transformations/map_fusion_test.cpp
+    transformations/multi_level_tiling_test.cpp
     transformations/tile_fusion_test.cpp
     transformations/out_local_storage_test.cpp
     transformations/in_local_storage_test.cpp

@@ -101,6 +101,7 @@ set(SOURCE_FILES
     src/transformations/loop_tiling.cpp
     src/transformations/loop_unit_stride.cpp
     src/transformations/map_fusion.cpp
+    src/transformations/multi_level_tiling.cpp
     src/transformations/tile_fusion.cpp
     src/transformations/out_local_storage.cpp
     src/transformations/in_local_storage.cpp

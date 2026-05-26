@@ -17,6 +17,7 @@ namespace transformations {
  * @note The tile size must be greater than 1
  */
 class LoopTiling : public Transformation {
+protected:
     structured_control_flow::StructuredLoop& loop_;
     size_t tile_size_;
     bool applied_ = false;
