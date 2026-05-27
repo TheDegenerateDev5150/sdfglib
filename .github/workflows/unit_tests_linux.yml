@@ -114,6 +114,7 @@ jobs:
         env:
           SDFG_TEST_SDFG_PATH: ${{ github.workspace }}/examples/input/transfertuning/matmul_sdfg.json
           SDFG_TEST_SEQUENCE_PATH: ${{ github.workspace }}/examples/input/transfertuning/matmul_sequence.json
+          DOCC_ACCESS_TOKEN: ${{ secrets.DOCC_CI_TOKEN }}
         shell: bash
         run: |
           set -e
@@ -132,6 +133,10 @@ jobs:
 
           # Shut down the server
           kill "$SERVER_PID" || true
+
+          # Run production server transfer-tuning tests
+          cd "$GITHUB_WORKSPACE/build"
+          ./rpc/tests/sdfgrpc_daisytuner_rpc_test
 
   python-tests-linux:
     runs-on:
