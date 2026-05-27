@@ -56,12 +56,30 @@ public:
         const MallocNode& node
     );
 
-    void dispatch_code(
-        codegen::PrettyPrinter& stream,
-        codegen::PrettyPrinter& globals_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory
+    void dispatch_code_with_edges(
+        codegen::CodegenOutput& out,
+        std::vector<codegen::DispatchInput>& inputs,
+        std::vector<codegen::DispatchOutput>& outputs
     ) override;
 };
+
+MallocNode& add_malloc_node(
+    builder::StructuredSDFGBuilder& builder,
+    Block& block,
+    const std::string& dst_ptr,
+    const symbolic::Expression& size,
+    const types::IType& ptr_type,
+    DebugInfo debug_info = DebugInfo()
+);
+
+std::tuple<Block&, MallocNode&> add_malloc_block(
+    builder::StructuredSDFGBuilder& builder,
+    Sequence& parent,
+    const std::string& dst_ptr,
+    const symbolic::Expression& size,
+    const types::IType& ptr_type,
+    DebugInfo debug_info = DebugInfo()
+);
 
 } // namespace stdlib
 } // namespace sdfg

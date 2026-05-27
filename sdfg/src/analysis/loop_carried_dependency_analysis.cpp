@@ -415,5 +415,14 @@ bool LoopCarriedDependencyAnalysis::has_loop_carried_raw(structured_control_flow
     return false;
 }
 
+bool LoopCarriedDependencyAnalysis::has_loop_carried_hazard(structured_control_flow::StructuredLoop& loop) const {
+    auto it = pairs_.find(&loop);
+    if (it == pairs_.end()) return false;
+    for (auto& p : it->second) {
+        if (p.type != LOOP_CARRIED_DEPENDENCY_WRITE_WRITE) return true;
+    }
+    return false;
+}
+
 } // namespace analysis
 } // namespace sdfg

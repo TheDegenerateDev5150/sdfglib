@@ -23,6 +23,8 @@ public:
         const override;
 
     void replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) override;
+
+    data_flow::PointerAccessType pointer_access_type(int input_idx) const override;
 };
 
 class FreeNodeSerializer : public serializer::LibraryNodeSerializer {
@@ -43,12 +45,28 @@ public:
         const FreeNode& node
     );
 
-    void dispatch_code(
-        codegen::PrettyPrinter& stream,
-        codegen::PrettyPrinter& globals_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory
+    void dispatch_code_with_edges(
+        codegen::CodegenOutput& out,
+        std::vector<codegen::DispatchInput>& inputs,
+        std::vector<codegen::DispatchOutput>& outputs
     ) override;
 };
+
+FreeNode& add_free_node(
+    builder::StructuredSDFGBuilder& builder,
+    Block& block,
+    const std::string& ptr,
+    const types::IType& ptr_type,
+    DebugInfo debug_info = DebugInfo()
+);
+
+std::tuple<Block&, FreeNode&> add_free_block(
+    builder::StructuredSDFGBuilder& builder,
+    Sequence& parent,
+    const std::string& ptr,
+    const types::IType& ptr_type,
+    DebugInfo debug_info = DebugInfo()
+);
 
 } // namespace stdlib
 } // namespace sdfg

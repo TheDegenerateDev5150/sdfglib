@@ -32,7 +32,7 @@ GEMMNode::GEMMNode(
           vertex,
           parent,
           LibraryNodeType_GEMM,
-          {"__C"},
+          {},
           {"__A", "__B", "__C", "__alpha", "__beta"},
           implementation_type,
           precision
@@ -140,36 +140,31 @@ bool GEMMNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
         ++in_edges_it;
     }
 
-    auto& oedge = *dataflow.out_edges(*this).begin();
-
     // Checks if legal
     auto* input_node_a = static_cast<data_flow::AccessNode*>(&iedge_a->src());
     auto* input_node_b = static_cast<data_flow::AccessNode*>(&iedge_b->src());
     auto* input_node_c = static_cast<data_flow::AccessNode*>(&iedge_c->src());
-    auto* output_node = static_cast<data_flow::AccessNode*>(&oedge.dst());
     auto* alpha_node = static_cast<data_flow::AccessNode*>(&alpha_edge->src());
     auto* beta_node = static_cast<data_flow::AccessNode*>(&beta_edge->src());
 
     // we must be the only thing in this block, as we do not support splitting a block into pre, expanded lib-node, post
     if (!input_node_a || dataflow.in_degree(*input_node_a) != 0 || !input_node_b ||
-        dataflow.in_degree(*input_node_b) != 0 || !input_node_c || dataflow.in_degree(*input_node_c) != 0 ||
-        !output_node || dataflow.out_degree(*output_node) != 0) {
+        dataflow.in_degree(*input_node_b) != 0 || !input_node_c || dataflow.in_degree(*input_node_c) != 0) {
         return false; // data nodes are not standalone
     }
     if (dataflow.in_degree(*alpha_node) != 0 || dataflow.in_degree(*beta_node) != 0) {
         return false; // alpha and beta are not standalone
     }
     for (auto* nd : dataflow.data_nodes()) {
-        if (nd != input_node_a && nd != input_node_b && nd != input_node_c && nd != output_node &&
-            (!alpha_node || nd != alpha_node) && (!beta_node || nd != beta_node)) {
+        if (nd != input_node_a && nd != input_node_b && nd != input_node_c && (!alpha_node || nd != alpha_node) &&
+            (!beta_node || nd != beta_node)) {
             return false; // there are other nodes in here that we could not preserve correctly
         }
     }
 
     auto& A_var = input_node_a->data();
     auto& B_var = input_node_b->data();
-    auto& C_in_var = input_node_c->data();
-    auto& C_out_var = output_node->data();
+    auto& C_ptr = input_node_c->data();
 
 
     // Add new graph after the current block
@@ -257,11 +252,11 @@ bool GEMMNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     builder.add_computational_memlet(
         code_block, input_node_b_new, core_fma, "_in2", {b_idx}, iedge_b->base_type(), iedge_b->debug_info()
     );
-    builder.add_computational_memlet(code_block, core_fma, "_out", sum_out, {}, oedge.debug_info());
+    builder.add_computational_memlet(code_block, core_fma, "_out", sum_out, {}, iedge_c->debug_info());
 
     auto& flush_block = builder.add_block_after(output_loop->root(), *last_map, {}, block.debug_info());
     auto& sum_final = builder.add_access(flush_block, sum_var, block.debug_info());
-    auto& input_node_c_new = builder.add_access(flush_block, C_in_var, input_node_c->debug_info());
+    auto& input_node_c_new = builder.add_access(flush_block, C_ptr, input_node_c->debug_info());
     symbolic::Expression c_idx = symbolic::add(symbolic::mul(ldc(), new_subset[0]), new_subset[1]);
 
     auto& scale_sum_tasklet =
@@ -308,7 +303,7 @@ bool GEMMNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
 
     auto& flush_add_tasklet =
         builder.add_tasklet(flush_block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"}, block.debug_info());
-    auto& output_node_new = builder.add_access(flush_block, C_out_var, output_node->debug_info());
+    auto& output_node_new = builder.add_access(flush_block, C_ptr, input_node_c->debug_info());
     builder.add_computational_memlet(
         flush_block, scaled_sum_final, flush_add_tasklet, "_in1", {}, scalar_type, block.debug_info()
     );
@@ -328,11 +323,9 @@ bool GEMMNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     builder.remove_node(block, *alpha_node);
     builder.remove_memlet(block, *beta_edge);
     builder.remove_node(block, *beta_node);
-    builder.remove_memlet(block, oedge);
     builder.remove_node(block, *input_node_a);
     builder.remove_node(block, *input_node_b);
     builder.remove_node(block, *input_node_c);
-    builder.remove_node(block, *output_node);
     builder.remove_node(block, *this);
     builder.remove_child(parent, index + 1);
 
@@ -391,6 +384,47 @@ std::string GEMMNode::toStr() const {
            std::string(BLAS_Layout_to_short_string(layout_)) + ", " + BLAS_Transpose_to_char(trans_a_) +
            BLAS_Transpose_to_char(trans_b_) + ", " + m_->__str__() + ", " + n_->__str__() + ", " + k_->__str__() +
            ", " + lda_->__str__() + ", " + ldb_->__str__() + ", " + ldc_->__str__() + ")";
+}
+
+symbolic::Expression GEMMNode::calc_matrix_access_range(
+    const symbolic::Expression& outer_dim,
+    const symbolic::Expression& inner_dim,
+    const symbolic::Expression& line_size,
+    BLAS_Transpose trans,
+    BLAS_Layout layout
+) {
+    if ((trans == BLAS_Transpose::No) ^ (layout == BLAS_Layout::ColMajor)) {
+        return symbolic::mul(outer_dim, line_size);
+    } else {
+        return symbolic::mul(inner_dim, line_size);
+    }
+}
+
+
+data_flow::PointerAccessType GEMMNode::pointer_access_type(int input_idx) const {
+    if (input_idx == 0) { // A: m x k
+        return data_flow::PointerAccessMeta::
+            create_read_only(calc_matrix_access_range(m_, k_, lda_, trans_a_, layout_), true);
+    } else if (input_idx == 1) { // B: k x n
+        return data_flow::PointerAccessMeta::
+            create_read_only(calc_matrix_access_range(k_, n_, ldb_, trans_b_, layout_), true);
+    } else if (input_idx == 2) {
+        // for beta == 0, there would no reads of C. But we currently have no mechanism to access const-prop knowledge
+        // like tha
+        if (symbolic::eq(ldc_, n_)) { // non-sparse access over the m x n range
+            return data_flow::PointerAccessMeta::
+                create_full_write_only(calc_matrix_access_range(m_, n_, ldc_, BLAS_Transpose::No, layout_), true);
+        } else {
+            // sparse access. But with only Convex Pattern for now, we cannot represent which values are
+            auto pattern =
+                data_flow::ConvexAccessPattern::create(calc_matrix_access_range(m_, n_, ldc_, BLAS_Transpose::No, layout_)
+                );
+            // full-overwritten and which are DC.
+            return data_flow::PointerAccessMeta::create_generic(pattern->ref(), std::move(pattern), true);
+        }
+    } else {
+        return LibraryNode::pointer_access_type(input_idx);
+    }
 }
 
 nlohmann::json GEMMNodeSerializer::serialize(const data_flow::LibraryNode& library_node) {
@@ -455,14 +489,11 @@ GEMMNodeDispatcher_BLAS::GEMMNodeDispatcher_BLAS(
 )
     : codegen::LibraryNodeDispatcher(language_extension, function, data_flow_graph, node) {}
 
-void GEMMNodeDispatcher_BLAS::dispatch_code(
-    codegen::PrettyPrinter& stream,
-    codegen::PrettyPrinter& globals_stream,
-    codegen::CodeSnippetFactory& library_snippet_factory
+void GEMMNodeDispatcher_BLAS::dispatch_code_with_edges(
+    codegen::CodegenOutput& out,
+    std::vector<codegen::DispatchInput>& inputs,
+    std::vector<codegen::DispatchOutput>& outputs
 ) {
-    stream << "{" << std::endl;
-    stream.setIndent(stream.indent() + 4);
-
     auto& gemm_node = static_cast<const GEMMNode&>(this->node_);
 
     sdfg::types::Scalar base_type(types::PrimitiveType::Void);
@@ -480,43 +511,146 @@ void GEMMNodeDispatcher_BLAS::dispatch_code(
             throw std::runtime_error("Invalid BLAS_Precision value");
     }
 
-    library_snippet_factory.require_dependency(BLASLibDependency::instance());
+    out.library_snippet_factory.require_dependency(BLASLibDependency::instance());
 
-    stream << "cblas_" << BLAS_Precision_to_string(gemm_node.precision()) << "gemm(";
-    stream.setIndent(stream.indent() + 4);
-    stream << BLAS_Layout_to_string(gemm_node.layout());
-    stream << ", ";
-    stream << BLAS_Transpose_to_string(gemm_node.trans_a());
-    stream << ", ";
-    stream << BLAS_Transpose_to_string(gemm_node.trans_b());
-    stream << ", ";
-    stream << this->language_extension_.expression(gemm_node.m());
-    stream << ", ";
-    stream << this->language_extension_.expression(gemm_node.n());
-    stream << ", ";
-    stream << this->language_extension_.expression(gemm_node.k());
-    stream << ", ";
-    stream << "__alpha";
-    stream << ", ";
-    stream << "__A";
-    stream << ", ";
-    stream << this->language_extension_.expression(gemm_node.lda());
-    stream << ", ";
-    stream << "__B";
-    stream << ", ";
-    stream << this->language_extension_.expression(gemm_node.ldb());
-    stream << ", ";
-    stream << "__beta";
-    stream << ", ";
-    stream << "__C";
-    stream << ", ";
-    stream << this->language_extension_.expression(gemm_node.ldc());
+    out.stream << "cblas_" << BLAS_Precision_to_string(gemm_node.precision()) << "gemm(";
+    out.stream.changeIndent(+4);
+    out.stream << BLAS_Layout_to_string(gemm_node.layout());
+    out.stream << ", ";
+    out.stream << BLAS_Transpose_to_string(gemm_node.trans_a());
+    out.stream << ", ";
+    out.stream << BLAS_Transpose_to_string(gemm_node.trans_b());
+    out.stream << ", ";
+    out.stream << this->language_extension_.expression(gemm_node.m());
+    out.stream << ", ";
+    out.stream << this->language_extension_.expression(gemm_node.n());
+    out.stream << ", ";
+    out.stream << this->language_extension_.expression(gemm_node.k());
+    out.stream << ", ";
+    out.stream << inputs.at(GEMMNode::ALPHA_INPUT_IDX).expr;
+    out.stream << ", ";
+    out.stream << inputs.at(GEMMNode::A_INPUT_IDX).expr;
+    out.stream << ", ";
+    out.stream << this->language_extension_.expression(gemm_node.lda());
+    out.stream << ", ";
+    out.stream << inputs.at(GEMMNode::B_INPUT_IDX).expr;
+    out.stream << ", ";
+    out.stream << this->language_extension_.expression(gemm_node.ldb());
+    out.stream << ", ";
+    out.stream << inputs.at(GEMMNode::BETA_INPUT_IDX).expr;
+    out.stream << ", ";
+    out.stream << inputs.at(GEMMNode::C_INPUT_IDX).expr;
+    out.stream << ", ";
+    out.stream << this->language_extension_.expression(gemm_node.ldc());
 
-    stream.setIndent(stream.indent() - 4);
-    stream << ");" << std::endl;
+    out.stream.changeIndent(-4);
+    out.stream << ");" << std::endl;
+}
 
-    stream.setIndent(stream.indent() - 4);
-    stream << "}" << std::endl;
+GEMMNode& add_gemm_node(
+    builder::StructuredSDFGBuilder& builder,
+    Block& block,
+    const std::string& ptr_a,
+    const std::string& ptr_b,
+    const std::string& ptr_c,
+    data_flow::AccessNode& alpha_node,
+    data_flow::AccessNode& beta_node,
+    const BLAS_Precision& precision,
+    const BLAS_Layout& layout,
+    const BLAS_Transpose& trans_a,
+    const BLAS_Transpose& trans_b,
+    symbolic::Expression& m,
+    symbolic::Expression& n,
+    symbolic::Expression& k,
+    symbolic::Expression& lda,
+    symbolic::Expression& ldb,
+    symbolic::Expression& ldc,
+    const types::IType& a_type,
+    const types::IType& b_type,
+    const types::IType& c_type,
+    const types::IType& factor_type,
+    DebugInfo debug_info,
+    DebugInfo a_access_deb_info,
+    DebugInfo b_access_deb_info,
+    DebugInfo c_access_deb_info,
+    DebugInfo a_edge_deb_info,
+    DebugInfo b_edge_deb_info,
+    DebugInfo c_edge_deb_info,
+    data_flow::ImplementationType impl_type
+) {
+    auto& gemm_node = builder.add_library_node<sdfg::math::blas::GEMMNode>(
+        block, debug_info, std::move(impl_type), precision, layout, trans_a, trans_b, m, n, k, lda, ldb, ldc
+    );
+
+    // Add access nodes
+    auto& a_node_in = builder.add_access(block, ptr_a, a_access_deb_info);
+    auto& b_node_in = builder.add_access(block, ptr_b, b_access_deb_info);
+    auto& c_node_in = builder.add_access(block, ptr_c, c_access_deb_info);
+
+    // Add edges
+    builder.add_computational_memlet(block, a_node_in, gemm_node, "__A", {}, a_type, a_edge_deb_info);
+    builder.add_computational_memlet(block, b_node_in, gemm_node, "__B", {}, b_type, b_edge_deb_info);
+    builder.add_computational_memlet(block, c_node_in, gemm_node, "__C", {}, c_type, c_edge_deb_info);
+    builder.add_computational_memlet(block, alpha_node, gemm_node, "__alpha", {}, factor_type, debug_info);
+    builder.add_computational_memlet(block, beta_node, gemm_node, "__beta", {}, factor_type, debug_info);
+
+    return static_cast<GEMMNode&>(gemm_node);
+}
+
+GEMMNode& add_gemm_node(
+    builder::StructuredSDFGBuilder& builder,
+    Block& block,
+    const std::string& ptr_a,
+    const std::string& ptr_b,
+    const std::string& ptr_c,
+    data_flow::AccessNode& alpha_node,
+    data_flow::AccessNode& beta_node,
+    const BLAS_Precision& precision,
+    const BLAS_Layout& layout,
+    const BLAS_Transpose& trans_a,
+    const BLAS_Transpose& trans_b,
+    symbolic::Expression& m,
+    symbolic::Expression& n,
+    symbolic::Expression& k,
+    symbolic::Expression& lda,
+    symbolic::Expression& ldb,
+    symbolic::Expression& ldc,
+    const types::IType& ptr_type,
+    const types::IType& factor_type,
+    DebugInfo debug_info,
+    data_flow::ImplementationType impl_type
+) {
+    return add_gemm_node(
+        builder,
+        block,
+        ptr_a,
+        ptr_b,
+        ptr_c,
+        alpha_node,
+        beta_node,
+        precision,
+        layout,
+        trans_a,
+        trans_b,
+        m,
+        n,
+        k,
+        lda,
+        ldb,
+        ldc,
+        ptr_type,
+        ptr_type,
+        ptr_type,
+        factor_type,
+        debug_info,
+        debug_info,
+        debug_info,
+        debug_info,
+        debug_info,
+        debug_info,
+        debug_info,
+        impl_type
+    );
 }
 
 } // namespace blas

@@ -20,6 +20,12 @@ bool For2MapPass::can_be_applied(
         return false;
     }
 
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+
+    if (loop_analysis.loop_info(&for_stmt).has_side_effects) {
+        return false;
+    }
+
     // Criterion: Loop must not have side-effecting body
     std::list<const structured_control_flow::ControlFlowNode*> queue = {&for_stmt.root()};
     while (!queue.empty()) {
@@ -64,7 +70,7 @@ bool For2MapPass::can_be_applied(
     auto& dependencies = lcd.dependencies(for_stmt);
 
     // a. No true dependencies (RAW) between iterations
-    if (lcd.has_loop_carried_raw(for_stmt)) {
+    if (lcd.has_loop_carried_hazard(for_stmt)) {
         return false;
     }
 

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/element.h"
@@ -8,6 +9,7 @@
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda_data_offloading_node.h"
 #include "sdfg/targets/offloading/data_offloading_node.h"
+#include "sdfg_debug_dump.h"
 
 using namespace sdfg;
 
@@ -23,24 +25,18 @@ TEST(RemoveRedundantTransfersPassTest, SingleTransferTest) {
     builder.add_container("A", desc, true);
     builder.add_container("__daisy_offload_A", desc);
 
-    auto& block = builder.add_block(root);
-    auto& access_node_in = builder.add_access(block, "__daisy_offload_A");
-    auto& access_node_out = builder.add_access(block, "A");
-
-    auto& memcpy_node = builder.add_library_node<cuda::CUDADataOffloadingNode>(
-        block,
-        DebugInfo(),
-        symbolic::integer(400),
-        symbolic::integer(0),
+    auto [block, memcpy_node] = offloading::add_offloading_block<cuda::CUDADataOffloadingNode>(
+        builder,
+        root,
+        "A",
+        "__daisy_offload_A",
         offloading::DataTransferDirection::D2H,
-        offloading::BufferLifecycle::NO_CHANGE
+        offloading::BufferLifecycle::NO_CHANGE,
+        desc,
+        {},
+        symbolic::integer(400),
+        symbolic::integer(0)
     );
-
-    auto& in_type = builder.subject().type("A");
-    builder.add_computational_memlet(block, access_node_in, memcpy_node, "_src", {}, in_type);
-
-    auto& out_type = builder.subject().type("A");
-    builder.add_computational_memlet(block, memcpy_node, "_dst", access_node_out, {}, out_type);
 
     passes::RemoveRedundantTransfersPass pass;
     EXPECT_FALSE(pass.run_pass(builder, analysis_manager));
@@ -58,47 +54,38 @@ TEST(RemoveRedundantTransfersPassTest, MultiMapTest) {
     builder.add_container("A", desc, true);
     builder.add_container("__daisy_offload_A", desc);
 
-    auto& block = builder.add_block(root);
-    auto& access_node_in = builder.add_access(block, "_daisy_offload_A");
-    auto& access_node_out = builder.add_access(block, "A");
-
-    auto& memcpy_node = builder.add_library_node<cuda::CUDADataOffloadingNode>(
-        block,
-        DebugInfo(),
-        symbolic::integer(400),
-        symbolic::integer(0),
+    auto [block, memcpy_node] = offloading::add_offloading_block<cuda::CUDADataOffloadingNode>(
+        builder,
+        root,
+        "A",
+        "__daisy_offload_A",
         offloading::DataTransferDirection::D2H,
-        offloading::BufferLifecycle::NO_CHANGE
+        offloading::BufferLifecycle::NO_CHANGE,
+        desc,
+        {},
+        symbolic::integer(400),
+        symbolic::integer(0)
     );
 
-    auto& in_type = builder.subject().type("A");
-    builder.add_computational_memlet(block, access_node_in, memcpy_node, "_src", {}, in_type);
-
-    auto& out_type = builder.subject().type("A");
-    builder.add_computational_memlet(block, memcpy_node, "_dst", access_node_out, {}, out_type);
-
-    auto& block2 = builder.add_block(root);
-
-    auto& access_node_in2 = builder.add_access(block2, "__daisy_offload_A");
-    auto& access_node_out2 = builder.add_access(block2, "A");
-
-    auto& memcpy_node2 = builder.add_library_node<cuda::CUDADataOffloadingNode>(
-        block2,
-        DebugInfo(),
-        symbolic::integer(400),
-        symbolic::integer(0),
+    auto [block2, memcpy_node2] = offloading::add_offloading_block<cuda::CUDADataOffloadingNode>(
+        builder,
+        root,
+        "A",
+        "__daisy_offload_A",
         offloading::DataTransferDirection::D2H,
-        offloading::BufferLifecycle::NO_CHANGE
+        offloading::BufferLifecycle::NO_CHANGE,
+        desc,
+        {},
+        symbolic::integer(400),
+        symbolic::integer(0)
     );
 
-    auto& in_type2 = builder.subject().type("A");
-    builder.add_computational_memlet(block2, access_node_in2, memcpy_node2, "_src", {}, in_type2);
-
-    auto& out_type2 = builder.subject().type("A");
-    builder.add_computational_memlet(block2, memcpy_node2, "_dst", access_node_out2, {}, out_type2);
+    dump_sdfg(builder.subject(), "0.init");
 
     passes::RemoveRedundantTransfersPass pass;
     EXPECT_TRUE(pass.run_pass(builder, analysis_manager));
+
+    dump_sdfg(builder.subject(), "1.after");
 
     int d2h_count = 0;
     for (int i = 0; i < root.size(); i++) {
@@ -128,44 +115,31 @@ TEST(RemoveRedundantTransfersPassTest, MultiMapWithLatterUseTest) {
     builder.add_container("A", desc, true);
     builder.add_container("__daisy_offload_A", desc);
 
-    auto& block = builder.add_block(root);
-    auto& access_node_in = builder.add_access(block, "__daisy_offload_A");
-    auto& access_node_out = builder.add_access(block, "A");
-
-    auto& memcpy_node = builder.add_library_node<cuda::CUDADataOffloadingNode>(
-        block,
-        DebugInfo(),
-        symbolic::integer(400),
-        symbolic::integer(0),
+    auto [block, memcpy_node] = offloading::add_offloading_block<cuda::CUDADataOffloadingNode>(
+        builder,
+        root,
+        "A",
+        "__daisy_offload_A",
         offloading::DataTransferDirection::D2H,
-        offloading::BufferLifecycle::NO_CHANGE
+        offloading::BufferLifecycle::NO_CHANGE,
+        desc,
+        {},
+        symbolic::integer(400),
+        symbolic::integer(0)
     );
 
-    auto& in_type = builder.subject().type("A");
-    builder.add_computational_memlet(block, access_node_in, memcpy_node, "_src", {}, in_type);
-
-    auto& out_type = builder.subject().type("A");
-    builder.add_computational_memlet(block, memcpy_node, "_dst", access_node_out, {}, out_type);
-
-    auto& block2 = builder.add_block(root);
-
-    auto& access_node_in2 = builder.add_access(block2, "__daisy_offload_A");
-    auto& access_node_out2 = builder.add_access(block2, "A");
-
-    auto& memcpy_node2 = builder.add_library_node<cuda::CUDADataOffloadingNode>(
-        block2,
-        DebugInfo(),
-        symbolic::integer(400),
-        symbolic::integer(0),
+    auto [block2, memcpy_node2] = offloading::add_offloading_block<cuda::CUDADataOffloadingNode>(
+        builder,
+        root,
+        "A",
+        "__daisy_offload_A",
         offloading::DataTransferDirection::D2H,
-        offloading::BufferLifecycle::NO_CHANGE
+        offloading::BufferLifecycle::NO_CHANGE,
+        desc,
+        {},
+        symbolic::integer(400),
+        symbolic::integer(0)
     );
-
-    auto& in_type2 = builder.subject().type("A");
-    builder.add_computational_memlet(block2, access_node_in2, memcpy_node2, "_src", {}, in_type2);
-
-    auto& out_type2 = builder.subject().type("A");
-    builder.add_computational_memlet(block2, memcpy_node2, "_dst", access_node_out2, {}, out_type2);
 
     // Add another use of C after the second map
     auto& block3 = builder.add_block(root);
@@ -173,8 +147,12 @@ TEST(RemoveRedundantTransfersPassTest, MultiMapWithLatterUseTest) {
     auto& tasklet3 = builder.add_tasklet(block3, data_flow::TaskletCode::assign, "_out", {"_in"});
     auto& memlet_c3 = builder.add_computational_memlet(block3, C3, tasklet3, "_in", {symbolic::zero()});
 
+    dump_sdfg(builder.subject(), "0.init");
+
     passes::RemoveRedundantTransfersPass pass;
     EXPECT_TRUE(pass.run_pass(builder, analysis_manager));
+
+    dump_sdfg(builder.subject(), "1.after");
 
     // Check that there is exactly two H2D and one D2H transfer for C
     int h2d_count = 0;

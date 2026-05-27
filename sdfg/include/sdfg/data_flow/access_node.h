@@ -158,6 +158,14 @@ public:
     void replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) override;
 
     EdgeRemoveOption can_remove_out_edge(const DataFlowGraph& graph, const Memlet* memlet) const override;
+    EdgeRemoveOption can_remove_in_edge(const DataFlowGraph& graph, const Memlet* memlet) const override;
+
+    /**
+     * Checks if 2 access nodes refer to the same container / ptr
+     * Ready for when we identify them by sth more efficient then strings
+     * @return true if identical
+     */
+    static bool identicalBackingData(const AccessNode& src1, const AccessNode& src2);
 };
 
 /**

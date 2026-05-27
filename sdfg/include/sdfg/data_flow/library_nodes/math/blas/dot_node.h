@@ -51,6 +51,8 @@ public:
     std::unique_ptr<data_flow::DataFlowNode>
     clone(size_t element_id, const graph::Vertex vertex, data_flow::DataFlowGraph& parent) const override;
 
+    data_flow::PointerAccessType pointer_access_type(int input_idx) const override;
+
     symbolic::Expression flop() const override;
 };
 
@@ -72,10 +74,10 @@ public:
         const DotNode& node
     );
 
-    void dispatch_code(
-        codegen::PrettyPrinter& stream,
-        codegen::PrettyPrinter& globals_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory
+    void dispatch_code_with_edges(
+        codegen::CodegenOutput& out,
+        std::vector<codegen::DispatchInput>& inputs,
+        std::vector<codegen::DispatchOutput>& outputs
     ) override;
 };
 

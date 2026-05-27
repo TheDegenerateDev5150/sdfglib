@@ -140,7 +140,7 @@ bool BlockHoisting::equal_lib_blocks(structured_control_flow::Block& block1, str
         // Compare containers
         auto& src1 = static_cast<data_flow::AccessNode&>(iedge1->src());
         auto& src2 = static_cast<data_flow::AccessNode&>(iedge2->src());
-        if (src1.data() != src2.data()) {
+        if (!data_flow::AccessNode::identicalBackingData(src1, src2)) {
             return false;
         }
     }
@@ -182,7 +182,7 @@ bool BlockHoisting::equal_lib_blocks(structured_control_flow::Block& block1, str
         // Compare containers
         auto& dst1 = static_cast<data_flow::AccessNode&>(oedge1->dst());
         auto& dst2 = static_cast<data_flow::AccessNode&>(oedge2->dst());
-        if (dst1.data() != dst2.data()) {
+        if (!data_flow::AccessNode::identicalBackingData(dst1, dst2)) {
             return false;
         }
     }
@@ -199,9 +199,12 @@ void BlockHoisting::if_else_extract_invariant_libnode_front(
     if (!first_dfg.library_nodes().empty()) {
         auto* first_libnode = *first_dfg.library_nodes().begin();
         if (auto* offloading_node = dynamic_cast<offloading::DataOffloadingNode*>(first_libnode)) {
-            if (offloading_node->is_d2h()) {
-                auto* first_iedge = &*first_dfg.in_edges(*offloading_node).begin();
-                auto& first_src = static_cast<data_flow::AccessNode&>(first_iedge->src());
+            auto dev_in_idx = offloading_node->dev_ptr_input_idx();
+            auto dev_out_idx = offloading_node->dev_ptr_output_idx();
+            if (dev_in_idx >= 0) {
+                auto* first_iedge =
+                    first_dfg.in_edge_for_connector(*offloading_node, offloading_node->inputs().at(dev_in_idx));
+                auto& first_src = static_cast<const data_flow::AccessNode&>(first_iedge->src());
                 std::string first_device_container = first_src.data();
 
                 for (size_t i = 1; i < if_else.size(); i++) {
@@ -209,25 +212,30 @@ void BlockHoisting::if_else_extract_invariant_libnode_front(
                     auto& other_dfg = other_block.dataflow();
                     auto* other_offloading_node =
                         dynamic_cast<offloading::DataOffloadingNode*>(*other_dfg.library_nodes().begin());
-                    auto* other_iedge = &*other_dfg.in_edges(*other_offloading_node).begin();
-                    auto& other_src = static_cast<data_flow::AccessNode&>(other_iedge->src());
+                    auto* other_iedge =
+                        other_dfg.in_edge_for_connector(*other_offloading_node, other_offloading_node->dev_in_conn());
+                    auto& other_src = static_cast<const data_flow::AccessNode&>(other_iedge->src());
                     std::string other_device_container = other_src.data();
 
                     if_else.at(i)
                         .first
                         .replace(symbolic::symbol(other_device_container), symbolic::symbol(first_device_container));
                 }
-            } else if (offloading_node->is_h2d() || offloading_node->is_alloc()) {
-                auto& first_oedge = *first_dfg.out_edges(*first_libnode).begin();
-                auto& first_dst = static_cast<data_flow::AccessNode&>(first_oedge.dst());
+            } else if (dev_out_idx >= 0) {
+                auto& first_oedge =
+                    **first_dfg.out_edges_for_connector(*first_libnode, first_libnode->outputs().at(dev_out_idx))
+                          .begin();
+                auto& first_dst = static_cast<const data_flow::AccessNode&>(first_oedge.dst());
                 std::string first_device_container = first_dst.data();
 
                 for (size_t i = 1; i < if_else.size(); i++) {
                     auto& other_block = static_cast<structured_control_flow::Block&>(if_else.at(i).first.at(0).first);
                     auto& other_dfg = other_block.dataflow();
-                    auto* other_libnode = *other_dfg.library_nodes().begin();
-                    auto& other_oedge = *other_dfg.out_edges(*other_libnode).begin();
-                    auto& other_dst = static_cast<data_flow::AccessNode&>(other_oedge.dst());
+                    auto* other_libnode =
+                        dynamic_cast<offloading::DataOffloadingNode*>(*other_dfg.library_nodes().begin());
+                    auto& other_oedge =
+                        **other_dfg.out_edges_for_connector(*other_libnode, other_libnode->dev_out_conn()).begin();
+                    auto& other_dst = static_cast<const data_flow::AccessNode&>(other_oedge.dst());
                     std::string other_device_container = other_dst.data();
 
                     if_else.at(i)
@@ -250,9 +258,12 @@ void BlockHoisting::if_else_extract_invariant_libnode_back(
     if (!first_dfg.library_nodes().empty()) {
         auto* first_libnode = *first_dfg.library_nodes().begin();
         if (auto* offloading_node = dynamic_cast<offloading::DataOffloadingNode*>(first_libnode)) {
-            if (offloading_node->is_d2h()) {
-                auto* first_iedge = &*first_dfg.in_edges(*offloading_node).begin();
-                auto& first_src = static_cast<data_flow::AccessNode&>(first_iedge->src());
+            auto dev_in_idx = offloading_node->dev_ptr_input_idx();
+            auto dev_out_idx = offloading_node->dev_ptr_output_idx();
+            if (dev_in_idx >= 0) {
+                auto* first_iedge =
+                    &*first_dfg.in_edge_for_connector(*offloading_node, offloading_node->inputs().at(dev_in_idx));
+                auto& first_src = static_cast<const data_flow::AccessNode&>(first_iedge->src());
                 std::string first_device_container = first_src.data();
 
                 for (size_t i = 1; i < if_else.size(); i++) {
@@ -262,17 +273,20 @@ void BlockHoisting::if_else_extract_invariant_libnode_back(
                     auto& other_dfg = other_block.dataflow();
                     auto* other_offloading_node =
                         dynamic_cast<offloading::DataOffloadingNode*>(*other_dfg.library_nodes().begin());
-                    auto* other_iedge = &*other_dfg.in_edges(*other_offloading_node).begin();
-                    auto& other_src = static_cast<data_flow::AccessNode&>(other_iedge->src());
+                    auto* other_iedge =
+                        other_dfg.in_edge_for_connector(*other_offloading_node, other_offloading_node->dev_in_conn());
+                    auto& other_src = static_cast<const data_flow::AccessNode&>(other_iedge->src());
                     std::string other_device_container = other_src.data();
 
                     if_else.at(i)
                         .first
                         .replace(symbolic::symbol(other_device_container), symbolic::symbol(first_device_container));
                 }
-            } else if (offloading_node->is_h2d()) {
-                auto& first_oedge = *first_dfg.out_edges(*first_libnode).begin();
-                auto& first_dst = static_cast<data_flow::AccessNode&>(first_oedge.dst());
+            } else if (dev_out_idx >= 0) {
+                auto& first_oedge =
+                    **first_dfg.out_edges_for_connector(*offloading_node, offloading_node->outputs().at(dev_out_idx))
+                          .begin();
+                auto& first_dst = static_cast<const data_flow::AccessNode&>(first_oedge.dst());
                 std::string first_device_container = first_dst.data();
 
                 for (size_t i = 1; i < if_else.size(); i++) {
@@ -280,9 +294,11 @@ void BlockHoisting::if_else_extract_invariant_libnode_back(
                     auto& other_block =
                         static_cast<structured_control_flow::Block&>(if_else.at(i).first.at(other_size - 1).first);
                     auto& other_dfg = other_block.dataflow();
-                    auto* other_libnode = *other_dfg.library_nodes().begin();
-                    auto& other_oedge = *other_dfg.out_edges(*other_libnode).begin();
-                    auto& other_dst = static_cast<data_flow::AccessNode&>(other_oedge.dst());
+                    auto* other_libnode =
+                        dynamic_cast<offloading::DataOffloadingNode*>(*other_dfg.library_nodes().begin());
+                    auto& other_oedge =
+                        **other_dfg.out_edges_for_connector(*other_libnode, other_libnode->dev_out_conn()).begin();
+                    auto& other_dst = static_cast<const data_flow::AccessNode&>(other_oedge.dst());
                     std::string other_device_container = other_dst.data();
 
                     if_else.at(i)
@@ -457,14 +473,14 @@ bool BlockHoisting::equal_moves(structured_control_flow::Block& block1, structur
     // src's must have the same containers
     auto& src1 = static_cast<data_flow::AccessNode&>(edge1.src());
     auto& src2 = static_cast<data_flow::AccessNode&>(edge2.src());
-    if (src1.data() != src2.data()) {
+    if (!data_flow::AccessNode::identicalBackingData(src1, src2)) {
         return false;
     }
 
     // dst's must have the same containers
     auto& dst1 = static_cast<data_flow::AccessNode&>(edge1.dst());
     auto& dst2 = static_cast<data_flow::AccessNode&>(edge2.dst());
-    if (dst1.data() != dst2.data()) {
+    if (!data_flow::AccessNode::identicalBackingData(dst1, dst2)) {
         return false;
     }
 
@@ -490,14 +506,14 @@ bool BlockHoisting::equal_views(structured_control_flow::Block& block1, structur
     // src's must have the same containers
     auto& src1 = static_cast<data_flow::AccessNode&>(edge1.src());
     auto& src2 = static_cast<data_flow::AccessNode&>(edge2.src());
-    if (src1.data() != src2.data()) {
+    if (!data_flow::AccessNode::identicalBackingData(src1, src2)) {
         return false;
     }
 
     // dst's must have the same containers
     auto& dst1 = static_cast<data_flow::AccessNode&>(edge1.dst());
     auto& dst2 = static_cast<data_flow::AccessNode&>(edge2.dst());
-    if (dst1.data() != dst2.data()) {
+    if (!data_flow::AccessNode::identicalBackingData(dst1, dst2)) {
         return false;
     }
 
@@ -803,17 +819,17 @@ bool BlockHoisting::equal_offloading_nodes(
     // Check in/out degree
     auto& dfg1 = block1.dataflow();
     auto& dfg2 = block2.dataflow();
-    if (dfg1.in_degree(*offloading_node1) != dfg1.in_degree(*offloading_node1)) {
+    if (dfg1.in_degree(*offloading_node1) != dfg2.in_degree(*offloading_node2)) {
         return false;
     }
-    if (dfg2.in_degree(*offloading_node2) != dfg2.in_degree(*offloading_node2)) {
+    if (dfg1.out_degree(*offloading_node1) != dfg2.out_degree(*offloading_node2)) {
         return false;
     }
 
     // In edges:
-    if (offloading_node1->has_transfer() || !offloading_node1->is_alloc()) {
-        auto* iedge1 = &*dfg1.in_edges(*offloading_node1).begin();
-        auto* iedge2 = &*dfg2.in_edges(*offloading_node2).begin();
+    for (int i = 0; i < offloading_node1->inputs().size(); i++) {
+        auto* iedge1 = dfg1.in_edge_for_connector(*offloading_node1, offloading_node1->input(i));
+        auto* iedge2 = dfg2.in_edge_for_connector(*offloading_node2, offloading_node2->input(i));
         if (!iedge1 || !iedge2) {
             return false;
         }
@@ -833,41 +849,47 @@ bool BlockHoisting::equal_offloading_nodes(
             }
         }
 
-        // Compare containers
-        if (offloading_node1->is_h2d() || (!offloading_node1->has_transfer() && offloading_node1->is_free())) {
-            auto& src1 = static_cast<data_flow::AccessNode&>(iedge1->src());
-            auto& src2 = static_cast<data_flow::AccessNode&>(iedge2->src());
-            if (src1.data() != src2.data()) {
+        if (i == offloading_node1->host_ptr_input_idx()) { // only host side containers can be relied upon to match
+            auto& src1 = static_cast<const data_flow::AccessNode&>(iedge1->src());
+            auto& src2 = static_cast<const data_flow::AccessNode&>(iedge2->src());
+            if (!data_flow::AccessNode::identicalBackingData(src1, src2)) {
                 return false;
             }
         }
     }
 
     // Out edges:
-    auto& oedge1 = *dfg1.out_edges(*offloading_node1).begin();
-    auto& oedge2 = *dfg2.out_edges(*offloading_node2).begin();
-
-    // Compare types
-    if (oedge1.type() != oedge2.type()) {
-        return false;
-    }
-
-    // Compare subsets
-    if (oedge1.subset().size() != oedge2.subset().size()) {
-        return false;
-    }
-    for (size_t i = 0; i < oedge1.subset().size(); i++) {
-        if (!symbolic::eq(oedge1.subset().at(i), oedge2.subset().at(i))) {
+    for (int i = 0; i < offloading_node1->outputs().size(); i++) {
+        auto oedges1 = dfg1.out_edges_for_connector(*offloading_node1, offloading_node1->output(0));
+        auto oedges2 = dfg2.out_edges_for_connector(*offloading_node2, offloading_node2->output(0));
+        if (oedges1.size() != oedges2.size()) {
             return false;
         }
-    }
+        for (int j = 0; j < oedges1.size(); j++) {
+            auto oedge1 = oedges1.at(j);
+            auto oedge2 = oedges2.at(j);
 
-    // Compare containers
-    if (offloading_node1->is_d2h() || (!offloading_node1->has_transfer() && offloading_node1->is_free())) {
-        auto& dst1 = static_cast<data_flow::AccessNode&>(oedge1.dst());
-        auto& dst2 = static_cast<data_flow::AccessNode&>(oedge2.dst());
-        if (dst1.data() != dst2.data()) {
-            return false;
+            if (oedge1 && oedge2) {
+                // Compare types
+                if (oedge1->type() != oedge2->type()) {
+                    return false;
+                }
+
+                // Compare subsets
+                if (oedge1->subset().size() != oedge2->subset().size()) {
+                    return false;
+                }
+                for (size_t k = 0; k < oedge1->subset().size(); k++) {
+                    if (!symbolic::eq(oedge1->subset().at(k), oedge2->subset().at(k))) {
+                        return false;
+                    }
+                }
+
+                // out edges can only be device side in new model, we only can rely on host containers being the same,
+                // so do not check th
+            } else if (!oedge1 ^ !oedge2) {
+                return false;
+            }
         }
     }
 

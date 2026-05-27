@@ -80,26 +80,58 @@ MallocNodeDispatcher::MallocNodeDispatcher(
 )
     : codegen::LibraryNodeDispatcher(language_extension, function, data_flow_graph, node) {}
 
-void MallocNodeDispatcher::dispatch_code(
-    codegen::PrettyPrinter& stream,
-    codegen::PrettyPrinter& globals_stream,
-    codegen::CodeSnippetFactory& library_snippet_factory
+void MallocNodeDispatcher::dispatch_code_with_edges(
+    codegen::CodegenOutput& out,
+    std::vector<codegen::DispatchInput>& inputs,
+    std::vector<codegen::DispatchOutput>& outputs
 ) {
     auto& malloc_node = static_cast<const MallocNode&>(node_);
 
     auto& graph = malloc_node.get_parent();
     auto& oedge = *graph.out_edges(malloc_node).begin();
 
-    stream << malloc_node.outputs().at(0);
-    stream << " = ";
-    stream << "("
-           << language_extension_.type_cast(
-                  language_extension_.external_prefix() + "malloc(" +
-                      language_extension_.expression(malloc_node.size()) + ")",
-                  oedge.base_type()
-              )
-           << ");";
-    stream << std::endl;
+    auto& ptr_out = outputs.at(0);
+    auto& out_name = node_.output(0);
+
+    out.stream << language_extension_.declaration(node_.output(0), *ptr_out.out_type) << " = ("
+               << language_extension_.type_cast(
+                      language_extension_.external_prefix() + "malloc(" +
+                          language_extension_.expression(malloc_node.size()) + ")",
+                      oedge.base_type()
+                  )
+               << ");" << std::endl;
+
+    register_output(ptr_out, out_name);
+}
+
+MallocNode& add_malloc_node(
+    builder::StructuredSDFGBuilder& builder,
+    Block& block,
+    const std::string& dst_ptr,
+    const symbolic::Expression& size,
+    const types::IType& ptr_type,
+    DebugInfo debug_info
+) {
+    auto& dst_ptr_access = builder.add_access(block, dst_ptr);
+    auto& libnode = builder.add_library_node<stdlib::MallocNode>(block, debug_info, size);
+    builder.add_computational_memlet(block, libnode, "_ret", dst_ptr_access, {}, ptr_type);
+
+    return static_cast<MallocNode&>(libnode);
+}
+
+std::tuple<Block&, MallocNode&> add_malloc_block(
+    builder::StructuredSDFGBuilder& builder,
+    Sequence& parent,
+    const std::string& dst_ptr,
+    const symbolic::Expression& size,
+    const types::IType& ptr_type,
+    DebugInfo debug_info
+) {
+    auto& block = builder.add_block(parent);
+
+    auto& libnode = add_malloc_node(builder, block, dst_ptr, size, ptr_type, debug_info);
+
+    return {block, libnode};
 }
 
 } // namespace stdlib
