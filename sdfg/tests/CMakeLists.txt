@@ -50,6 +50,7 @@ set(TEST_FILES
     data_flow/data_flow_graph_test.cpp
     data_flow/data_flow_node_test.cpp
     data_flow/memlet_test.cpp
+    data_flow/pointer_metadata_test.cpp
     data_flow/tasklet_test.cpp
     data_flow/library_nodes/load_const_node_test.cpp
     data_flow/library_nodes/math/blas/blas_test.cpp
@@ -69,7 +70,6 @@ set(TEST_FILES
     graph/graph_algorithms_test.cpp
     helpers/helpers_test.cpp
     passes/dataflow/bytes_reference_elimination_test.cpp
-    passes/dataflow/constant_propagation_test.cpp
     passes/dataflow/dead_data_elimination_test.cpp
     passes/dataflow/trivial_array_elimination_test.cpp
     passes/dataflow/trivial_reference_conversion_test.cpp

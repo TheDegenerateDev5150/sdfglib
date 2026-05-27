@@ -265,16 +265,14 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     types::Pointer patches_type(base_type);
     auto patches_container = builder.find_new_name("_patches");
     builder.add_container(patches_container, patches_type);
-    auto& patches_malloc_block = builder.add_block(loop_g.root(), {}, block->debug_info());
-    {
-        auto& patches_access = builder.add_access(patches_malloc_block, patches_container, this->debug_info());
-        auto& libnode = builder.add_library_node<stdlib::MallocNode>(
-            patches_malloc_block, this->debug_info(), symbolic::mul(patches_size, symbolic::size_of_type(base_type))
-        );
-        builder.add_computational_memlet(
-            patches_malloc_block, libnode, "_ret", patches_access, {}, patches_type, this->debug_info()
-        );
-    }
+    auto [patches_malloc_block, patches_malloc_node] = stdlib::add_malloc_block(
+        builder,
+        loop_g.root(),
+        patches_container,
+        symbolic::mul(patches_size, symbolic::size_of_type(base_type)),
+        patches_type,
+        this->debug_info()
+    );
 
     // Add loop over channels
     structured_control_flow::Sequence* current_seq = &loop_g.root();
@@ -441,7 +439,6 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
         auto& ref_W_access = builder.add_access(gemm_block, ref_W_container, access_W->debug_info());
         auto& patches_access = builder.add_access(gemm_block, patches_container, this->debug_info());
         auto& ref_Y_access_in = builder.add_access(gemm_block, ref_Y_container, access_Y->debug_info());
-        auto& ref_Y_access_out = builder.add_access(gemm_block, ref_Y_container, access_Y->debug_info());
         symbolic::Expression gemm_m = out_channels;
         symbolic::Expression gemm_n = symbolic::one();
         symbolic::Expression gemm_k = in_channels;
@@ -472,8 +469,6 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
             .add_computational_memlet(gemm_block, patches_access, libnode, "__B", {}, patches_type, this->debug_info());
         builder
             .add_computational_memlet(gemm_block, ref_Y_access_in, libnode, "__C", {}, ref_Y_type, oedge_Y->debug_info());
-        builder
-            .add_computational_memlet(gemm_block, libnode, "__C", ref_Y_access_out, {}, ref_Y_type, oedge_Y->debug_info());
     }
 
     // Add bias if available
@@ -543,13 +538,9 @@ bool ConvNode::expand(builder::StructuredSDFGBuilder& builder, analysis::Analysi
     auto& patches_free_block = builder.add_block(loop_g.root(), {}, block->debug_info());
     {
         auto& patches_access_in = builder.add_access(patches_free_block, patches_container, this->debug_info());
-        auto& patches_access_out = builder.add_access(patches_free_block, patches_container, this->debug_info());
         auto& libnode = builder.add_library_node<stdlib::FreeNode>(patches_free_block, this->debug_info());
         builder.add_computational_memlet(
             patches_free_block, patches_access_in, libnode, "_ptr", {}, patches_type, this->debug_info()
-        );
-        builder.add_computational_memlet(
-            patches_free_block, libnode, "_ptr", patches_access_out, {}, patches_type, this->debug_info()
         );
     }
 

@@ -34,6 +34,10 @@ public:
 
     std::unique_ptr<DataFlowNode> clone(size_t element_id, const graph::Vertex vertex, data_flow::DataFlowGraph& parent)
         const override;
+
+    data_flow::PointerAccessType pointer_access_type(int input_idx) const override;
+
+    std::string toStr() const override;
 };
 
 class MemcpyNodeSerializer : public serializer::LibraryNodeSerializer {
@@ -54,12 +58,33 @@ public:
         const MemcpyNode& node
     );
 
-    void dispatch_code(
-        codegen::PrettyPrinter& stream,
-        codegen::PrettyPrinter& globals_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory
+    void dispatch_code_with_edges(
+        codegen::CodegenOutput& out,
+        std::vector<codegen::DispatchInput>& inputs,
+        std::vector<codegen::DispatchOutput>& outputs
     ) override;
 };
+
+MemcpyNode& add_memcpy_node(
+    builder::StructuredSDFGBuilder& builder,
+    Block& block,
+    const std::string& src_ptr,
+    const std::string& dst_ptr,
+    const symbolic::Expression& count,
+    const types::IType& ptr_type,
+    DebugInfo debug_info = DebugInfo()
+);
+
+std::tuple<Block&, MemcpyNode&> add_memcpy_block(
+    builder::StructuredSDFGBuilder& builder,
+    Sequence& parent,
+    const std::string& src_ptr,
+    const std::string& dst_ptr,
+    const symbolic::Expression& count,
+    const types::IType& ptr_type,
+    DebugInfo debug_info = DebugInfo()
+);
+
 
 } // namespace stdlib
 } // namespace sdfg

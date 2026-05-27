@@ -68,6 +68,7 @@ void DataDependencyAnalysis::visit_block(
         }
 
         if (auto access_node = dynamic_cast<data_flow::AccessNode*>(node)) {
+            auto& access_node_type = sdfg_.type(access_node->data());
             if (!symbolic::is_pointer(symbolic::symbol(access_node->data()))) {
                 if (dataflow.in_degree(*node) > 0) {
                     Use use = Use::WRITE;
@@ -101,8 +102,30 @@ void DataDependencyAnalysis::visit_block(
                 if (dataflow.out_degree(*access_node) > 0) {
                     Use use = Use::READ;
                     for (auto& oedge : dataflow.out_edges(*access_node)) {
-                        if (oedge.type() == data_flow::MemletType::Reference ||
-                            oedge.type() == data_flow::MemletType::Dereference_Dst) {
+                        if (access_node_type.type_id() == types::TypeID::Pointer &&
+                            oedge.is_src_pointed_to_address_leak(access_node_type)) {
+                            if (auto* libConsumer = dynamic_cast<data_flow::LibraryNode*>(&oedge.dst())) {
+                                auto access = libConsumer->pointer_access_type(oedge);
+                                if (!access || !access->no_capture()) {
+                                    use = Use::MOVE; // we know nothing and cannot say anything reliable. Consider the
+                                                     // libNode having side effects
+                                    break;
+                                } else {
+                                    if (access->may_contain_reads()) {
+                                        // TODO let handle as a normal read
+                                        use = Use::VIEW;
+                                    } else if (access->may_contain_writes()) {
+                                        // handle as a normal write
+                                        use = Use::WRITE;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                use = Use::VIEW;
+                                break;
+                            }
+                        } else if (oedge.type() == data_flow::MemletType::Reference ||
+                                   oedge.type() == data_flow::MemletType::Dereference_Dst) {
                             use = Use::VIEW;
                             break;
                         }

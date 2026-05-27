@@ -75,6 +75,7 @@ set(SOURCE_FILES
     src/data_flow/data_flow_node.cpp
     src/data_flow/library_node.cpp
     src/data_flow/memlet.cpp
+    src/data_flow/pointer_metadata.cpp
     src/data_flow/tasklet.cpp
     src/data_flow/library_nodes/barrier_local_node.cpp
     src/data_flow/library_nodes/call_node.cpp
@@ -145,7 +146,6 @@ set(SOURCE_FILES
     src/passes/statistics.cpp
     src/passes/dataflow/dead_data_elimination.cpp
     src/passes/dataflow/dead_reference_elimination.cpp
-    src/passes/dataflow/constant_propagation.cpp
     src/passes/dataflow/tasklet_fusion.cpp
     src/passes/dataflow/trivial_array_elimination.cpp
     src/passes/dataflow/trivial_reference_conversion.cpp

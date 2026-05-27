@@ -20,6 +20,7 @@
 #include "sdfg/types/pointer.h"
 #include "sdfg/types/scalar.h"
 #include "sdfg/types/type.h"
+#include "sdfg_debug_dump.h"
 
 using namespace sdfg;
 
@@ -86,6 +87,8 @@ TEST(Einsum2GemmTest, Simple) {
     builder.add_computational_memlet(block, C1, libnode, "__einsum_out", {}, desc_m);
     builder.add_computational_memlet(block, libnode, "__einsum_out", C2, {}, desc_m);
 
+    dump_sdfg(builder.subject(), "0.init");
+
     // Check
     auto* einsum_node = dynamic_cast<math::tensor::EinsumNode*>(&libnode);
     ASSERT_TRUE(einsum_node);
@@ -95,10 +98,12 @@ TEST(Einsum2GemmTest, Simple) {
     ASSERT_TRUE(transformation.can_be_applied(builder, analysis_manager));
     transformation.apply(builder, analysis_manager);
 
+    dump_sdfg(builder.subject(), "1.gemm");
+
     EXPECT_NO_THROW(sdfg.validate());
 
     auto& dfg = block.dataflow();
-    EXPECT_EQ(dfg.data_nodes().size(), 6);
+    EXPECT_EQ(dfg.data_nodes().size(), 5);
     EXPECT_EQ(dfg.tasklets().size(), 0);
     EXPECT_EQ(dfg.library_nodes().size(), 1);
     ASSERT_GE(dfg.library_nodes().size(), 1);
@@ -187,15 +192,19 @@ TEST(Einsum2GemmTest, WithAlpha) {
     auto* einsum_node = dynamic_cast<math::tensor::EinsumNode*>(&libnode);
     ASSERT_TRUE(einsum_node);
 
+    dump_sdfg(builder.subject(), "0.init");
+
     analysis::AnalysisManager analysis_manager(sdfg);
     transformations::Einsum2Gemm transformation(*einsum_node);
     ASSERT_TRUE(transformation.can_be_applied(builder, analysis_manager));
     transformation.apply(builder, analysis_manager);
 
+    dump_sdfg(builder.subject(), "1.gemm");
+
     EXPECT_NO_THROW(sdfg.validate());
 
     auto& dfg = block.dataflow();
-    EXPECT_EQ(dfg.data_nodes().size(), 6);
+    EXPECT_EQ(dfg.data_nodes().size(), 5);
     EXPECT_EQ(dfg.tasklets().size(), 0);
     EXPECT_EQ(dfg.library_nodes().size(), 1);
     ASSERT_GE(dfg.library_nodes().size(), 1);

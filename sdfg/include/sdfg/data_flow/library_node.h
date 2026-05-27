@@ -183,9 +183,15 @@ public:
      * @param input_idx index of input that is a pointer.
      * @return Invalid if not asked about a pointer input
      */
-    virtual PointerAccessType pointer_access_type(int input_idx) const { return PointerUnknownAccess(); }
+    virtual PointerAccessType pointer_access_type(int input_idx) const { return nullptr; }
+
+    PointerAccessType pointer_access_type(const Memlet& edge) const;
 
     EdgeRemoveOption can_remove_out_edge(const data_flow::DataFlowGraph& graph, const Memlet* memlet) const override;
+
+    EdgeRemoveOption can_remove_in_edge(const data_flow::DataFlowGraph& graph, const Memlet* memlet) const override;
+
+    bool pointer_use_creates_side_effects(const DataFlowGraph& dataflow, const Function& func);
 };
 
 } // namespace data_flow

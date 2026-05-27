@@ -962,12 +962,8 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
     auto& libnode = builder.add_library_node<::sdfg::math::tensor::MatMulNode>(
         block,
         deb_info,
-        shape_lhs,
-        shape_rhs,
-        strides_lhs,
-        strides_rhs,
-        /*offset_a=*/::sdfg::symbolic::zero(),
-        /*offset_b=*/::sdfg::symbolic::zero()
+        ::sdfg::math::tensor::TensorLayout(shape_lhs, strides_lhs),
+        ::sdfg::math::tensor::TensorLayout(shape_rhs, strides_rhs)
     );
 
     auto lhs_primitive_type = translator.convertType(lhs_type)->primitive_type();
@@ -982,7 +978,7 @@ LogicalResult translateLinalgMatmulOp(SDFGTranslator& translator, linalg::Matmul
 
     auto& write_access = builder.add_access(block, out_container, deb_info);
 
-    builder.add_computational_memlet(block, libnode, "Y", write_access, {}, output_tensor_type, deb_info);
+    builder.add_computational_memlet(block, write_access, libnode, "Y", {}, output_tensor_type, deb_info);
 
     return success();
 }
@@ -1057,12 +1053,8 @@ LogicalResult translateLinalgBatchMatmulOp(SDFGTranslator& translator, linalg::B
     auto& libnode = builder.add_library_node<::sdfg::math::tensor::MatMulNode>(
         block,
         deb_info,
-        shape_lhs,
-        shape_rhs,
-        strides_lhs,
-        strides_rhs,
-        /*offset_a=*/::sdfg::symbolic::zero(),
-        /*offset_b=*/::sdfg::symbolic::zero()
+        ::sdfg::math::tensor::TensorLayout(shape_lhs, strides_lhs),
+        ::sdfg::math::tensor::TensorLayout(shape_rhs, strides_rhs)
     );
 
     auto lhs_primitive_type = translator.convertType(lhs_type)->primitive_type();
@@ -1077,7 +1069,7 @@ LogicalResult translateLinalgBatchMatmulOp(SDFGTranslator& translator, linalg::B
 
     auto& write_access = builder.add_access(block, out_container, deb_info);
 
-    builder.add_computational_memlet(block, libnode, "Y", write_access, {}, output_tensor_type, deb_info);
+    builder.add_computational_memlet(block, write_access, libnode, "Y", {}, output_tensor_type, deb_info);
 
     return success();
 }

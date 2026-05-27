@@ -18,6 +18,7 @@
 #include "sdfg/transformations/loop_tiling.h"
 #include "sdfg/transformations/tile_fusion.h"
 #include "sdfg/types/pointer.h"
+#include "sdfg_debug_dump.h"
 
 using namespace sdfg;
 
@@ -180,6 +181,8 @@ TEST(DiamondTilingTest, Jacobi1D) {
     analysis::AnalysisManager am(builder.subject());
     transformations::Recorder recorder;
 
+    dump_sdfg(builder.subject(), "0.before");
+
     // Re-navigate after move
     auto& root = builder.subject().root();
     ASSERT_EQ(root.size(), 1);
@@ -234,6 +237,8 @@ TEST(DiamondTilingTest, Jacobi1D) {
     auto fused_tile_indvar_name = fused_tile->indvar()->get_name();
     recorder.apply<transformations::LoopInterchange>(builder, am, false, *loop_t, *fused_tile);
     am.invalidate_all();
+
+    dump_sdfg(builder.subject(), "1.after");
 
     // After interchange: outer = tile, inner = t
     auto* outer = dynamic_cast<structured_control_flow::For*>(&builder.subject().root().at(0).first);

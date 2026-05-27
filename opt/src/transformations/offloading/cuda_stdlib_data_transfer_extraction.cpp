@@ -43,16 +43,19 @@ void CUDAStdlibDataTransferExtraction::create_allocate(
     const types::Pointer& type
 ) {
     auto& alloc_block = builder.add_block_before(sequence, block, {}, block.debug_info());
-    auto& d_cont = builder.add_access(alloc_block, device_container);
-    auto& alloc_node = builder.add_library_node<CUDADataOffloadingNode>(
+    offloading::add_offloading_node<CUDADataOffloadingNode>(
+        builder,
         alloc_block,
+        device_container,
+        device_container,
+        offloading::DataTransferDirection::NONE,
+        offloading::BufferLifecycle::ALLOC,
+        type,
+        type,
         this->memset_node_.debug_info(),
         size,
-        symbolic::zero(),
-        offloading::DataTransferDirection::NONE,
-        offloading::BufferLifecycle::ALLOC
+        symbolic::zero()
     );
-    builder.add_computational_memlet(alloc_block, alloc_node, "_ret", d_cont, {}, type);
 }
 
 void CUDAStdlibDataTransferExtraction::create_deallocate(
@@ -63,18 +66,19 @@ void CUDAStdlibDataTransferExtraction::create_deallocate(
     const types::Pointer& type
 ) {
     auto& dealloc_block = builder.add_block_after(sequence, block, {}, block.debug_info());
-    auto& d_cont_in = builder.add_access(dealloc_block, device_container);
-    auto& d_cont_out = builder.add_access(dealloc_block, device_container);
-    auto& dealloc_node = builder.add_library_node<CUDADataOffloadingNode>(
+    offloading::add_offloading_node<CUDADataOffloadingNode>(
+        builder,
         dealloc_block,
+        device_container,
+        device_container,
+        offloading::DataTransferDirection::NONE,
+        offloading::BufferLifecycle::FREE,
+        type,
+        type,
         this->memset_node_.debug_info(),
         SymEngine::null,
-        symbolic::zero(),
-        offloading::DataTransferDirection::NONE,
-        offloading::BufferLifecycle::FREE
+        symbolic::zero()
     );
-    builder.add_computational_memlet(dealloc_block, d_cont_in, dealloc_node, "_ptr", {}, type);
-    builder.add_computational_memlet(dealloc_block, dealloc_node, "_ptr", d_cont_out, {}, type);
 }
 
 void CUDAStdlibDataTransferExtraction::create_copy_from_device_with_deallocation(
@@ -87,18 +91,19 @@ void CUDAStdlibDataTransferExtraction::create_copy_from_device_with_deallocation
     const types::Pointer& type
 ) {
     auto& copy_block = builder.add_block_after(sequence, block, {}, block.debug_info());
-    auto& cont = builder.add_access(copy_block, host_container);
-    auto& d_cont = builder.add_access(copy_block, device_container);
-    auto& copy_node = builder.add_library_node<CUDADataOffloadingNode>(
+    offloading::add_offloading_node<CUDADataOffloadingNode>(
+        builder,
         copy_block,
+        host_container,
+        device_container,
+        offloading::DataTransferDirection::D2H,
+        offloading::BufferLifecycle::FREE,
+        type,
+        type,
         this->memset_node_.debug_info(),
         size,
-        symbolic::zero(),
-        offloading::DataTransferDirection::D2H,
-        offloading::BufferLifecycle::FREE
+        symbolic::zero()
     );
-    builder.add_computational_memlet(copy_block, d_cont, copy_node, "_src", {}, type);
-    builder.add_computational_memlet(copy_block, copy_node, "_dst", cont, {}, type);
 }
 
 CUDAStdlibDataTransferExtraction::CUDAStdlibDataTransferExtraction(::sdfg::stdlib::MemsetNode& memset_node)
@@ -134,13 +139,12 @@ void CUDAStdlibDataTransferExtraction::
     assert(sequence);
 
     // Capture output accesses
-    std::unordered_map<std::string, data_flow::AccessNode&> out_access;
-    for (auto& oedge : dfg.out_edges(this->memset_node_)) {
-        out_access.insert({oedge.src_conn(), static_cast<data_flow::AccessNode&>(oedge.dst())});
-    }
+    auto ptr_edge = dfg.in_edge_for_connector(this->memset_node_, "_ptr");
+    auto& host_access_node =
+        const_cast<data_flow::AccessNode&>(static_cast<const data_flow::AccessNode&>(ptr_edge->src()));
+    auto& host_container_name = host_access_node.data();
 
     // Use the host container's actual type to avoid type mismatches
-    auto& host_container_name = out_access.at("_ptr").data();
     auto& host_type = builder.subject().type(host_container_name);
     auto& type = static_cast<const types::Pointer&>(host_type);
 
@@ -151,12 +155,10 @@ void CUDAStdlibDataTransferExtraction::
     this->create_allocate(builder, *sequence, *block, dPtr, ptr_size, type);
 
     // Copy from device to host and deallocate
-    this->create_copy_from_device_with_deallocation(
-        builder, *sequence, *block, out_access.at("_ptr").data(), dPtr, ptr_size, type
-    );
+    this->create_copy_from_device_with_deallocation(builder, *sequence, *block, host_container_name, dPtr, ptr_size, type);
 
     // Redirect output to device container
-    out_access.at("_ptr").data(dPtr);
+    host_access_node.data(dPtr);
 
     // Change the implementation type to without transfers
     this->memset_node_.implementation_type() = cuda::ImplementationType_CUDAWithoutTransfers;
