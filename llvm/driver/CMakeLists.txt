@@ -74,3 +74,14 @@ install(TARGETS docc-analysis DESTINATION bin COMPONENT docc-driver)
 set_target_properties(docc-analysis PROPERTIES
     INSTALL_RPATH "$ORIGIN/../lib/docc-llvm-${DOCC_LLVM_VERSION}/lib"
 )
+
+if(SDFG_ENABLE_SANITIZER)
+  target_compile_options(docc          PUBLIC ${_SAN_COMPILE_OPTS})
+  target_link_options   (docc          PUBLIC ${_SAN_LINK_OPTS})
+  target_compile_options(docc-cpp      PUBLIC ${_SAN_COMPILE_OPTS})
+  target_link_options   (docc-cpp      PUBLIC ${_SAN_LINK_OPTS})
+  target_compile_options(docc-ld       PUBLIC ${_SAN_COMPILE_OPTS})
+  target_link_options   (docc-ld       PUBLIC ${_SAN_LINK_OPTS})
+  target_compile_options(docc-analysis PUBLIC ${_SAN_COMPILE_OPTS})
+  target_link_options   (docc-analysis PUBLIC ${_SAN_LINK_OPTS})
+endif()
