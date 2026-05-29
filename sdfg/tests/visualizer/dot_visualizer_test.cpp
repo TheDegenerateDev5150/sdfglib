@@ -765,7 +765,7 @@ TEST(DotVisualizerTest, visualizeSubset_does_not_fail_on_incomplete_opaque_ptr) 
     {
         visualizer::DotVisualizer dot(sdfg);
 
-        dot.visualizeSubset(sdfg, {symbolic::zero()}, &opaque_desc);
+        dot.visualizeSubset({symbolic::zero()}, &opaque_desc);
 
         EXPECT_EQ(dot.getStream().str(), "[0]");
     }
@@ -773,7 +773,7 @@ TEST(DotVisualizerTest, visualizeSubset_does_not_fail_on_incomplete_opaque_ptr) 
     {
         visualizer::DotVisualizer dot(sdfg);
 
-        dot.visualizeSubset(sdfg, {symbolic::one()}, &opaque_desc);
+        dot.visualizeSubset({symbolic::one()}, &opaque_desc);
 
         EXPECT_EQ(dot.getStream().str(), "[1]#illgl");
     }
@@ -781,7 +781,7 @@ TEST(DotVisualizerTest, visualizeSubset_does_not_fail_on_incomplete_opaque_ptr) 
     {
         visualizer::DotVisualizer dot(sdfg);
 
-        dot.visualizeSubset(sdfg, {symbolic::zero(), symbolic::one()}, &opaque_desc);
+        dot.visualizeSubset({symbolic::zero(), symbolic::one()}, &opaque_desc);
 
         EXPECT_EQ(dot.getStream().str(), "[0](rogue)[1]");
     }
