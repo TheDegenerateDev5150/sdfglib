@@ -61,13 +61,14 @@ jobs:
           LLVM_PROFILE_FILE="sdfglib_test.profraw" ./sdfg/tests/sdfglib_test
           LLVM_PROFILE_FILE="sdfgopt_test.profraw" ./opt/tests/sdfgopt_test
           LLVM_PROFILE_FILE="docc-target-et_test.profraw" ./targets/et/tests/docc-target-et_test
+          LLVM_PROFILE_FILE="c-compile_test.profraw" ./c-compile/tests/c-compile_test
           ./tutorial/printf_target/tests/printf_target_test
 
           # Run coverage
-          llvm-profdata-19 merge -sparse sdfglib_test.profraw sdfgopt_test.profraw docc-target-et_test.profraw -o default.profdata
+          llvm-profdata-19 merge -sparse sdfglib_test.profraw sdfgopt_test.profraw docc-target-et_test.profraw c-compile_test.profraw -o default.profdata
           cd ../
-          llvm-cov-19 export ./build/sdfg/tests/sdfglib_test -object ./build/opt/tests/sdfgopt_test -object ./build/targets/et/tests/docc-target-et_test -instr-profile=build/default.profdata -format=lcov > build/coverage_full.lcov
-          lcov --ignore-errors unused --extract build/coverage_full.lcov '*/sdfg/src/*' '*/sdfg/include/*' '*/opt/src/*' '*/opt/include/*' '*/targets/et/src/*' '*/targets/et/include/*' --output-file build/coverage.lcov
+          llvm-cov-19 export ./build/sdfg/tests/sdfglib_test -object ./build/opt/tests/sdfgopt_test -object ./build/targets/et/tests/docc-target-et_test -object ./build/c-compile/tests/c-compile_test -instr-profile=build/default.profdata -format=lcov > build/coverage_full.lcov
+          lcov --ignore-errors unused --extract build/coverage_full.lcov '*/sdfg/src/*' '*/sdfg/include/*' '*/opt/src/*' '*/opt/include/*' '*/targets/et/src/*' '*/targets/et/include/*' '*/c-compile/src/*' '*/c-compile/include/*' --output-file build/coverage.lcov
 
       - name: Test Arg-Capture-IO
         run: |
