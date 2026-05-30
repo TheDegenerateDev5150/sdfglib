@@ -411,6 +411,7 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
         while (auto* nested = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
             producer_loops_.push_back(nested);
             producer_body_ = &nested->root();
+            if (nested->root().size() == 0) return false;
             node = &nested->root().at(0).first;
         }
         producer_block_ = dynamic_cast<structured_control_flow::Block*>(node);
@@ -446,6 +447,7 @@ bool MapFusion::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis
         while (auto* nested = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
             consumer_loops_.push_back(nested);
             consumer_body_ = &nested->root();
+            if (nested->root().size() == 0) return false;
             node = &nested->root().at(0).first;
         }
     } else {
