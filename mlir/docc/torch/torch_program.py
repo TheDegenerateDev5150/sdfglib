@@ -150,6 +150,7 @@ class TorchProgram(DoccProgram):
         output_folder: Optional[str] = None,
         instrumentation_mode: Optional[str] = None,
         capture_args: Optional[bool] = None,
+        remote_tuning: Optional[bool] = None,
     ) -> CompiledSDFG:
         original_output_folder = output_folder
 
@@ -159,10 +160,9 @@ class TorchProgram(DoccProgram):
             compile_start_time = time.perf_counter()
 
         # Resolve options
-        if instrumentation_mode is None:
-            instrumentation_mode = self.instrumentation_mode or ""
-        if capture_args is None:
-            capture_args = self.capture_args or False
+        instrumentation_mode, capture_args, remote_tuning = self._resolve_compile_options(
+            instrumentation_mode, capture_args, remote_tuning
+        )
 
         # Determine example input
         if self.example_input is None:
@@ -263,7 +263,7 @@ class TorchProgram(DoccProgram):
             sdfg = self._sdfg
 
             lib_path = self.sdfg_pipe(
-                sdfg, output_folder, instrumentation_mode, capture_args
+                sdfg, output_folder, instrumentation_mode, capture_args, remote_tuning
             )
 
         # Prepend buffer info for any buffers that torch-mlir left as
