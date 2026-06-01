@@ -16,6 +16,7 @@ set(TEST_FILES
     cuda/cuda_library_nodes_test.cpp
     passes/einsum_test.cpp
     passes/normalization/loop_normal_form_test.cpp
+    passes/normalization/map_fusion_test.cpp
     passes/normalization/perfect_loop_distribution_test.cpp
     passes/normalization/stride_minimization_test.cpp
     passes/offloading/code_motion/block_hoisting_test.cpp
