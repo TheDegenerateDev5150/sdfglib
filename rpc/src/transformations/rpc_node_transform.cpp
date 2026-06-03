@@ -10,6 +10,7 @@
 
 #include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/analysis/scope_analysis.h"
+#include "sdfg/codegen/utils.h"
 #include "sdfg/cutouts/cutouts.h"
 #include "sdfg/optimization_report/pass_report_consumer.h"
 #include "sdfg/passes/rpc/rpc_context.h"
@@ -229,12 +230,12 @@ void RPCNodeTransform::
                 continue;
             }
             auto& type = sdfg_response->type(container);
-            builder.add_container(
-                container,
-                type,
-                false,
-                false
-            );
+            if (type.type_id() == sdfg::types::TypeID::Reference) {
+                auto& reference_type = dynamic_cast<const sdfg::codegen::Reference&>(type).reference_type();
+                builder.add_container(container, reference_type, false, false);
+            } else {
+                builder.add_container(container, type, false, false);
+            }
         }
 
         opt.sdfg_result->sdfg.reset();
