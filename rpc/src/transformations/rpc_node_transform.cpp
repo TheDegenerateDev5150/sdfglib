@@ -230,24 +230,11 @@ void RPCNodeTransform::
                 continue;
             }
             auto& type = sdfg_response->type(container);
-            if (type.type_id() == sdfg::types::TypeID::Reference)
-            {
+            if (type.type_id() == sdfg::types::TypeID::Reference) {
                 auto& reference_type = dynamic_cast<const sdfg::codegen::Reference&>(type).reference_type();
-                builder.add_container(
-                    container,
-                    reference_type,
-                    false,
-                    false
-                );
-            }
-            else
-            {
-                builder.add_container(
-                    container,
-                    type,
-                    false,
-                    false
-                );
+                builder.add_container(container, reference_type, false, false);
+            } else {
+                builder.add_container(container, type, false, false);
             }
         }
 

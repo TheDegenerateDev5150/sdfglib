@@ -14,6 +14,8 @@
 #include "sdfg/transformations/loop_interchange.h"
 #include "sdfg/transformations/loop_tiling.h"
 #include "sdfg/transformations/recorder.h"
+#include "sdfg/codegen/utils.h"
+#include "sdfg/serializer/json_serializer.h"
 #include "sdfg/types/pointer.h"
 #include "sdfg/types/type.h"
 
@@ -258,4 +260,50 @@ TEST_F(RPCNodeTransformTest, HandleOtherHttpErrors) {
     std::string error = std::get<std::string>(response);
     EXPECT_FALSE(error.empty());
     EXPECT_NE(error.find("HTTP error: 500"), std::string::npos);
+}
+
+TEST_F(RPCNodeTransformTest, ApplyUnwrapsReferenceTypedContainersFromResponse) {
+    // Build a "response" SDFG: clone the main SDFG and add a Reference-typed container.
+    // Before the Reference handling was added to apply(), this container would have been
+    // stored with Reference type in the main SDFG, causing the final assertion to fail.
+    auto response_sdfg = builder_->subject().clone();
+    {
+        sdfg::builder::StructuredSDFGBuilder resp_builder(*response_sdfg);
+        sdfg::types::Scalar inner_type(sdfg::types::PrimitiveType::Float);
+        sdfg::codegen::Reference ref_type(inner_type);
+        resp_builder.add_container("ref_tmp", ref_type, false, false);
+    }
+
+    // Serialize the response SDFG to a temp file so the transfer server can return it.
+    const std::string sdfg_path = "/tmp/rpc_ref_test.sdfg.json";
+    sdfg::serializer::JSONSerializer serializer;
+    sdfg::serializer::JSONSerializer::writeToFile(*response_sdfg, sdfg_path);
+    setenv("SDFG_TEST_SDFG_PATH", sdfg_path.c_str(), 1);
+
+    // Build an RPC context that sends the file path as SDFG-Result-Path header,
+    // so the transfer server loads this SDFG as its response (same pattern as matmul tests).
+    passes::rpc::SimpleRpcContextBuilder ctx_builder;
+    auto test_ctx = ctx_builder
+                        .initialize_local_default()
+                        .add_header("SDFG-Result-Path", std::string(std::getenv("SDFG_TEST_SDFG_PATH")))
+                        .build();
+
+    auto sdfg_initial = builder_->subject().clone();
+    sdfg::builder::StructuredSDFGBuilder builder(sdfg_initial);
+    sdfg::analysis::AnalysisManager analysis_manager(builder.subject());
+    auto& loop_analysis = analysis_manager.get<sdfg::analysis::LoopAnalysis>();
+    auto outer_loops = loop_analysis.outermost_loops();
+    ASSERT_EQ(outer_loops.size(), 1);
+    auto outer_loop = static_cast<structured_control_flow::StructuredLoop*>(outer_loops[0]);
+
+    sdfg::transformations::RPCNodeTransform transform(*outer_loop, "sequential", "server", *test_ctx, false);
+    ASSERT_TRUE(transform.can_be_applied(builder, analysis_manager));
+    transform.apply(builder, analysis_manager);
+
+    // The Reference-typed container must have been added with the inner (Float) type, not
+    // wrapped as Reference. Before the fix, this assertion would fail.
+    ASSERT_TRUE(builder.subject().exists("ref_tmp"));
+    auto& added_type = builder.subject().type("ref_tmp");
+    EXPECT_EQ(added_type.type_id(), sdfg::types::TypeID::Scalar);
+    EXPECT_EQ(added_type.primitive_type(), sdfg::types::PrimitiveType::Float);
 }
