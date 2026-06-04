@@ -47,6 +47,12 @@ bool RPCNodeTransform::
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
     // This loop info differs from the one in the scheduler, as that one is stale
     auto loop_info = loop_analysis.loop_info(&this->node_);
+    if (report_) {
+        int loopnest_idx = loop_info.loopnest_index;
+        if (loopnest_idx >= 0) {
+            report_->in_outermost_loop(loopnest_idx);
+        }
+    }
 
     // Re-check for side effects with fresh loop info
     if (loop_info.has_side_effects) {
@@ -89,6 +95,12 @@ bool RPCNodeTransform::
             report_->transform_impossible(
                 this->name(), "No opt. SDFG received (" + get_node_id_str() + ", " + error_msg + ")"
             );
+        }
+        else
+        {
+            nlohmann::json j;
+            this->to_json(j);
+            report_->transform_applied(this->name(), j);
         }
     }
     return can_apply;
@@ -245,18 +257,8 @@ void RPCNodeTransform::
             replayer.replay(builder, analysis_manager, opt.local_replay.value().sequence, false);
         } catch (const std::exception& e) {
             std::cerr << "[ERROR] Failed to replay rpc optimization: " << e.what() << std::endl;
-            if (report_) {
-                report_
-                    ->transform_impossible(this->name(), "Failed to replay local optimization: " + std::string(e.what()));
-            }
             return;
         }
-    }
-
-    if (report_) {
-        nlohmann::json j;
-        this->to_json(j);
-        report_->transform_applied(this->name(), j);
     }
 
     if (opt.local_replay.has_value()) {
