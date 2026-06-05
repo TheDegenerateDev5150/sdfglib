@@ -122,7 +122,7 @@ TEST_F(CutoutTest, TestCutoutInstrumentation) {
 
     EXPECT_TRUE(region_node != nullptr);
 
-    auto cutout_sdfg = sdfg::util::cutout(local_builder, analysis_manager, *region_node);
+    auto cutout_sdfg = sdfg::util::cutout(local_builder.subject(), analysis_manager, *region_node);
     EXPECT_TRUE(cutout_sdfg != nullptr);
 
     EXPECT_GE(cutout_sdfg->root().size(), 1u);
@@ -187,7 +187,7 @@ TEST(CutoutTest_External, ExternalAndArgumentDoNotCollide) {
     ASSERT_EQ(outermost_loops.size(), 1u);
 
     std::unique_ptr<StructuredSDFG> cutout_sdfg;
-    ASSERT_NO_THROW(cutout_sdfg = sdfg::util::cutout(local_builder, analysis_manager, *outermost_loops[0]));
+    ASSERT_NO_THROW(cutout_sdfg = sdfg::util::cutout(local_builder.subject(), analysis_manager, *outermost_loops[0]));
     ASSERT_TRUE(cutout_sdfg != nullptr);
 
     // External must remain external (with its linkage), not promoted to a

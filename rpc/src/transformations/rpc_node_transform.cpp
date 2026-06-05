@@ -45,7 +45,7 @@ bool RPCNodeTransform::
     // Get loop info
 
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
-    // This loop info differs from the one in the scheduler, as that one is stale
+
     auto loop_info = loop_analysis.loop_info(&this->node_);
     if (report_) {
         int loopnest_idx = loop_info.loopnest_index;
@@ -65,7 +65,7 @@ bool RPCNodeTransform::
     }
 
     // Create cutout SDFG
-    std::unique_ptr<sdfg::StructuredSDFG> loop_sdfg = util::cutout(builder, analysis_manager, this->node_);
+    std::unique_ptr<sdfg::StructuredSDFG> loop_sdfg = util::cutout(builder.subject(), analysis_manager, this->node_);
 
     // Loop info is only used for information on the loop structure
     auto opt_resp = query_rpc_server(
@@ -236,6 +236,10 @@ void RPCNodeTransform::
 
         builder.remove_child(*parent_scope, index); // remove old loop
         builder.move_child(opt.sdfg_result->sdfg->root(), 0, *parent_scope, index); // move optimized loop into place
+
+        if (opt.sdfg_result->sdfg->element_counter() > builder.subject().element_counter()) {
+            builder.set_element_counter(opt.sdfg_result->sdfg->element_counter());
+        }
 
         for (auto& container : sdfg_response->containers()) {
             if (builder.subject().exists(container)) {
