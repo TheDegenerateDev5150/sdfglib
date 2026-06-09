@@ -2975,17 +2975,21 @@ TEST(MemoryLayoutAnalysisTest, Regression_Im2col_ResNetFullPattern) {
     //   _1's linearized index `-3 + 224*h_in + ...` provably reaches negative
     //   addresses in the abstract iteration domain (`h_in` has min -3). The
     //   real kernel only loads when the surrounding IfElse guard
-    //   `h_in >= 0 && w_in >= 0 && ...` is true, but AssumptionsAnalysis does
-    //   NOT propagate IfElse branch conditions into the bodies (see
-    //   assumptions_analysis.cpp::traverse). Without that, the delinearizer
-    //   correctly refuses to peel a stride whose index can be negative, and
-    //   MLA returns no tile.
+    //   `h_in >= 0 && w_in >= 0 && ...` is true.
+    //
+    //   AssumptionsAnalysis DOES propagate this guard into the taken
+    //   Sequence (CNF-based extraction in assumptions_analysis.cpp). What is
+    //   still missing is MLA-side IfElse-awareness: when merging per-block
+    //   tiles up to the outer-loop scope, MLA computes extents over the full
+    //   iteration domain (including the case_out arm where the memlet is
+    //   absent). The delinearizer's `is_nonneg` gate therefore still sees a
+    //   subscript that can be negative at outer scope, and refuses.
     //
     //   This is the sound answer for MLA's contract (used by tile_fusion,
     //   in/out_local_storage, loop_carried_dependency). The argument-sizing
     //   path falls back to a direct min/max bound in ArgumentsAnalysis.
     //
-    //   TODO: when IfElse-aware AssumptionsAnalysis lands, flip these to
+    //   TODO: when MLA gains IfElse-aware tile aggregation, flip these to
     //   ASSERT_NE(...) and check the contiguous range.
     auto* tile_1 = analysis.tile(outer, "_1");
     EXPECT_EQ(tile_1, nullptr) << "Expected MLA to refuse to bound _1 because the IfElse halo guard "
@@ -3088,18 +3092,15 @@ TEST(MemoryLayoutAnalysisTest, Regression_Im2col_NegativeConstInsideStrideProduc
 //     for j in [0, 7):
 //       if (i >= 3 && j >= 3):  A[7*(i - 3) + (j - 3)] = ...
 //
-// Without the guard, the leading index `i - 3` reaches -3 at i=0 and the
-// delinearizer correctly refuses to peel (`is_nonneg` gate). With the guard
-// propagated as an assumption inside the then-branch, i would have lower
-// bound 3 within that scope, the index would be provably >= 0, and the
-// access would delinearize to dims={7} indices={i-3, j-3}.
+// AssumptionsAnalysis DOES propagate `i>=3 && j>=3` into the taken Sequence
+// (CNF-based extraction). What is still missing is MLA-side: when
+// aggregating tiles up to the outer-loop scope, MLA computes extents over
+// the *full* outer iteration domain (where the guard does not hold) and
+// rightly refuses because `7*(i-3) + (j-3)` reaches -24. This test pins the
+// conservative refusal.
 //
-// AssumptionsAnalysis does NOT yet inject IfElse branch conditions into the
-// body scope (see assumptions_analysis.cpp::traverse), so MLA bails. This
-// test pins the conservative current behavior.
-//
-// TODO: once AssumptionsAnalysis propagates IfElse conditions, flip the
-// expectations to ASSERT_NE(tile, nullptr) and check the contiguous range.
+// TODO: once MLA gains IfElse-aware tile aggregation, flip the expectation
+// to ASSERT_NE(tile, nullptr) and check that dims={7} indices={i-3, j-3}.
 TEST(MemoryLayoutAnalysisTest, Regression_Halo2D_GuardedByIfElse) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
 
@@ -3154,8 +3155,18 @@ TEST(MemoryLayoutAnalysisTest, Regression_Halo2D_GuardedByIfElse) {
     analysis::AnalysisManager analysis_manager(sdfg);
     auto& analysis = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
 
-    // CURRENT BEHAVIOR: MLA refuses (IfElse condition not propagated).
+    // MLA recovers the 2-D layout `7*(i-3) + (j-3)` -> indices (i-3, j-3) with
+    // extents (7, 7). The branch guard `i>=3 && j>=3` is propagated by
+    // AssumptionsAnalysis into the taken Sequence so block-scope delinearization
+    // succeeds. Tile aggregation at the outer scope conservatively widens the
+    // bounding box back to the full outer-loop domain `i,j ∈ [0,7)` — yielding
+    // extents=[7,7] (vs. the tighter [4,4] that the actual access set occupies).
+    // This is a sound over-approximation; tightening would require IfElse-aware
+    // tile aggregation in merge_scope_layouts.
     auto* tile = analysis.tile(outer, "A");
-    EXPECT_EQ(tile, nullptr)
-        << "Expected MLA to refuse: IfElse guard `i>=3 && j>=3` is not yet propagated as an assumption.";
+    ASSERT_NE(tile, nullptr);
+    auto ext = tile->extents();
+    ASSERT_EQ(ext.size(), 2u);
+    EXPECT_TRUE(symbolic::eq(ext[0], symbolic::integer(7)));
+    EXPECT_TRUE(symbolic::eq(ext[1], symbolic::integer(7)));
 }
