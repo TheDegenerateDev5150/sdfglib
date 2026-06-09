@@ -1,5 +1,4 @@
 #include "sdfg/passes/offloading/cuda_library_node_rewriter_pass.h"
-#include <iostream>
 #include <optional>
 
 #include "sdfg/data_flow/library_nodes/math/math.h"
@@ -16,6 +15,8 @@ std::optional<data_flow::ImplementationType> CudaLibraryNodeRewriter::
         if (lib_node.code() == math::blas::LibraryNodeType_GEMM.value()) {
             auto& gemm_node = static_cast<const math::blas::GEMMNode&>(lib_node);
             return try_cublas_gemm_node_implementation(gemm_node, data_type);
+        } else if (lib_node.code() == math::blas::LibraryNodeType_BatchedGEMM.value()) {
+            return cuda::ImplementationType_CUDAWithTransfers;
         } else if (lib_node.code() == math::blas::LibraryNodeType_DOT.value()) {
             return cuda::ImplementationType_CUDAWithTransfers;
         } else {
