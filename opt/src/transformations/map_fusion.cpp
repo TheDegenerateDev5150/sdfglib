@@ -781,6 +781,7 @@ void MapFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
                         access_node->data(temp_name);
                     } else if (first_dataflow.in_degree(node) > 0 && first_dataflow.out_degree(node) > 0 &&
                                dynamic_cast<const types::Scalar*>(&sdfg.type(access_node->data())) != nullptr) {
+                        // SSA Dataflow required to check for non-local use of the access node's container.
                         // Intermediate access node (e.g. from a prior BlockFusion): clone
                         // its container so each inlined copy gets its own private scalar
                         auto it = intermediate_renames.find(access_node->data());
@@ -985,6 +986,7 @@ void MapFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
                             }
                         } else if (consumer_dataflow.in_degree(node) > 0 && consumer_dataflow.out_degree(node) > 0 &&
                                    dynamic_cast<const types::Scalar*>(&sdfg.type(access_node->data())) != nullptr) {
+                            // SSA Dataflow required to check for non-local use of the access node's container.
                             // Intermediate access node (e.g. from a prior BlockFusion): clone
                             // its container so each inlined copy gets its own private scalar
                             auto it = intermediate_renames.find(access_node->data());
