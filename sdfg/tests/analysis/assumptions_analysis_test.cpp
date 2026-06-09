@@ -327,3 +327,59 @@ TEST(AssumptionsAnalysisTest, For_2D) {
     );
     EXPECT_TRUE(symbolic::eq(j_assumptions.tight_upper_bound(), symbolic::sub(symbolic::symbol("N"), symbolic::one())));
 }
+
+// Pins the current conservative behavior: AssumptionsAnalysis does NOT
+// inject IfElse branch conditions into the body scope. Inside
+//   for i in [0, N):
+//     if (i >= 3 && i < N - 3): /* body */
+// the body scope's assumption for `i` reflects only the surrounding loop
+// (`i in [0, N - 1]`), not the tightened range `[3, N - 4]` implied by the
+// then-branch's condition.
+//
+// This is the upstream root cause of the Regression_Im2col_* MLA tests and
+// of the matching ArgumentsAnalysis fallback in arguments_analysis.cpp.
+//
+// TODO: when IfElse-condition propagation lands in
+// AssumptionsAnalysis::traverse, flip the expectations below to assert the
+// tightened bounds and update the dependent MLA regression tests.
+TEST(AssumptionsAnalysisTest, IfElse_BranchConditionNotPropagated) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar n_type(types::PrimitiveType::Int64);
+    builder.add_container("N", n_type, true);
+    builder.add_container("i", n_type);
+
+    auto N = symbolic::symbol("N");
+    auto i = symbolic::symbol("i");
+    auto three = symbolic::integer(3);
+
+    // for i in [0, N): if (i >= 3 && i < N - 3) { /* taken */ }
+    auto& loop = builder.add_for(root, i, symbolic::Lt(i, N), symbolic::zero(), symbolic::add(i, symbolic::one()));
+    auto& ife = builder.add_if_else(loop.root());
+    auto cond = symbolic::And(symbolic::Ge(i, three), symbolic::Lt(i, symbolic::sub(N, three)));
+    auto& taken = builder.add_case(ife, cond);
+
+    analysis::AnalysisManager analysis_manager(sdfg);
+    auto& analysis = analysis_manager.get<analysis::AssumptionsAnalysis>();
+    auto& assumptions = analysis.get(taken);
+
+    auto& i_assumptions = assumptions.at(i);
+
+    // Loop-derived bounds are present.
+    EXPECT_TRUE(symbolic::eq(i_assumptions.tight_lower_bound(), symbolic::zero()));
+    EXPECT_TRUE(symbolic::eq(i_assumptions.tight_upper_bound(), symbolic::sub(N, symbolic::one())));
+
+    // CURRENT BEHAVIOR: branch condition (`i >= 3 && i < N - 3`) is NOT
+    // added to `i`'s constraints. None of the bounds equal 3 or N - 3.
+    for (const auto& lb : i_assumptions.lower_bounds()) {
+        EXPECT_FALSE(symbolic::eq(lb, three))
+            << "IfElse branch condition leaked into lower_bounds — flip this test when IfElse propagation lands.";
+    }
+    for (const auto& ub : i_assumptions.upper_bounds()) {
+        EXPECT_FALSE(symbolic::eq(ub, symbolic::sub(N, symbolic::integer(4))))
+            << "IfElse branch condition leaked into upper_bounds — flip this test when IfElse propagation lands.";
+    }
+}
