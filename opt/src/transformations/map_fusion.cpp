@@ -1,5 +1,6 @@
 #include "sdfg/transformations/map_fusion.h"
 
+#include <iostream>
 #include <isl/ctx.h>
 #include <isl/map.h>
 #include <isl/options.h>
@@ -773,12 +774,23 @@ void MapFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
 
             // Deep copy all nodes from producer block to new block
             std::unordered_map<const data_flow::DataFlowNode*, data_flow::DataFlowNode*> node_mapping;
+            std::unordered_map<std::string, std::string> intermediate_renames;
             for (auto& node : first_dataflow.nodes()) {
                 node_mapping[&node] = &builder.copy_node(new_block, node);
                 auto* copied = node_mapping[&node];
                 if (auto* access_node = dynamic_cast<data_flow::AccessNode*>(copied)) {
                     if (access_node->data() == candidate.container) {
                         access_node->data(temp_name);
+                    } else if (first_dataflow.in_degree(node) > 0 && first_dataflow.out_degree(node) > 0) {
+                        // Intermediate access node (e.g. from a prior BlockFusion): clone
+                        // its container so each inlined copy gets its own private scalar
+                        auto it = intermediate_renames.find(access_node->data());
+                        if (it == intermediate_renames.end()) {
+                            std::string fresh = builder.find_new_name(access_node->data());
+                            builder.add_container(fresh, sdfg.type(access_node->data()));
+                            intermediate_renames[access_node->data()] = fresh;
+                        }
+                        access_node->data(intermediate_renames[access_node->data()]);
                     }
                 }
             }
@@ -961,6 +973,7 @@ void MapFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
 
                 // Deep copy all nodes from consumer block
                 std::unordered_map<const data_flow::DataFlowNode*, data_flow::DataFlowNode*> node_mapping;
+                std::unordered_map<std::string, std::string> intermediate_renames;
                 for (auto& node : consumer_dataflow.nodes()) {
                     node_mapping[&node] = &builder.copy_node(new_block, node);
                     auto* copied = node_mapping[&node];
@@ -971,6 +984,16 @@ void MapFusion::apply(builder::StructuredSDFGBuilder& builder, analysis::Analysi
                             if (consumer_dataflow.in_degree(node) == 0) {
                                 access_node->data(temp_name);
                             }
+                        } else if (consumer_dataflow.in_degree(node) > 0 && consumer_dataflow.out_degree(node) > 0) {
+                            // Intermediate access node (e.g. from a prior BlockFusion): clone
+                            // its container so each inlined copy gets its own private scalar
+                            auto it = intermediate_renames.find(access_node->data());
+                            if (it == intermediate_renames.end()) {
+                                std::string fresh = builder.find_new_name(access_node->data());
+                                builder.add_container(fresh, sdfg.type(access_node->data()));
+                                intermediate_renames[access_node->data()] = fresh;
+                            }
+                            access_node->data(intermediate_renames[access_node->data()]);
                         }
                     }
                 }
