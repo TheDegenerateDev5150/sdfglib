@@ -1,6 +1,5 @@
 #include "sdfg/transformations/map_fusion.h"
 
-#include <iostream>
 #include <isl/ctx.h>
 #include <isl/map.h>
 #include <isl/options.h>
@@ -10,7 +9,6 @@
 #include "sdfg/analysis/arguments_analysis.h"
 #include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/analysis/scope_analysis.h"
-#include "sdfg/analysis/users.h"
 
 #include "sdfg/analysis/assumptions_analysis.h"
 #include "sdfg/control_flow/interstate_edge.h"
