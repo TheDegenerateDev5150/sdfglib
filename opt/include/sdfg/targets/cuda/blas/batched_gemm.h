@@ -8,7 +8,12 @@ namespace sdfg::cuda::blas {
 void generate_kernel_batched_gemm(
     codegen::PrettyPrinter& stream,
     codegen::LanguageExtension& language_extension,
-    const math::blas::BatchedGEMMNode& node
+    const math::blas::BatchedGEMMNode& node,
+    const std::string& a_name,
+    const std::string& b_name,
+    const std::string& c_name,
+    const std::string& alpha_name,
+    const std::string& beta_name
 );
 
 class BatchedGEMMNodeDispatcher_CUBLASWithTransfers : public codegen::LibraryNodeDispatcher {
@@ -20,10 +25,10 @@ public:
         const math::blas::BatchedGEMMNode& node
     );
 
-    void dispatch_code(
-        codegen::PrettyPrinter& stream,
-        codegen::PrettyPrinter& globals_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory
+    void dispatch_code_with_edges(
+        codegen::CodegenOutput& out,
+        std::vector<codegen::DispatchInput>& inputs,
+        std::vector<codegen::DispatchOutput>& outputs
     ) override;
 };
 
@@ -36,10 +41,10 @@ public:
         const math::blas::BatchedGEMMNode& node
     );
 
-    void dispatch_code(
-        codegen::PrettyPrinter& stream,
-        codegen::PrettyPrinter& globals_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory
+    void dispatch_code_with_edges(
+        codegen::CodegenOutput& out,
+        std::vector<codegen::DispatchInput>& inputs,
+        std::vector<codegen::DispatchOutput>& outputs
     ) override;
 };
 

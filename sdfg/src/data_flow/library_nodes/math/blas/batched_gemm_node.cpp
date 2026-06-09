@@ -1,4 +1,5 @@
 #include "sdfg/data_flow/library_nodes/math/blas/batched_gemm_node.h"
+#include "sdfg/data_flow/library_nodes/math/blas/gemm_node.h"
 
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/analysis/scope_analysis.h"
@@ -166,15 +167,23 @@ std::string BatchedGEMMNode::toStr() const {
 }
 
 data_flow::PointerAccessType BatchedGEMMNode::pointer_access_type(int input_idx) const {
-    if (input_idx == 0) { // A
-        auto range = symbolic::mul(batch_count_, stride_a_);
-        return data_flow::PointerAccessMeta::create_read_only(range, true);
-    } else if (input_idx == 1) { // B
-        auto range = symbolic::mul(batch_count_, stride_b_);
-        return data_flow::PointerAccessMeta::create_read_only(range, true);
-    } else if (input_idx == 2) { // C
-        auto range = symbolic::mul(batch_count_, stride_c_);
-        return data_flow::PointerAccessMeta::create_full_write_only(range, true);
+    if (input_idx == 0) { // A: batched m x k
+        auto per_batch_range = GEMMNode::calc_matrix_access_range(m_, k_, lda_, trans_a_, layout_);
+        return data_flow::PointerAccessMeta::create_read_only(symbolic::mul(batch_count_, per_batch_range), true);
+    } else if (input_idx == 1) { // B: batched k x n
+        auto per_batch_range = GEMMNode::calc_matrix_access_range(k_, n_, ldb_, trans_b_, layout_);
+        return data_flow::PointerAccessMeta::create_read_only(symbolic::mul(batch_count_, per_batch_range), true);
+    } else if (input_idx == 2) {
+        auto per_batch_range = GEMMNode::calc_matrix_access_range(m_, n_, ldc_, BLAS_Transpose::No, layout_);
+        auto range = symbolic::mul(batch_count_, per_batch_range);
+
+        // Match GEMM handling: use full-write for dense layout and generic access otherwise.
+        if (symbolic::eq(ldc_, n_)) {
+            return data_flow::PointerAccessMeta::create_full_write_only(range, true);
+        } else {
+            auto pattern = data_flow::ConvexAccessPattern::create(range);
+            return data_flow::PointerAccessMeta::create_generic(pattern->ref(), std::move(pattern), true);
+        }
     } else {
         return LibraryNode::pointer_access_type(input_idx);
     }
@@ -203,48 +212,21 @@ bool BatchedGEMMNode::expand(builder::StructuredSDFGBuilder& builder, analysis::
     auto in_edges = dataflow.in_edges(*this);
     auto in_edges_it = in_edges.begin();
 
-    data_flow::Memlet* iedge_a = nullptr;
-    data_flow::Memlet* iedge_b = nullptr;
-    data_flow::Memlet* iedge_c = nullptr;
-    data_flow::Memlet* alpha_edge = nullptr;
-    data_flow::Memlet* beta_edge = nullptr;
-    while (in_edges_it != in_edges.end()) {
-        auto& edge = *in_edges_it;
-        auto dst_conn = edge.dst_conn();
-        if (dst_conn == "__A") {
-            iedge_a = &edge;
-        } else if (dst_conn == "__B") {
-            iedge_b = &edge;
-        } else if (dst_conn == "__C") {
-            iedge_c = &edge;
-        } else if (dst_conn == "__alpha") {
-            alpha_edge = &edge;
-        } else if (dst_conn == "__beta") {
-            beta_edge = &edge;
-        } else {
-            throw InvalidSDFGException("BatchedGEMMNode has unexpected input: " + dst_conn);
-        }
-        ++in_edges_it;
-    }
+    data_flow::Memlet* iedge_a = dataflow.in_edges_by_connector(*this).at(0);
+    data_flow::Memlet* iedge_b = dataflow.in_edges_by_connector(*this).at(1);
+    data_flow::Memlet* iedge_c = dataflow.in_edges_by_connector(*this).at(2);
+    data_flow::Memlet* alpha_edge = dataflow.in_edges_by_connector(*this).at(3);
+    data_flow::Memlet* beta_edge = dataflow.in_edges_by_connector(*this).at(4);
 
-    auto* input_node_a = static_cast<data_flow::AccessNode*>(&iedge_a->src());
-    auto* input_node_b = static_cast<data_flow::AccessNode*>(&iedge_b->src());
-    auto* input_node_c = static_cast<data_flow::AccessNode*>(&iedge_c->src());
-    auto* alpha_node = static_cast<data_flow::AccessNode*>(&alpha_edge->src());
-    auto* beta_node = static_cast<data_flow::AccessNode*>(&beta_edge->src());
+    auto* input_node_a = dataflow.find_standalone_entry(iedge_a);
+    auto* input_node_b = dataflow.find_standalone_entry(iedge_b);
+    auto* input_node_c = dataflow.find_standalone_entry(iedge_c);
+    auto* alpha_node = dataflow.find_standalone_entry(alpha_edge);
+    auto* beta_node = dataflow.find_standalone_entry(beta_edge);
 
-    if (!input_node_a || dataflow.in_degree(*input_node_a) != 0 || !input_node_b ||
-        dataflow.in_degree(*input_node_b) != 0 || !input_node_c || dataflow.in_degree(*input_node_c) != 0) {
+    if (input_node_a == nullptr || input_node_b == nullptr || input_node_c == nullptr || alpha_node == nullptr ||
+        beta_node == nullptr) {
         return false;
-    }
-    if (dataflow.in_degree(*alpha_node) != 0 || dataflow.in_degree(*beta_node) != 0) {
-        return false;
-    }
-    for (auto* nd : dataflow.data_nodes()) {
-        if (nd != input_node_a && nd != input_node_b && nd != input_node_c && (!alpha_node || nd != alpha_node) &&
-            (!beta_node || nd != beta_node)) {
-            return false;
-        }
     }
 
     auto& A_var = input_node_a->data();
@@ -371,7 +353,7 @@ bool BatchedGEMMNode::expand(builder::StructuredSDFGBuilder& builder, analysis::
     auto& scale_sum_tasklet =
         builder.add_tasklet(flush_block, data_flow::TaskletCode::fp_mul, "_out", {"_in1", "_in2"}, block.debug_info());
     builder.add_computational_memlet(flush_block, sum_final, scale_sum_tasklet, "_in1", {}, block.debug_info());
-    if (auto const_node = dynamic_cast<data_flow::ConstantNode*>(alpha_node)) {
+    if (auto const_node = dynamic_cast<const data_flow::ConstantNode*>(alpha_node)) {
         auto& alpha_node_new =
             builder.add_constant(flush_block, const_node->data(), const_node->type(), block.debug_info());
         builder.add_computational_memlet(flush_block, alpha_node_new, scale_sum_tasklet, "_in2", {}, block.debug_info());
@@ -393,7 +375,7 @@ bool BatchedGEMMNode::expand(builder::StructuredSDFGBuilder& builder, analysis::
     builder.add_computational_memlet(
         flush_block, input_node_c_new, scale_input_tasklet, "_in1", {c_idx}, iedge_c->base_type(), iedge_c->debug_info()
     );
-    if (auto const_node = dynamic_cast<data_flow::ConstantNode*>(beta_node)) {
+    if (auto const_node = dynamic_cast<const data_flow::ConstantNode*>(beta_node)) {
         auto& beta_node_new =
             builder.add_constant(flush_block, const_node->data(), const_node->type(), block.debug_info());
         builder
