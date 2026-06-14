@@ -100,6 +100,7 @@ class TransformationVerification:
     print("All transformation verifications passed.")
 
 class TestRunner:
+    __test__ = False
 
     def __init__(
             self,
