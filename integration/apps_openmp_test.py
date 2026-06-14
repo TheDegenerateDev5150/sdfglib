@@ -342,18 +342,16 @@ def evaluate_miniAMR2(reference_file: Path, test_file: Path, args) -> float:
         )
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_miniAMR2():
     test_case = Path(__file__).parent / "tests" / "apps" / "miniAMR2" / "main.c"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 48,
-            "MAP": 3,
-            "FOR": 55,
-            "WHILE": 26,
-            "CPU_PARALLEL": 2,
-            "SEQUENTIAL": 1,
+            "MAP": 1,
+            "FOR": 22,
+            "WHILE": 59,
+            "CPU_PARALLEL": 1,
         }
     )
     runner = TestRunner(

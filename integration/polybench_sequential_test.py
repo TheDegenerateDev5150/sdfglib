@@ -468,8 +468,8 @@ def test_syrk(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param("-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Verifier changed")),
-        pytest.param("-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Verifier changed")),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
+        pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
 def test_trmm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
@@ -480,9 +480,9 @@ def test_trmm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 14,
-            "MAP": 7,
-            "SEQUENTIAL": 7,
+            "FOR": 15,
+            "MAP": 9,
+            "SEQUENTIAL": 9,
         },
     )
     test_case = benchmark_path / "trmm.c"
@@ -650,8 +650,8 @@ def test_atax(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param("-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Verifier changed")),
-        pytest.param("-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Verifier changed")),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
+        pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
 def test_bicg(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
@@ -663,8 +663,8 @@ def test_bicg(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
         verification={
             "sdfgs": 8,
             "FOR": 12,
-            "MAP": 5,
-            "SEQUENTIAL": 5,
+            "MAP": 6,
+            "SEQUENTIAL": 6,
         },
     )
     test_case = benchmark_path / "bicg.c"

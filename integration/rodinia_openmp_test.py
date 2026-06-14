@@ -72,18 +72,16 @@ def evaluate(reference_file: Path, test_file: Path, args, dtype=np.float64) -> f
         )
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_bplustree(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "b+tree" / "main.c"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 80,
-            "FOR": 39,
-            "WHILE": 103,
-            "MAP": 4,
-            "CPU_PARALLEL": 3,
-            "SEQUENTIAL": 1
+            "FOR": 28,
+            "WHILE": 113,
+            "MAP": 2,
+            "CPU_PARALLEL": 2,
         }
     )
     runner = TestRunner(
@@ -179,18 +177,16 @@ def test_bplustree(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_backprop(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "backprop" / "backprop.c"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 25,
-            "FOR": 56,
-            "MAP": 15,
-            "CPU_PARALLEL": 10,
-            "SEQUENTIAL": 5,
-            "WHILE": 2,
+            "FOR": 57,
+            "MAP": 20,
+            "CPU_PARALLEL": 20,
+            "WHILE": 6,
         },
     )
     runner = TestRunner(
@@ -237,12 +233,11 @@ def test_backprop(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_bfs(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "bfs" / "bfs.cpp"
 
     verifier = SDFGVerification(
-        verification={'sdfgs': 3, 'WHILE': 2, 'FOR': 6, 'MAP': 2, 'CPU_PARALLEL': 2},
+        verification={'sdfgs': 3, 'WHILE': 7, 'FOR': 1, 'MAP': 1, 'CPU_PARALLEL': 1},
     )
     runner = TestRunner(
         "Rodinia",
@@ -293,17 +288,16 @@ def test_bfs(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_cfd(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "cfd" / "euler3d_cpu.cpp"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 6,
-            "MAP": 5,
-            "SEQUENTIAL": 1,
-            "CPU_PARALLEL": 4,
-            "FOR": 19,
+            "MAP": 14,
+            "SEQUENTIAL": 9,
+            "CPU_PARALLEL": 5,
+            "FOR": 27,
         }
     )
     runner = TestRunner(
@@ -507,7 +501,6 @@ def test_hotspot(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_hotspot3D(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "hotspot3D" / "3D.c"
 
@@ -516,8 +509,8 @@ def test_hotspot3D(compiler="clang-19"):
             "sdfgs": 8,
             "Memcpy": 1,
             "WHILE": 2,
-            "MAP": 2,
-            "SEQUENTIAL": 2,
+            "MAP": 4,
+            "SEQUENTIAL": 4,
             "FOR": 17,
         }
     )
@@ -658,12 +651,11 @@ def test_kmeans(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_lavaMD(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "lavaMD" / "main.c"
 
     verifier = SDFGVerification(
-        verification={'sdfgs': 4, 'FOR': 21, 'WHILE': 5},
+        verification={'sdfgs': 4, 'FOR': 20, 'WHILE': 6},
     )
     runner = TestRunner(
         "Rodinia",
@@ -824,7 +816,6 @@ def test_nw(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_particlefilter(compiler="clang-19"):
     test_case = (
         Path(__file__).parent
@@ -838,11 +829,11 @@ def test_particlefilter(compiler="clang-19"):
     verifier = SDFGVerification(
         verification={
             'sdfgs': 17,
-            'WHILE': 5,
-            'MAP': 18,
+            'WHILE': 12,
+            'MAP': 20,
             'SEQUENTIAL': 7,
-            'CPU_PARALLEL': 11,
-            'FOR': 56,
+            'CPU_PARALLEL': 13,
+            'FOR': 51,
         }
     )
     runner = TestRunner(
@@ -928,16 +919,15 @@ def test_pathfinder(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_srad(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "srad" / "srad.cpp"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 3,
-            "MAP": 5,
-            "FOR": 14,
-            "CPU_PARALLEL": 5,
+            "MAP": 6,
+            "FOR": 15,
+            "CPU_PARALLEL": 6,
         },
     )
     runner = TestRunner(

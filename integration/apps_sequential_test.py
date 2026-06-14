@@ -47,15 +47,14 @@ def evaluate_hpccg(reference_file: Path, test_file: Path, args) -> float:
     assert test_final_residual == ref_final_residual
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_HPCCG():
     test_case = Path(__file__).parent / "tests" / "apps" / "HPCCG" / "main.cpp"
 
     verifier = SDFGVerification(
         verification={
-            "FOR": 20,
-            "MAP": 6,
-            "SEQUENTIAL": 6,
+            "FOR": 23,
+            "MAP": 9,
+            "SEQUENTIAL": 9,
             "WHILE": 6,
         },
     )
@@ -342,17 +341,16 @@ def evaluate_miniAMR2(reference_file: Path, test_file: Path, args) -> float:
         )
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_miniAMR2():
     test_case = Path(__file__).parent / "tests" / "apps" / "miniAMR2" / "main.c"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 48,
-            "MAP": 3,
-            "FOR": 55,
-            "WHILE": 26,
-            "SEQUENTIAL": 3,
+            "MAP": 1,
+            "FOR": 22,
+            "WHILE": 59,
+            "SEQUENTIAL": 1,
             "Malloc": 13,
             "Free": 7,
         }

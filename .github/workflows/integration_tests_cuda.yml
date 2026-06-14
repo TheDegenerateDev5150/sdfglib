@@ -66,14 +66,14 @@ jobs:
           nvidia-smi
 
           # Basic tests
-          pytest -v basic_test.py
-          pytest -v rtl_test.py
+          pytest -v -rx basic_test.py
+          pytest -v -rx rtl_test.py
 
           # PolyBench
-          pytest -v polybench_cuda_test.py
+          pytest -v -rx polybench_cuda_test.py
 
           # Rodinia
-          pytest -v rodinia_cuda_test.py
+          pytest -v -rx rodinia_cuda_test.py
 
           # Apps
-          pytest -v apps_cuda_test.py
+          pytest -v -rx apps_cuda_test.py

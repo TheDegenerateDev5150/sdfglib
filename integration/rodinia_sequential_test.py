@@ -72,19 +72,18 @@ def evaluate(reference_file: Path, test_file: Path, args, dtype=np.float64) -> f
         )
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_bplustree(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "b+tree" / "main.c"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 80,
-            "FOR": 39,
+            "FOR": 28,
             "Malloc": 14,
-            "WHILE": 103,
+            "WHILE": 113,
             "Free": 31,
-            "MAP": 4,
-            "SEQUENTIAL": 4,
+            "MAP": 2,
+            "SEQUENTIAL": 2,
         }
     )
     runner = TestRunner(
@@ -180,7 +179,6 @@ def test_bplustree(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_backprop(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "backprop" / "backprop.c"
 
@@ -189,10 +187,10 @@ def test_backprop(compiler="clang-19"):
             "sdfgs": 25,
             "Free": 6,
             "Malloc": 5,
-            "MAP": 15,
-            "SEQUENTIAL": 15,
-            "FOR": 56,
-            "WHILE": 2,
+            "MAP": 25,
+            "SEQUENTIAL": 25,
+            "FOR": 62,
+            "WHILE": 6,
         }
     )
     runner = TestRunner(
@@ -239,12 +237,11 @@ def test_backprop(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_bfs(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "bfs" / "bfs.cpp"
 
     verifier = SDFGVerification(
-        verification={'sdfgs': 3, 'Malloc': 6, 'WHILE': 2, 'FOR': 6, 'SEQUENTIAL': 2, 'MAP': 2, 'Free': 6},
+        verification={'sdfgs': 3, 'Malloc': 6, 'WHILE': 7, 'FOR': 1, 'SEQUENTIAL': 1, 'MAP': 1, 'Free': 6},
     )
     runner = TestRunner(
         "Rodinia",
@@ -295,12 +292,11 @@ def test_bfs(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_cfd(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "cfd" / "euler3d_cpu.cpp"
 
     verifier = SDFGVerification(
-        verification={"sdfgs": 6, "MAP": 5, "SEQUENTIAL": 5, "FOR": 19}
+        verification={"sdfgs": 6, "MAP": 15, "SEQUENTIAL": 15, "FOR": 28}
     )
     runner = TestRunner(
         "Rodinia",
@@ -655,12 +651,11 @@ def test_kmeans(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_lavaMD(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "lavaMD" / "main.c"
 
     verifier = SDFGVerification(
-        verification={'sdfgs': 4, 'FOR': 21, 'WHILE': 5, 'Malloc': 8, 'Free': 8},
+        verification={'sdfgs': 4, 'FOR': 20, 'WHILE': 6, 'Malloc': 8, 'Free': 8},
     )
     runner = TestRunner(
         "Rodinia",
@@ -823,7 +818,6 @@ def test_nw(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_particlefilter(compiler="clang-19"):
     test_case = (
         Path(__file__).parent
@@ -839,10 +833,10 @@ def test_particlefilter(compiler="clang-19"):
             'sdfgs': 17,
             'Free': 2,
             'Malloc': 4,
-            'WHILE': 5,
-            'MAP': 18,
-            'SEQUENTIAL': 18,
-            'FOR': 56
+            'WHILE': 12,
+            'MAP': 21,
+            'SEQUENTIAL': 21,
+            'FOR': 52
         }
     )
     runner = TestRunner(
@@ -928,7 +922,6 @@ def test_pathfinder(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_srad(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "srad" / "srad.cpp"
 
@@ -936,9 +929,9 @@ def test_srad(compiler="clang++-19"):
         verification={
             "sdfgs": 3,
             "Malloc": 11,
-            "MAP": 7,
-            "FOR": 16,
-            "SEQUENTIAL": 7,
+            "MAP": 8,
+            "FOR": 17,
+            "SEQUENTIAL": 8,
             "Free": 11,
         }
     )

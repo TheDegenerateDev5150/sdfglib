@@ -73,18 +73,17 @@ def evaluate(reference_file: Path, test_file: Path, args, dtype=np.float64) -> f
         )
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_bplustree(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "b+tree" / "main.c"
     verifier = SDFGVerification(
         verification={
             "sdfgs": 80,
-            "FOR": 38,
+            "FOR": 28,
             "Malloc": 14,
-            "WHILE": 103,
+            "WHILE": 113,
             "Free": 31,
-            "MAP": 3,
-            "SEQUENTIAL": 3,
+            "MAP": 2,
+            "SEQUENTIAL": 2,
         }
     )
     runner = TestRunner(
@@ -180,7 +179,6 @@ def test_bplustree(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_backprop(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "backprop" / "backprop.c"
 
@@ -191,8 +189,8 @@ def test_backprop(compiler="clang-19"):
             "Malloc": 5,
             "MAP": 15,
             "SEQUENTIAL": 15,
-            "FOR": 56,
-            "WHILE": 2,
+            "FOR": 52,
+            "WHILE": 6,
         }
     )
     runner = TestRunner(
@@ -239,12 +237,11 @@ def test_backprop(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_bfs(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "bfs" / "bfs.cpp"
 
     verifier = SDFGVerification(
-        verification={'sdfgs': 3, 'Malloc': 6, 'WHILE': 2, 'FOR': 6, 'SEQUENTIAL': 2, 'MAP': 2, 'Free': 6},
+        verification={'sdfgs': 3, 'Malloc': 6, 'WHILE': 7, 'FOR': 1, 'SEQUENTIAL': 1, 'MAP': 1, 'Free': 6},
     )
     runner = TestRunner(
         "Rodinia",
@@ -295,15 +292,14 @@ def test_bfs(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_cfd(compiler="clang++-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "cfd" / "euler3d_cpu.cpp"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 6,
-            "MAP": 5,
-            "SEQUENTIAL": 5,
+            "MAP": 6,
+            "SEQUENTIAL": 6,
             "FOR": 19,
         }
     )
@@ -357,12 +353,11 @@ def test_cfd(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_heartwall(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "heartwall" / "main.c"
 
     verifier = SDFGVerification(
-        verification={'sdfgs': 50, 'Malloc': 27, 'MAP': 4, 'FOR': 51, 'SEQUENTIAL': 4, 'Free': 37, 'WHILE': 70},
+        verification={'sdfgs': 50, 'Malloc': 27, 'MAP': 7, 'FOR': 48, 'SEQUENTIAL': 7, 'Free': 37, 'WHILE': 73},
     )
     runner = TestRunner(
         "Rodinia",
@@ -663,12 +658,11 @@ def test_kmeans(compiler="clang-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_lavaMD(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "lavaMD" / "main.c"
 
     verifier = SDFGVerification(
-        verification={'sdfgs': 4, 'FOR': 21, 'WHILE': 5, 'Malloc': 8, 'Free': 8}
+        verification={'sdfgs': 4, 'FOR': 20, 'WHILE': 6, 'Malloc': 8, 'Free': 8}
     )
     runner = TestRunner(
         "Rodinia",
@@ -830,7 +824,6 @@ def test_nw(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_particlefilter(compiler="clang-19"):
     test_case = (
         Path(__file__).parent
@@ -846,10 +839,10 @@ def test_particlefilter(compiler="clang-19"):
             'sdfgs': 17,
             'Free': 2,
             'Malloc': 4,
-            'WHILE': 5,
+            'WHILE': 12,
             'MAP': 18,
             'SEQUENTIAL': 18,
-            'FOR': 56
+            'FOR': 49
         }
     )
     runner = TestRunner(
@@ -985,7 +978,6 @@ def test_srad(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_streamcluster(compiler="clang++-19"):
     test_case = (
         Path(__file__).parent
@@ -998,13 +990,13 @@ def test_streamcluster(compiler="clang++-19"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 25,
-            "MAP": 3,
-            "SEQUENTIAL": 3,
-            "FOR": 45,
+            "MAP": 2,
+            "SEQUENTIAL": 2,
+            "FOR": 41,
             "Malloc": 7,
             "Free": 8,
             "Calloc": 3,
-            "WHILE": 28,
+            "WHILE": 32,
         },
     )
     runner = TestRunner(

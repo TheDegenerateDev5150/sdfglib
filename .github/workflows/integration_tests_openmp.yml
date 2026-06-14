@@ -66,16 +66,16 @@ jobs:
           # LD_LIBRARY_PATH=../../build/integration/tests/plugins/simple:$LD_LIBRARY_PATH pytest -v -s plugin_test.py
 
           # Polybench
-          pytest --workers auto -v polybench_none_test.py
-          pytest --workers auto -v polybench_sequential_test.py
-          pytest --workers auto -v polybench_openmp_test.py
+          pytest --workers auto -v -rx polybench_none_test.py
+          pytest --workers auto -v -rx polybench_sequential_test.py
+          pytest --workers auto -v -rx polybench_openmp_test.py
 
           # Rodinia
-          pytest -v rodinia_none_test.py
-          pytest -v rodinia_sequential_test.py
-          pytest -v rodinia_openmp_test.py
+          pytest -v -rx rodinia_none_test.py
+          pytest -v -rx rodinia_sequential_test.py
+          pytest -v -rx rodinia_openmp_test.py
 
           # Apps
-          pytest -v apps_none_test.py
-          pytest -v apps_sequential_test.py
-          pytest -v apps_openmp_test.py
+          pytest -v -rx apps_none_test.py
+          pytest -v -rx apps_sequential_test.py
+          pytest -v -rx apps_openmp_test.py

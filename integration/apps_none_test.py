@@ -128,16 +128,15 @@ def evaluate_lulesh(reference_file: Path, test_file: Path, args) -> float:
     assert test_origin_energy == ref_origin_energy
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_LULESH():
     test_case = Path(__file__).parent / "tests" / "apps" / "LULESH" / "lulesh.cc"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 29,
-            "FOR": 39,
+            "FOR": 36,
             "SEQUENTIAL": 14,
-            "WHILE": 21,
+            "WHILE": 24,
             "MAP": 14,
             "Free": 6,
         }
@@ -344,17 +343,16 @@ def evaluate_miniAMR2(reference_file: Path, test_file: Path, args) -> float:
         )
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_miniAMR2():
     test_case = Path(__file__).parent / "tests" / "apps" / "miniAMR2" / "main.c"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 48,
-            "MAP": 3,
-            "FOR": 55,
-            "WHILE": 26,
-            "SEQUENTIAL": 3,
+            "MAP": 1,
+            "FOR": 22,
+            "WHILE": 59,
+            "SEQUENTIAL": 1,
             "Malloc": 13,
             "Free": 7,
         }

@@ -77,4 +77,4 @@ jobs:
           cd ../../../
 
           cd integration
-          pytest -v -s polybench_transfertuning_test.py
+          pytest -v -rx -s polybench_transfertuning_test.py

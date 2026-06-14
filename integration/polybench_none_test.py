@@ -458,8 +458,8 @@ def test_syrk(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param("-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Verifier changed")),
-        pytest.param("-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Verifier changed")),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
+        pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
 def test_trmm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
@@ -471,8 +471,8 @@ def test_trmm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
         verification={
             "sdfgs": 8,
             "FOR": 11,
-            "MAP": 4,
-            "SEQUENTIAL": 4,
+            "MAP": 5,
+            "SEQUENTIAL": 5,
         },
     )
     test_case = benchmark_path / "trmm.c"
