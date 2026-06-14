@@ -76,5 +76,5 @@ jobs:
           ./matmul.out
           cd ../../../
 
-          cd integration/tests
+          cd integration
           pytest -v -s polybench_transfertuning_test.py

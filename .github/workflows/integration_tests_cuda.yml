@@ -61,7 +61,7 @@ jobs:
           pip install pytest==7.1.3 --break-system-packages
           pip install pytest-parallel --break-system-packages
 
-          cd integration/tests
+          cd integration
 
           nvidia-smi
 

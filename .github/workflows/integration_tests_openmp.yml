@@ -60,7 +60,7 @@ jobs:
           pip install pytest==7.1.3 --break-system-packages
           pip install pytest-parallel --break-system-packages
 
-          cd integration/tests
+          cd integration
 
           # Plugin
           # LD_LIBRARY_PATH=../../build/integration/tests/plugins/simple:$LD_LIBRARY_PATH pytest -v -s plugin_test.py
