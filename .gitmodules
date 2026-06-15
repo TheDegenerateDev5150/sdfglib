@@ -5,5 +5,5 @@
 	path = cmake
 	url = git@github.com:daisytuner/cmake-scripts.git
 [submodule "integration/tests"]
-	path = integration/tests
+	path = llvm/integration/tests
 	url = git@github.com:daisytuner/benchmark-tests.git

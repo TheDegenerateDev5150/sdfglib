@@ -71,10 +71,10 @@ jobs:
           export DOCC_OFFLOAD_REPORT=1
 
           # End-to-end tests for transfer tuning
-          cd integration/tests/matmul/
+          cd llvm/integration/tests/matmul/
           docc -g -O3 -docc-tune=sequential -docc-transfer-tune -docc-save-temps matmul.c -o matmul.out
           ./matmul.out
-          cd ../../../
+          cd ../../../../
 
-          cd integration
+          cd llvm/integration
           pytest -v -rx -s polybench_transfertuning_test.py
