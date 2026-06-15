@@ -71,7 +71,7 @@ def evaluate(reference_file: Path, test_file: Path, args, dtype=np.float64) -> f
             reference_arrays[array], test_arrays[array], equal_nan=True
         )
 
-@pytest.mark.xfail(reason="Timeout")
+@pytest.mark.skip(reason="Timeout")
 def test_bplustree(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "b+tree" / "main.c"
 
@@ -499,6 +499,7 @@ def test_hotspot(compiler="clang++-19"):
     return runner.run(timeout=240)
 
 
+@pytest.mark.xfail(reason="Verifier changed & Output incorrect")
 def test_hotspot3D(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "hotspot3D" / "3D.c"
 

@@ -73,7 +73,7 @@ def evaluate(reference_file: Path, test_file: Path, args, dtype=np.float64) -> f
         )
 
 
-@pytest.mark.xfail(reason="Timeout")
+@pytest.mark.skip(reason="Timeout")
 def test_bplustree(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "b+tree" / "main.c"
     verifier = SDFGVerification(

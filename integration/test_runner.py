@@ -148,7 +148,7 @@ class TestRunner:
             except Exception as e:
                 exception_bucket.append(e)
 
-        t = threading.Thread(target=target)
+        t = threading.Thread(target=target, daemon=True)
         t.start()
         t.join(timeout)
 

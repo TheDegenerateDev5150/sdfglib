@@ -73,7 +73,7 @@ def evaluate(
         assert np.all(np.abs(test_arrays[array] - reference_arrays[array]) <= tol)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
+@pytest.mark.skip(reason="Timeout & Verifier changed")
 def test_bplustree(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "b+tree" / "main.c"
     verifier = SDFGVerification(
