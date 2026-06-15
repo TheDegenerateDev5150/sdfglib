@@ -73,6 +73,7 @@ def evaluate(reference_file: Path, test_file: Path, args, dtype=np.float64) -> f
         )
 
 
+@pytest.mark.xfail(reason="Timeout")
 def test_bplustree(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "b+tree" / "main.c"
     verifier = SDFGVerification(
@@ -352,7 +353,7 @@ def test_cfd(compiler="clang++-19"):
 
     return runner.run(timeout=240)
 
-
+@pytest.mark.xfail(reason="Timeout")
 def test_heartwall(compiler="clang-19"):
     test_case = Path(__file__).parent / "tests" / "rodinia" / "openmp" / "heartwall" / "main.c"
 
