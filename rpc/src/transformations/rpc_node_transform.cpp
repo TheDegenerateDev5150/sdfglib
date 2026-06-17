@@ -225,8 +225,10 @@ void RPCNodeTransform::
 
         // TODO: add transitions from after loop to tmp_scope
 
-        builder.remove_child(*parent_scope, index); // remove old loop
-        builder.move_child(opt.sdfg_result->sdfg->root(), 0, *parent_scope, index); // move optimized loop into place
+        auto num_children = opt.sdfg_result->sdfg->root().size();
+        builder.move_children(opt.sdfg_result->sdfg->root(), *parent_scope, index); // move all optimized children into
+                                                                                    // place
+        builder.remove_child(*parent_scope, index + num_children); // remove old loop
 
         if (opt.sdfg_result->sdfg->element_counter() > builder.subject().element_counter()) {
             builder.set_element_counter(opt.sdfg_result->sdfg->element_counter());
@@ -259,7 +261,7 @@ void RPCNodeTransform::
     if (opt.local_replay.has_value()) {
         auto recipe = opt.local_replay.value();
         std::cout << "Applied RPC optimization sequence with speedup " << opt.metadata.speedup
-                  << " and vector distance " << opt.metadata.vector_distance << ":\n";
+                  << " and vector distance " << opt.metadata.vector_distance << " to loopnest " << element_id << ":\n";
 
         if (dump_steps_) {
             print_transformation_sequence(recipe.sequence);
