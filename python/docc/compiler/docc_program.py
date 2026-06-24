@@ -237,6 +237,7 @@ class DoccProgram(ABC):
                 capture_args=capture_args,
                 debug_build=self.debug_build,
                 threads=self.build_thread_count,
+                reuse_sources=reuse_sources,
             )
 
         # Dump statistics after compile
