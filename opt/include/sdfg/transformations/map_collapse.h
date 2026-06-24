@@ -36,7 +36,21 @@ class MapCollapse : public Transformation {
 
     /// @brief Check whether the outer map can be collapsed with the (possibly
     /// imperfectly nested) maps directly contained in its body.
-    bool check_imperfect();
+    ///
+    /// Flattening turns the (formerly sequential) outer-map body into a single
+    /// parallel iteration space. Collapsible inner maps run for the valid portion
+    /// of the flattened inner index; every other ("skipped") body element is
+    /// replicated on every inner thread. Because a skipped element is a sibling of
+    /// the inner maps it cannot reference the inner index, so its accesses are
+    /// identical on all inner threads of an outer iteration - a value it produces
+    /// and another element consumes (RAW) is reproduced per thread, with no
+    /// cross-thread dependency.
+    ///
+    /// The collapse is therefore rejected only for hazards replication cannot
+    /// resolve: a container written by a collapsible map and accessed by any other
+    /// body element (its writes vary across the inner index), or a write-write
+    /// conflict between two different body elements on the same container.
+    bool check_imperfect(analysis::AnalysisManager& analysis_manager);
 
     /// @brief Whether a direct-child map can participate in the flattened
     /// iteration space (contiguous, closed-form bound independent of the outer

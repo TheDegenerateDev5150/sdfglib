@@ -1181,7 +1181,8 @@ TEST(MapCollapseTest, Deserialization) {
 // flattens the outer dimension against a virtual inner dimension whose extent is
 // the maximum of all sibling-map bounds. Each sibling inner map body is guarded
 // by `inner_idx < bound_i`, and every non-collapsed ("skipped") element is
-// guarded by `inner_idx == 0` so it runs exactly once per outer iteration.
+// replicated on every inner thread (it stays a direct child of the collapsed
+// body, with no guard).
 //
 // Expected transformed structure for outer i in [0,N) with sibling maps
 // j in [0,M) and k in [0,P):
@@ -1190,6 +1191,9 @@ TEST(MapCollapseTest, Deserialization) {
 //     [0] recovery block; transition assigns i = civ / max(M,P), t = civ % max(M,P)
 //     [1] if (t < M):  { entry block (j = t); <body of j map> }
 //     [2] if (t < P):  { entry block (k = t); <body of k map> }
+//
+// A skipped element B between the maps would simply appear as a direct child
+// (e.g. [2] B, [3] if (t < P) ...), replicated across all inner threads.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
@@ -1695,7 +1699,7 @@ TEST(MapCollapseTest, Apply_Imperfect_ScheduleAndOriginalRemoved) {
 // Imperfect — Apply with skipped elements
 // ---------------------------------------------------------------------------
 
-TEST(MapCollapseTest, Apply_Imperfect_SkippedBlock_GuardOnce) {
+TEST(MapCollapseTest, Apply_Imperfect_SkippedBlock_Replicated) {
     // Outer body: skipped block A, then collapsible map j in [0, M).
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto [outer, map_j, block_a] = build_imperfect_block_then_map(builder);
@@ -1719,26 +1723,28 @@ TEST(MapCollapseTest, Apply_Imperfect_SkippedBlock_GuardOnce) {
     auto t_idx = find_inner_index(recovery, civ, M);
     ASSERT_FALSE(t_idx.is_null());
 
-    // Body: recovery block, guard for skipped block A, guard for inner map j.
+    // Body: recovery block, replicated block A (unguarded), guard for inner map j.
     auto& body = collapsed->root();
     ASSERT_EQ(body.size(), 3);
     EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&body.at(0).first) != nullptr);
 
-    auto* guard_a = dynamic_cast<structured_control_flow::IfElse*>(&body.at(1).first);
-    auto* guard_j = dynamic_cast<structured_control_flow::IfElse*>(&body.at(2).first);
-    ASSERT_NE(guard_a, nullptr);
-    ASSERT_NE(guard_j, nullptr);
+    // The skipped block is replicated: it stays a plain Block, not wrapped in a
+    // guard, so it runs on every inner thread.
+    auto* replicated_a = dynamic_cast<structured_control_flow::Block*>(&body.at(1).first);
+    EXPECT_NE(replicated_a, nullptr) << "Skipped block must be replicated as a direct child (no guard)";
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::IfElse*>(&body.at(1).first) == nullptr)
+        << "Skipped block must NOT be wrapped in an inner==0 guard";
 
-    // Skipped block runs once per outer iteration: guarded by t == 0.
-    EXPECT_TRUE(symbolic::eq(guard_a->at(0).second, symbolic::Eq(t_idx, symbolic::integer(0))))
-        << "Skipped block must be guarded by t == 0";
+    auto* guard_j = dynamic_cast<structured_control_flow::IfElse*>(&body.at(2).first);
+    ASSERT_NE(guard_j, nullptr);
     // Inner map guarded by t < M.
     EXPECT_TRUE(symbolic::eq(guard_j->at(0).second, symbolic::Lt(t_idx, M))) << "Inner map must be guarded by t < M";
 }
 
 TEST(MapCollapseTest, Apply_Imperfect_PreservesOrder) {
     // Outer body order: map j in [0,M), skipped block A, map k in [0,P).
-    // After collapse the guards must appear in the same order.
+    // After collapse the elements must appear in the same order, with the skipped
+    // block replicated (a plain Block) between the two map guards.
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto& root = builder.subject().root();
 
@@ -1802,19 +1808,278 @@ TEST(MapCollapseTest, Apply_Imperfect_PreservesOrder) {
     auto t_idx = find_inner_index(recovery, civ, bmax);
     ASSERT_FALSE(t_idx.is_null());
 
-    // Body: recovery block + three guards in original order: j (t<M), A (t==0), k (t<P).
+    // Body: recovery block + j (t<M) guard, replicated block A, k (t<P) guard.
     auto& body = collapsed->root();
     ASSERT_EQ(body.size(), 4);
 
     auto* guard_j = dynamic_cast<structured_control_flow::IfElse*>(&body.at(1).first);
-    auto* guard_a = dynamic_cast<structured_control_flow::IfElse*>(&body.at(2).first);
+    auto* block_a = dynamic_cast<structured_control_flow::Block*>(&body.at(2).first);
     auto* guard_k = dynamic_cast<structured_control_flow::IfElse*>(&body.at(3).first);
     ASSERT_NE(guard_j, nullptr);
-    ASSERT_NE(guard_a, nullptr);
+    ASSERT_NE(block_a, nullptr) << "Skipped block must be replicated as a plain Block in original order";
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::IfElse*>(&body.at(2).first) == nullptr)
+        << "Skipped block must NOT be wrapped in an inner==0 guard";
     ASSERT_NE(guard_k, nullptr);
 
     EXPECT_TRUE(symbolic::eq(guard_j->at(0).second, symbolic::Lt(t_idx, M))) << "First guard must be t < M";
-    EXPECT_TRUE(symbolic::eq(guard_a->at(0).second, symbolic::Eq(t_idx, symbolic::integer(0))))
-        << "Second guard (skipped block) must be t == 0";
-    EXPECT_TRUE(symbolic::eq(guard_k->at(0).second, symbolic::Lt(t_idx, P))) << "Third guard must be t < P";
+    EXPECT_TRUE(symbolic::eq(guard_k->at(0).second, symbolic::Lt(t_idx, P))) << "Third element guard must be t < P";
+}
+
+// ---------------------------------------------------------------------------
+// Imperfect — data-dependency safety (replication model)
+// ---------------------------------------------------------------------------
+
+/// Build outer map i in [0,N) with body:
+///   block A (skipped):     X[i]        = Y[i]
+///   map j in [0,M):        Z[i*M + j]  = X[i]
+/// i.e. a skipped producer of X feeding the collapsible inner map (RAW on X).
+/// Returns {outer, map_j, block_a}.
+static std::tuple<structured_control_flow::Map*, structured_control_flow::Map*, structured_control_flow::Block*>
+build_imperfect_producer_then_map(builder::StructuredSDFGBuilder& builder) {
+    auto& root = builder.subject().root();
+
+    types::Scalar float_desc(types::PrimitiveType::Float);
+    types::Pointer ptr_desc(float_desc);
+    types::Pointer opaque_desc;
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+
+    builder.add_container("X", opaque_desc, true);
+    builder.add_container("Y", opaque_desc, true);
+    builder.add_container("Z", opaque_desc, true);
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("M", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    auto& outer = builder.add_map(
+        root,
+        i,
+        symbolic::Lt(i, N),
+        symbolic::integer(0),
+        symbolic::add(i, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+
+    // Producer block A: X[i] = Y[i]
+    auto& block_a = builder.add_block(outer.root());
+    {
+        auto& y_in = builder.add_access(block_a, "Y");
+        auto& x_out = builder.add_access(block_a, "X");
+        auto& tk = builder.add_tasklet(block_a, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block_a, y_in, tk, "_in", {i}, ptr_desc);
+        builder.add_computational_memlet(block_a, tk, "_out", x_out, {i}, ptr_desc);
+    }
+
+    // Collapsible inner map j in [0, M): Z[i*M + j] = X[i]
+    auto& map_j = builder.add_map(
+        outer.root(),
+        j,
+        symbolic::Lt(j, M),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    {
+        auto& block_b = builder.add_block(map_j.root());
+        auto& x_in = builder.add_access(block_b, "X");
+        auto& z_out = builder.add_access(block_b, "Z");
+        auto& tk = builder.add_tasklet(block_b, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block_b, x_in, tk, "_in", {i}, ptr_desc);
+        builder.add_computational_memlet(block_b, tk, "_out", z_out, {symbolic::add(symbolic::mul(i, M), j)}, ptr_desc);
+    }
+
+    return {&outer, &map_j, &block_a};
+}
+
+TEST(MapCollapseTest, CanBeApplied_Imperfect_ProducerConsumedByInnerMap) {
+    // A skipped producer block writes X[i]; the collapsible inner map reads X[i].
+    // Under replication each inner thread re-runs the producer (it cannot depend on
+    // the inner index), so this RAW dependency is safe and the collapse is allowed.
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto [outer, map_j, block_a] = build_imperfect_producer_then_map(builder);
+
+    analysis::AnalysisManager am(builder.subject());
+    transformations::MapCollapse t(*outer, 2);
+    EXPECT_TRUE(t.can_be_applied(builder, am));
+}
+
+TEST(MapCollapseTest, Apply_Imperfect_Producer_Replicated_NotGuarded) {
+    // The producer must be replicated: it stays a plain Block (no inner==0 guard)
+    // as a direct child of the collapsed body, ahead of the inner-map guard.
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto [outer, map_j, block_a] = build_imperfect_producer_then_map(builder);
+
+    analysis::AnalysisManager am(builder.subject());
+    transformations::MapCollapse t(*outer, 2);
+    ASSERT_TRUE(t.can_be_applied(builder, am));
+    t.apply(builder, am);
+
+    auto* collapsed = t.collapsed_loop();
+    ASSERT_NE(collapsed, nullptr);
+
+    auto civ = collapsed->indvar();
+    auto M = symbolic::symbol("M");
+
+    const auto& recovery = collapsed->root().at(0).second.assignments();
+    auto t_idx = find_inner_index(recovery, civ, M);
+    ASSERT_FALSE(t_idx.is_null());
+
+    // Body: recovery block, replicated producer block (unguarded), inner-map guard.
+    auto& body = collapsed->root();
+    ASSERT_EQ(body.size(), 3);
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::Block*>(&body.at(0).first) != nullptr);
+
+    auto* producer = dynamic_cast<structured_control_flow::Block*>(&body.at(1).first);
+    ASSERT_NE(producer, nullptr) << "Producer must be replicated as a direct child block";
+    EXPECT_TRUE(dynamic_cast<structured_control_flow::IfElse*>(&body.at(1).first) == nullptr)
+        << "Producer must NOT be wrapped in an inner==0 guard";
+
+    // The producer keeps its tasklet (X[i] = Y[i]) intact.
+    EXPECT_EQ(producer->dataflow().tasklets().size(), 1u);
+
+    auto* guard_j = dynamic_cast<structured_control_flow::IfElse*>(&body.at(2).first);
+    ASSERT_NE(guard_j, nullptr);
+    EXPECT_TRUE(symbolic::eq(guard_j->at(0).second, symbolic::Lt(t_idx, M)));
+}
+
+TEST(MapCollapseTest, CannotApply_Imperfect_CollapsibleMapOutputConsumed) {
+    // The collapsible inner map writes X (inner-varying), and a later skipped block
+    // reads X. After flattening the consumer would read another thread's data
+    // without synchronization, which replication cannot fix → must be rejected.
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto& root = builder.subject().root();
+
+    types::Scalar float_desc(types::PrimitiveType::Float);
+    types::Pointer ptr_desc(float_desc);
+    types::Pointer opaque_desc;
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+
+    builder.add_container("X", opaque_desc, true);
+    builder.add_container("Y", opaque_desc, true);
+    builder.add_container("Z", opaque_desc, true);
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("M", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    auto& outer = builder.add_map(
+        root,
+        i,
+        symbolic::Lt(i, N),
+        symbolic::integer(0),
+        symbolic::add(i, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+
+    // Collapsible inner map j in [0, M): X[i*M + j] = Y[i*M + j]  (writes X)
+    auto& map_j = builder.add_map(
+        outer.root(),
+        j,
+        symbolic::Lt(j, M),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    {
+        auto idx = symbolic::add(symbolic::mul(i, M), j);
+        auto& block_j = builder.add_block(map_j.root());
+        auto& y_in = builder.add_access(block_j, "Y");
+        auto& x_out = builder.add_access(block_j, "X");
+        auto& tk = builder.add_tasklet(block_j, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block_j, y_in, tk, "_in", {idx}, ptr_desc);
+        builder.add_computational_memlet(block_j, tk, "_out", x_out, {idx}, ptr_desc);
+    }
+
+    // Skipped block B consuming X: Z[i] = X[i]
+    auto& block_b = builder.add_block(outer.root());
+    {
+        auto& x_in = builder.add_access(block_b, "X");
+        auto& z_out = builder.add_access(block_b, "Z");
+        auto& tk = builder.add_tasklet(block_b, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block_b, x_in, tk, "_in", {i}, ptr_desc);
+        builder.add_computational_memlet(block_b, tk, "_out", z_out, {i}, ptr_desc);
+    }
+
+    analysis::AnalysisManager am(builder.subject());
+    transformations::MapCollapse t(outer, 2);
+    EXPECT_FALSE(t.can_be_applied(builder, am));
+}
+
+TEST(MapCollapseTest, CannotApply_Imperfect_WriteWriteConflict) {
+    // Two skipped blocks write the same container X. Even though each is uniform
+    // across the inner index, a cross-element write-write conflict has no
+    // guaranteed ordering after flattening → conservatively rejected.
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto& root = builder.subject().root();
+
+    types::Scalar float_desc(types::PrimitiveType::Float);
+    types::Pointer ptr_desc(float_desc);
+    types::Pointer opaque_desc;
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+
+    builder.add_container("X", opaque_desc, true);
+    builder.add_container("Y", opaque_desc, true);
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("M", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    auto& outer = builder.add_map(
+        root,
+        i,
+        symbolic::Lt(i, N),
+        symbolic::integer(0),
+        symbolic::add(i, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+
+    // Skipped block A: X[i] = Y[i]
+    auto& block_a = builder.add_block(outer.root());
+    {
+        auto& y_in = builder.add_access(block_a, "Y");
+        auto& x_out = builder.add_access(block_a, "X");
+        auto& tk = builder.add_tasklet(block_a, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block_a, y_in, tk, "_in", {i}, ptr_desc);
+        builder.add_computational_memlet(block_a, tk, "_out", x_out, {i}, ptr_desc);
+    }
+
+    // Collapsible inner map j in [0, M): empty body (no data conflict)
+    auto& map_j = builder.add_map(
+        outer.root(),
+        j,
+        symbolic::Lt(j, M),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    builder.add_block(map_j.root());
+
+    // Skipped block C: X[i] = Y[i]  (second writer of X → WAW with block A)
+    auto& block_c = builder.add_block(outer.root());
+    {
+        auto& y_in = builder.add_access(block_c, "Y");
+        auto& x_out = builder.add_access(block_c, "X");
+        auto& tk = builder.add_tasklet(block_c, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block_c, y_in, tk, "_in", {i}, ptr_desc);
+        builder.add_computational_memlet(block_c, tk, "_out", x_out, {i}, ptr_desc);
+    }
+
+    analysis::AnalysisManager am(builder.subject());
+    transformations::MapCollapse t(outer, 2);
+    EXPECT_FALSE(t.can_be_applied(builder, am));
 }

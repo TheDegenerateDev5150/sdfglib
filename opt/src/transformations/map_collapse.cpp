@@ -1,5 +1,10 @@
 #include "sdfg/transformations/map_collapse.h"
 
+#include <string>
+#include <unordered_set>
+#include <vector>
+
+#include "sdfg/analysis/users.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/structured_control_flow/if_else.h"
 #include "sdfg/structured_control_flow/map.h"
@@ -26,7 +31,7 @@ bool MapCollapse::can_be_applied(builder::StructuredSDFGBuilder& builder, analys
     }
 
     // Imperfect (CUDA-style) collapse is performed one level at a time.
-    if (count_ == 2 && this->check_imperfect()) {
+    if (count_ == 2 && this->check_imperfect(analysis_manager)) {
         return true;
     }
 
@@ -125,7 +130,7 @@ bool MapCollapse::is_collapsible_inner_map(structured_control_flow::Map& map, co
     return true;
 }
 
-bool MapCollapse::check_imperfect() {
+bool MapCollapse::check_imperfect(analysis::AnalysisManager& analysis_manager) {
     // The outer map must itself be collapsible (contiguous, closed-form bound
     // that does not depend on its own induction variable).
     auto outer_indvar = loop_.indvar();
@@ -144,9 +149,11 @@ bool MapCollapse::check_imperfect() {
     }
 
     auto& body = loop_.root();
+    const size_t n = body.size();
 
+    std::vector<bool> is_collapsible(n, false);
     size_t num_collapsible = 0;
-    for (size_t idx = 0; idx < body.size(); ++idx) {
+    for (size_t idx = 0; idx < n; ++idx) {
         // Criterion (v1): transitions between body elements must be empty. Any
         // inter-element assignments would need to be re-guarded, which is not
         // handled yet.
@@ -156,14 +163,83 @@ bool MapCollapse::check_imperfect() {
 
         auto* map = dynamic_cast<structured_control_flow::Map*>(&body.at(idx).first);
         if (map != nullptr && this->is_collapsible_inner_map(*map, outer_indvar)) {
+            is_collapsible[idx] = true;
             ++num_collapsible;
         }
         // Everything else (blocks, if-else, loops, non-collapsible maps) is a
-        // "skipped" element that will be guarded to run once per outer iteration.
+        // "skipped" element that will be replicated on every inner thread.
     }
 
     // Need at least one collapsible inner map to flatten against.
-    return num_collapsible >= 1;
+    if (num_collapsible < 1) {
+        return false;
+    }
+
+    // Data-dependency safety gate (replication model).
+    //
+    // The collapse flattens the outer map together with one inner level into a
+    // single parallel iteration space. Collapsible inner maps run for the valid
+    // portion of the flattened inner index (`inner < bound`); every other
+    // ("skipped") body element is *replicated* on every inner thread.
+    //
+    // Replication is safe for a skipped element because it is a sibling of the
+    // inner maps and therefore cannot reference the inner induction variable: its
+    // reads and writes are identical for all inner threads of the same outer
+    // iteration. Hence a value produced by a skipped element and consumed by a
+    // later element (RAW) is reproduced independently on each thread - there is no
+    // cross-thread dependency.
+    //
+    // What replication cannot make safe, and is therefore rejected:
+    //   * A container written by a *collapsible* map and accessed (read or
+    //     written) by any other body element: collapsible writes vary across the
+    //     inner index, so the consumer would observe another thread's data
+    //     without synchronization (covers RAW, WAR, WAW against collapsible maps).
+    //   * A write-write conflict between two different body elements on the same
+    //     container: ordering across threads is no longer guaranteed.
+    auto& users = analysis_manager.get<analysis::Users>();
+
+    std::vector<std::unordered_set<std::string>> writes(n);
+    std::vector<std::unordered_set<std::string>> reads(n);
+    for (size_t idx = 0; idx < n; ++idx) {
+        analysis::UsersView view(users, body.at(idx).first);
+        for (auto* u : view.writes()) {
+            writes[idx].insert(u->container());
+        }
+        for (auto* u : view.moves()) {
+            writes[idx].insert(u->container());
+        }
+        // Views alias memory; treat conservatively as both a read and a write.
+        for (auto* u : view.views()) {
+            writes[idx].insert(u->container());
+            reads[idx].insert(u->container());
+        }
+        for (auto* u : view.reads()) {
+            reads[idx].insert(u->container());
+        }
+    }
+
+    for (size_t a = 0; a < n; ++a) {
+        for (size_t b = 0; b < n; ++b) {
+            if (a == b) {
+                continue;
+            }
+            for (const auto& container : writes[a]) {
+                const bool accessed_by_b = writes[b].count(container) != 0 || reads[b].count(container) != 0;
+                if (!accessed_by_b) {
+                    continue;
+                }
+                // Unsafe if the writer is a collapsible map (inner-varying write
+                // shared with another element), or if both elements write the same
+                // container (write-write conflict). A skipped writer feeding a
+                // pure reader (RAW) is safe under replication and allowed.
+                if (is_collapsible[a] || writes[b].count(container) != 0) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 void MapCollapse::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
@@ -351,9 +427,12 @@ void MapCollapse::apply_imperfect(builder::StructuredSDFGBuilder& builder, analy
     // preserving order.
     builder.move_children(outer.root(), collapsed_map.root());
 
-    // Step 8: Guard each original body element. Collapsible maps run for the valid
-    // portion of the inner extent (`inner_index < bound`); every other element runs
-    // exactly once per outer iteration (`inner_index == 0`).
+    // Step 8: Process each original body element. Collapsible maps run for the
+    // valid portion of the inner extent (`inner_index < bound`). Every other
+    // ("skipped") element is replicated: it stays a direct child of the collapsed
+    // body and therefore runs on every inner thread. Because a skipped element is
+    // a sibling of the inner maps it cannot reference the inner index, so all
+    // inner threads of an outer iteration execute it identically.
     for (auto& item : items) {
         auto* child = item.node;
         if (item.map != nullptr) {
@@ -369,13 +448,8 @@ void MapCollapse::apply_imperfect(builder::StructuredSDFGBuilder& builder, analy
             // Move the map body into the guarded branch and drop the empty map shell.
             builder.move_children(item.map->root(), branch);
             builder.remove_child(collapsed_map.root(), collapsed_map.root().index(*child));
-        } else {
-            auto& if_else = builder.add_if_else_before(collapsed_map.root(), *child, {}, outer.debug_info());
-            auto& branch =
-                builder.add_case(if_else, symbolic::Eq(inner_index, symbolic::integer(0)), outer.debug_info());
-
-            builder.move_child(collapsed_map.root(), collapsed_map.root().index(*child), branch);
         }
+        // Skipped elements are left in place (replicated on every inner thread).
     }
 
     // Step 9: Remove the original outer map.
