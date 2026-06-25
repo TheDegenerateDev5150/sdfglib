@@ -213,3 +213,63 @@ TEST(UniqueLoopIndvarsTest, Idempotent) {
     // Second run has nothing left to disambiguate.
     EXPECT_FALSE(pass.run(builder_opt, analysis_manager));
 }
+
+TEST(UniqueLoopIndvarsTest, IndvarReadAfterLoop_NotRenamed) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+
+    auto& root = builder.subject().root();
+
+    types::Scalar float_type(types::PrimitiveType::Float);
+    types::Pointer pointer_type(float_type);
+    builder.add_container("A", pointer_type, true);
+    builder.add_container("B", pointer_type, true);
+
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("i", sym_desc);
+
+    auto init = symbolic::integer(0);
+    auto i = symbolic::symbol("i");
+    auto cond = symbolic::Lt(i, symbolic::symbol("N"));
+    auto upd = symbolic::add(i, symbolic::integer(1));
+
+    // Helper: A[i] = A[i] inside the given sequence (reads the induction variable).
+    auto add_copy = [&](structured_control_flow::Sequence& seq) {
+        auto& block = builder.add_block(seq);
+        auto& in = builder.add_access(block, "A");
+        auto& out = builder.add_access(block, "B");
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, in, tasklet, "_in", {i}, pointer_type);
+        builder.add_computational_memlet(block, tasklet, "_out", out, {i}, pointer_type);
+    };
+
+    // First loop reserves the induction variable "i".
+    auto& loop0 = builder.add_for(root, i, cond, init, upd);
+    add_copy(loop0.root());
+
+    // Second loop clashes on "i" and is genuinely read in its body.
+    auto& loop1 = builder.add_for(root, i, cond, init, upd);
+    add_copy(loop1.root());
+
+    // Valid user of "i" AFTER the second loop: its final value escapes the loop,
+    // so a local rename of loop1 would leave this read dangling.
+    add_copy(root);
+
+    // Run pass
+    auto sdfg_opt = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(sdfg_opt);
+    analysis::AnalysisManager analysis_manager(builder_opt.subject());
+    passes::UniqueLoopIndvars pass;
+    EXPECT_FALSE(pass.run(builder_opt, analysis_manager));
+
+    auto& result = builder_opt.subject();
+    auto* l0 = dynamic_cast<const structured_control_flow::StructuredLoop*>(&result.root().at(0).first);
+    auto* l1 = dynamic_cast<const structured_control_flow::StructuredLoop*>(&result.root().at(1).first);
+    ASSERT_NE(l0, nullptr);
+    ASSERT_NE(l1, nullptr);
+
+    // Neither loop is renamed: the clashing loop is left alone because its
+    // induction variable is read after the loop.
+    EXPECT_TRUE(symbolic::eq(l0->indvar(), symbolic::symbol("i")));
+    EXPECT_TRUE(symbolic::eq(l1->indvar(), symbolic::symbol("i")));
+}
