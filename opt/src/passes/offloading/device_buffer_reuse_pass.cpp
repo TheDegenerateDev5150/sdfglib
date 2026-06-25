@@ -370,10 +370,15 @@ bool DeviceBufferReusePass::run_pass(builder::StructuredSDFGBuilder& builder, an
             continue;
         }
 
-        // members.front() is the largest buffer (sorted descending), so it names the shared
-        // allocation and provides its size.
+        // The colouring order is only a heuristic: with symbolic sizes `Gt` is not a total order
+        // (e.g. S vs. T compares false both ways), so members.front() is not guaranteed to be the
+        // largest. It still serves as the shared allocation's name, but the surviving allocation
+        // must be sized to the symbolic maximum over all members.
         const std::string representative = candidates[members.front()].container;
         symbolic::Expression max_size = candidates[members.front()].size;
+        for (size_t m : members) {
+            max_size = symbolic::max(max_size, candidates[m].size);
+        }
 
         // Identify the earliest allocation and latest free in program order; these survive.
         size_t earliest = members.front();

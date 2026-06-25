@@ -82,6 +82,55 @@ structured_control_flow::Block& add_pure_free(
     return block;
 }
 
+// Symbolic-size variants of the alloc/free helpers. Symbolic sizes (e.g. `S`, `T`) are not totally
+// ordered by `symbolic::Gt` (it answers false in both directions), which is exactly the case that
+// must not break the largest-first heuristic nor the merged-allocation sizing.
+template<typename NodeT>
+structured_control_flow::Block& add_pure_alloc(
+    builder::StructuredSDFGBuilder& builder,
+    structured_control_flow::Sequence& seq,
+    const std::string& dev,
+    const types::IType& dev_type,
+    const symbolic::Expression& size
+) {
+    auto [block, node] = offloading::add_offloading_block<NodeT>(
+        builder,
+        seq,
+        dev,
+        dev,
+        offloading::DataTransferDirection::NONE,
+        offloading::BufferLifecycle::ALLOC,
+        dev_type,
+        DebugInfo(),
+        size,
+        symbolic::integer(0)
+    );
+    return block;
+}
+
+template<typename NodeT>
+structured_control_flow::Block& add_pure_free(
+    builder::StructuredSDFGBuilder& builder,
+    structured_control_flow::Sequence& seq,
+    const std::string& dev,
+    const types::IType& dev_type,
+    const symbolic::Expression& size
+) {
+    auto [block, node] = offloading::add_offloading_block<NodeT>(
+        builder,
+        seq,
+        dev,
+        dev,
+        offloading::DataTransferDirection::NONE,
+        offloading::BufferLifecycle::FREE,
+        dev_type,
+        DebugInfo(),
+        size,
+        symbolic::integer(0)
+    );
+    return block;
+}
+
 // A use of the device buffer (read + write) standing in for a kernel / map nest that operates on
 // it. This gives the container a live range between its alloc and its free.
 void add_use(builder::StructuredSDFGBuilder& builder, structured_control_flow::Sequence& seq, const std::string& dev) {
@@ -662,4 +711,128 @@ TYPED_TEST(DeviceBufferReusePassTest, ReuseSequentialInLoopBody) {
     EXPECT_EQ(summary.alloc_containers.size(), 1u);
     ASSERT_EQ(summary.allocs.size(), 1u);
     EXPECT_TRUE(symbolic::eq(summary.allocs.front().second->size(), symbolic::integer(1024)));
+}
+
+// ===========================================================================================
+// Symbolic allocation sizes
+// ===========================================================================================
+
+// Two sequential buffers whose sizes are symbols `S` and `T`. `symbolic::Gt` cannot order S and T
+// (it answers false in both directions), so the colouring order is arbitrary and `members.front()`
+// is not necessarily the largest. The merged allocation must therefore be sized to the symbolic
+// maximum `max(S, T)`, never to whichever member happened to sort first.
+TYPED_TEST(DeviceBufferReusePassTest, ReuseSymbolicSizesUsesSymbolicMax) {
+    builder::StructuredSDFGBuilder builder("symbolic_sizes_max", FunctionType_CPU);
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    auto& root = builder.subject().root();
+
+    types::Scalar element(types::PrimitiveType::Float);
+    types::Pointer desc(element);
+    builder.add_container("S", types::Scalar(types::PrimitiveType::Int64), true);
+    builder.add_container("T", types::Scalar(types::PrimitiveType::Int64), true);
+    builder.add_container("d0", desc);
+    builder.add_container("d1", desc);
+
+    auto s = symbolic::symbol("S");
+    auto t = symbolic::symbol("T");
+
+    add_pure_alloc<TypeParam>(builder, root, "d0", desc, s);
+    add_use(builder, root, "d0");
+    add_pure_free<TypeParam>(builder, root, "d0", desc, s);
+
+    add_pure_alloc<TypeParam>(builder, root, "d1", desc, t);
+    add_use(builder, root, "d1");
+    add_pure_free<TypeParam>(builder, root, "d1", desc, t);
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    passes::DeviceBufferReusePass pass;
+    EXPECT_TRUE(pass.run(builder, analysis_manager));
+
+    dump_sdfg(builder.subject(), "1-after");
+
+    auto summary = summarize(builder.subject());
+    EXPECT_EQ(summary.alloc_containers.size(), 1u);
+    ASSERT_EQ(summary.allocs.size(), 1u);
+    // The surviving allocation must cover both buffers: max(S, T), not just S or T.
+    EXPECT_TRUE(symbolic::eq(summary.allocs.front().second->size(), symbolic::max(s, t)));
+}
+
+// Three sequential buffers with mutually incomparable symbolic sizes `S`, `T`, `U`. They all
+// collapse onto a single allocation, which must be sized to the maximum over ALL members, not the
+// (unstable) first element of the colouring order.
+TYPED_TEST(DeviceBufferReusePassTest, SymbolicSizesMaxOverAllMembers) {
+    builder::StructuredSDFGBuilder builder("symbolic_sizes_all", FunctionType_CPU);
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    auto& root = builder.subject().root();
+
+    types::Scalar element(types::PrimitiveType::Float);
+    types::Pointer desc(element);
+    builder.add_container("S", types::Scalar(types::PrimitiveType::Int64), true);
+    builder.add_container("T", types::Scalar(types::PrimitiveType::Int64), true);
+    builder.add_container("U", types::Scalar(types::PrimitiveType::Int64), true);
+    builder.add_container("d0", desc);
+    builder.add_container("d1", desc);
+    builder.add_container("d2", desc);
+
+    auto s = symbolic::symbol("S");
+    auto t = symbolic::symbol("T");
+    auto u = symbolic::symbol("U");
+
+    add_pure_alloc<TypeParam>(builder, root, "d0", desc, s);
+    add_use(builder, root, "d0");
+    add_pure_free<TypeParam>(builder, root, "d0", desc, s);
+
+    add_pure_alloc<TypeParam>(builder, root, "d1", desc, t);
+    add_use(builder, root, "d1");
+    add_pure_free<TypeParam>(builder, root, "d1", desc, t);
+
+    add_pure_alloc<TypeParam>(builder, root, "d2", desc, u);
+    add_use(builder, root, "d2");
+    add_pure_free<TypeParam>(builder, root, "d2", desc, u);
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    passes::DeviceBufferReusePass pass;
+    EXPECT_TRUE(pass.run(builder, analysis_manager));
+
+    auto summary = summarize(builder.subject());
+    EXPECT_EQ(summary.alloc_containers.size(), 1u);
+    ASSERT_EQ(summary.allocs.size(), 1u);
+    EXPECT_TRUE(symbolic::eq(summary.allocs.front().second->size(), symbolic::max(symbolic::max(s, t), u)));
+}
+
+// A symbolic buffer `S` and a concrete buffer of 4096 elements, sequential. The symbolic size is
+// not comparable with the integer, so the merged allocation must take the symbolic maximum of the
+// two rather than assuming either dominates.
+TYPED_TEST(DeviceBufferReusePassTest, SymbolicAndConcreteSizeMax) {
+    builder::StructuredSDFGBuilder builder("symbolic_and_concrete", FunctionType_CPU);
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    auto& root = builder.subject().root();
+
+    types::Scalar element(types::PrimitiveType::Float);
+    types::Pointer desc(element);
+    builder.add_container("S", types::Scalar(types::PrimitiveType::Int64), true);
+    builder.add_container("d0", desc);
+    builder.add_container("d1", desc);
+
+    auto s = symbolic::symbol("S");
+
+    add_pure_alloc<TypeParam>(builder, root, "d0", desc, s);
+    add_use(builder, root, "d0");
+    add_pure_free<TypeParam>(builder, root, "d0", desc, s);
+
+    add_pure_alloc<TypeParam>(builder, root, "d1", desc, 4096);
+    add_use(builder, root, "d1");
+    add_pure_free<TypeParam>(builder, root, "d1", desc, 4096);
+
+    dump_sdfg(builder.subject(), "0-before");
+
+    passes::DeviceBufferReusePass pass;
+    EXPECT_TRUE(pass.run(builder, analysis_manager));
+
+    auto summary = summarize(builder.subject());
+    EXPECT_EQ(summary.alloc_containers.size(), 1u);
+    ASSERT_EQ(summary.allocs.size(), 1u);
+    EXPECT_TRUE(symbolic::eq(summary.allocs.front().second->size(), symbolic::max(s, symbolic::integer(4096))));
 }
