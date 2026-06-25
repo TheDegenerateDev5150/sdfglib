@@ -4,6 +4,7 @@
 
 #include "sdfg/analysis/assumptions_analysis.h"
 #include "sdfg/structured_control_flow/map.h"
+#include "sdfg/structured_control_flow/reduce.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/structured_control_flow/while.h"
 #include "sdfg/symbolic/conjunctive_normal_form.h"
@@ -67,6 +68,9 @@ void LoopAnalysis::
         } else if (auto for_stmt = dynamic_cast<structured_control_flow::For*>(current)) {
             new_for = for_stmt;
             new_loop = for_stmt;
+        } else if (auto loop_stmt = dynamic_cast<structured_control_flow::StructuredLoop*>(current)) {
+            // Generic structured loop (e.g. Reduce) that is neither a Map nor a For.
+            new_loop = loop_stmt;
         }
 
         if (new_loop != nullptr) {
