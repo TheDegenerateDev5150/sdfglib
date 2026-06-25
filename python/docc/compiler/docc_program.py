@@ -149,9 +149,27 @@ class DoccProgram(ABC):
             if self.debug_dump:
                 sdfg.dump(output_folder, "py0.parsed", dump_dot=True)
 
+            if not output_folder is None:
+                sdfg.output_dir = output_folder
+
             # Enable statistics if envvar is set
             if _statistics_enabled_by_env():
                 _enable_statistics()
+
+            sdfg.validate()
+
+            if remote_tuning is None:
+                remote_tuning = self.remote_tuning
+
+            target_options = TargetOptions()
+            target_options.target = self.target
+            target_options.category = self.category
+            target_options.remote_tuning = remote_tuning
+
+            # Einsum detection
+            sdfg.einsum()
+            if self.debug_dump:
+                sdfg.dump(output_folder, "py1.einsum", dump_dot=True)
 
             sdfg.validate()
 
