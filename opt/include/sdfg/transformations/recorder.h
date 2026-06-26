@@ -5,6 +5,7 @@
 #include <sdfg/structured_control_flow/control_flow_node.h>
 #include <sdfg/structured_sdfg.h>
 #include <sdfg/transformations/transformation.h>
+#include <sdfg/transformations/transformation_schema.h>
 
 #include <concepts>
 #include <nlohmann/json.hpp>
@@ -70,6 +71,14 @@ public:
         nlohmann::json desc;
         transformation.to_json(desc);
 
+#ifndef NDEBUG
+        std::string schema_error;
+        if (!validate_transformation_schema(desc, schema_error)) {
+            throw InvalidTransformationDescriptionException(
+                "Transformation '" + transformation.name() + "' produced an invalid description: " + schema_error
+            );
+        }
+#endif
         // Enrich each subgraph loop entry with loop_info
         auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
         for (auto& [key, value] : desc["subgraph"].items()) {
