@@ -23,7 +23,7 @@ symbolic::Expression find_nested_gpu_blocksize(
         bool foundY = false;
         bool foundZ = false;
         for (auto& loop : path) {
-            if (auto map = dynamic_cast<structured_control_flow::Map*>(loop)) {
+            if (auto map = dynamic_cast<structured_control_flow::StructuredLoop*>(loop)) {
                 if (map->schedule_type().value() == ScheduleT::value()) {
                     auto dim = ScheduleT::dimension(map->schedule_type());
                     if (dim == GPUDimension::X) {
@@ -49,7 +49,7 @@ symbolic::Expression find_nested_gpu_blocksize(
 
     // Find block size for the requested dimension
     for (auto loop : loops) {
-        if (auto map = dynamic_cast<structured_control_flow::Map*>(loop)) {
+        if (auto map = dynamic_cast<structured_control_flow::StructuredLoop*>(loop)) {
             if (map->schedule_type().value() != ScheduleT::value() &&
                 map->schedule_type().value() != structured_control_flow::ScheduleType_Sequential::value()) {
                 throw InvalidSDFGException("Nested map in GPU kernel not GPU or Sequential");
@@ -76,7 +76,7 @@ symbolic::Expression find_nested_gpu_iterations(
     loops.insert(&node);
 
     for (auto loop : loops) {
-        if (auto map = dynamic_cast<structured_control_flow::Map*>(loop)) {
+        if (auto map = dynamic_cast<structured_control_flow::StructuredLoop*>(loop)) {
             if (map->schedule_type().value() != ScheduleT::value() &&
                 map->schedule_type().value() != structured_control_flow::ScheduleType_Sequential::value()) {
                 throw InvalidSDFGException("Nested map in GPU kernel not GPU or Sequential");

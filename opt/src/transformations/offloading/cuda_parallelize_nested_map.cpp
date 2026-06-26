@@ -2,24 +2,48 @@
 
 #include <sdfg/analysis/loop_analysis.h>
 #include "sdfg/exceptions.h"
+#include "sdfg/structured_control_flow/reduce.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
+#include "sdfg/types/pointer.h"
+#include "sdfg/types/scalar.h"
 
 namespace sdfg {
 namespace transformations {
 
-CUDAParallelizeNestedMap::CUDAParallelizeNestedMap(structured_control_flow::Map& loop, size_t block_size)
+CUDAParallelizeNestedMap::CUDAParallelizeNestedMap(structured_control_flow::StructuredLoop& loop, size_t block_size)
     : loop_(loop), block_size_(block_size) {}
 
 std::string CUDAParallelizeNestedMap::name() const { return "CUDAParallelizeNestedMap"; }
 
 bool CUDAParallelizeNestedMap::
     can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+    if (dynamic_cast<structured_control_flow::Map*>(&loop_) == nullptr &&
+        dynamic_cast<structured_control_flow::Reduce*>(&loop_) == nullptr) {
+        throw InvalidTransformationDescriptionException(
+            "CUDAParallelizeNestedMap: can only parallelize Map or Reduce nodes."
+        );
+    }
+
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
 
     // Condition: Check if map is not yet parallelized with CUDA
     if (loop_.schedule_type().value() != ScheduleType_Sequential::value()) {
         return false;
+    }
+
+    // Condition: a nested Reduce can only be offloaded when every accumulator is
+    // a device-resident pointer to a scalar.
+    if (auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(&loop_)) {
+        auto& sdfg = builder.subject();
+        for (auto& reduction : reduce->reductions()) {
+            auto& type = sdfg.type(reduction.container);
+            auto* ptr = dynamic_cast<const types::Pointer*>(&type);
+            if (ptr == nullptr || !ptr->has_pointee_type() ||
+                dynamic_cast<const types::Scalar*>(&ptr->pointee_type()) == nullptr) {
+                return false;
+            }
+        }
     }
 
     // Condition: Check if parent loop exists
@@ -118,7 +142,7 @@ CUDAParallelizeNestedMap CUDAParallelizeNestedMap::
     size_t loop_id = node_desc.at("element_id").get<size_t>();
 
     size_t block_size = j.at("parameters").at("block_size").get<size_t>();
-    auto loop = dynamic_cast<structured_control_flow::Map*>(builder.find_element_by_id(loop_id));
+    auto loop = dynamic_cast<structured_control_flow::StructuredLoop*>(builder.find_element_by_id(loop_id));
     if (!loop) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " is not a loop.");
     }
