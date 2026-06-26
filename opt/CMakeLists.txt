@@ -70,6 +70,7 @@ set(SOURCE_FILES
     src/targets/cuda/math/tensor/softmax.cpp
     src/targets/cuda/cuda_data_offloading_node.cpp
     src/targets/cuda/cuda_map_dispatcher.cpp
+    src/targets/cuda/cuda_reduce_dispatcher.cpp
     src/targets/cuda/plugin.cpp
     src/targets/cuda/stdlib/memset.cpp
     src/targets/cuda/stdlib/memcpy.cpp
@@ -87,6 +88,7 @@ set(SOURCE_FILES
     src/targets/rocm/rocm.cpp
     src/targets/rocm/rocm_data_offloading_node.cpp
     src/targets/rocm/rocm_map_dispatcher.cpp
+    src/targets/rocm/rocm_reduce_dispatcher.cpp
     src/targets/gpu/gpu_map_utils.cpp
     src/targets/vectorize/codegen/vectorize_dispatcher.cpp
     src/targets/offloading/external_offloading_node.cpp
