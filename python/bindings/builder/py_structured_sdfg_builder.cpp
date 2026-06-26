@@ -248,6 +248,122 @@ void PyStructuredSDFGBuilder::end_for() {
     scope_stack.pop_back();
 }
 
+sdfg::structured_control_flow::Map& PyStructuredSDFGBuilder::begin_map(
+    const std::string& var,
+    const std::string& start,
+    const std::string& end,
+    const std::string& step,
+    const sdfg::DebugInfo& debug_info
+) {
+    auto& parent = current_sequence();
+    auto var_sym = sdfg::symbolic::symbol(var);
+    auto start_expr = parse_and_expand(start);
+    auto end_expr = parse_and_expand(end);
+    auto step_expr = parse_and_expand(step);
+
+    bool is_negative = false;
+    if (SymEngine::is_a<SymEngine::Integer>(*step_expr)) {
+        auto i = SymEngine::rcp_static_cast<const SymEngine::Integer>(step_expr);
+        if (i->is_negative()) is_negative = true;
+    }
+
+    SymEngine::RCP<const SymEngine::Boolean> condition;
+    if (is_negative) {
+        condition = SymEngine::Gt(var_sym, end_expr);
+    } else {
+        condition = SymEngine::Lt(var_sym, end_expr);
+    }
+
+    auto update = SymEngine::add(var_sym, step_expr);
+
+    auto& map_node = builder_.add_map(
+        parent,
+        var_sym,
+        condition,
+        start_expr,
+        update,
+        sdfg::structured_control_flow::ScheduleType_Sequential::create(),
+        {},
+        debug_info
+    );
+
+    scope_stack.push_back({&map_node.root(), &map_node, 0});
+
+    return map_node;
+}
+
+void PyStructuredSDFGBuilder::end_map() {
+    auto current = scope_stack.back();
+    auto* map_node = dynamic_cast<sdfg::structured_control_flow::Map*>(current.node);
+    if (!map_node) {
+        throw std::runtime_error("Cannot end_map: not in a map");
+    }
+    scope_stack.pop_back();
+}
+
+sdfg::structured_control_flow::Reduce& PyStructuredSDFGBuilder::begin_reduce(
+    const std::string& var,
+    const std::string& start,
+    const std::string& end,
+    const std::string& step,
+    const std::vector<std::pair<std::string, std::string>>& reductions,
+    const sdfg::DebugInfo& debug_info
+) {
+    auto& parent = current_sequence();
+    auto var_sym = sdfg::symbolic::symbol(var);
+    auto start_expr = parse_and_expand(start);
+    auto end_expr = parse_and_expand(end);
+    auto step_expr = parse_and_expand(step);
+
+    bool is_negative = false;
+    if (SymEngine::is_a<SymEngine::Integer>(*step_expr)) {
+        auto i = SymEngine::rcp_static_cast<const SymEngine::Integer>(step_expr);
+        if (i->is_negative()) is_negative = true;
+    }
+
+    SymEngine::RCP<const SymEngine::Boolean> condition;
+    if (is_negative) {
+        condition = SymEngine::Gt(var_sym, end_expr);
+    } else {
+        condition = SymEngine::Lt(var_sym, end_expr);
+    }
+
+    auto update = SymEngine::add(var_sym, step_expr);
+
+    std::vector<sdfg::structured_control_flow::ReductionInfo> reduction_infos;
+    reduction_infos.reserve(reductions.size());
+    for (const auto& reduction : reductions) {
+        reduction_infos
+            .push_back({sdfg::structured_control_flow::reduction_operation_from_string(reduction.first), reduction.second}
+            );
+    }
+
+    auto& reduce_node = builder_.add_reduce(
+        parent,
+        var_sym,
+        condition,
+        start_expr,
+        update,
+        reduction_infos,
+        sdfg::structured_control_flow::ScheduleType_Sequential::create(),
+        {},
+        debug_info
+    );
+
+    scope_stack.push_back({&reduce_node.root(), &reduce_node, 0});
+
+    return reduce_node;
+}
+
+void PyStructuredSDFGBuilder::end_reduce() {
+    auto current = scope_stack.back();
+    auto* reduce_node = dynamic_cast<sdfg::structured_control_flow::Reduce*>(current.node);
+    if (!reduce_node) {
+        throw std::runtime_error("Cannot end_reduce: not in a reduce");
+    }
+    scope_stack.pop_back();
+}
+
 void PyStructuredSDFGBuilder::
     add_transition(const std::string& lhs, const std::string& rhs, const sdfg::DebugInfo& debug_info) {
     auto& parent = current_sequence();

@@ -8,6 +8,7 @@
 #include <sdfg/structured_control_flow/for.h>
 #include <sdfg/structured_control_flow/if_else.h>
 #include <sdfg/structured_control_flow/map.h>
+#include <sdfg/structured_control_flow/reduce.h>
 #include <sdfg/structured_control_flow/return.h>
 #include <sdfg/structured_control_flow/sequence.h>
 #include <sdfg/structured_control_flow/structured_loop.h>
@@ -254,6 +255,18 @@ void register_control_flow(py::module& m) {
         .def("__repr__", [](const Map& loop) {
             std::ostringstream oss;
             oss << "<Map indvar='" << loop.indvar()->__str__() << "' schedule='" << loop.schedule_type().value()
+                << "' id=" << loop.element_id() << ">";
+            return oss.str();
+        });
+
+    // Reduce class (inherits from StructuredLoop)
+    py::class_<Reduce, StructuredLoop>(m, "Reduce")
+        .def_property_readonly(
+            "schedule_type", &Reduce::schedule_type, py::return_value_policy::reference, "Get the scheduling strategy"
+        )
+        .def("__repr__", [](const Reduce& loop) {
+            std::ostringstream oss;
+            oss << "<Reduce indvar='" << loop.indvar()->__str__() << "' schedule='" << loop.schedule_type().value()
                 << "' id=" << loop.element_id() << ">";
             return oss.str();
         });
