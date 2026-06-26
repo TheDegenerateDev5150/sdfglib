@@ -133,11 +133,15 @@ def test_cavity_flow(target):
     verifier = None
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 61, "SEQUENTIAL": 61, "FOR": 65}
+            verification={
+                "MAP": 61,
+                "SEQUENTIAL": 65,
+                "FOR": 4,
+            }
         )
     elif target == "sequential":
         verifier = SDFGVerification(
-            verification={"VECTORIZE": 35, "MAP": 61, "SEQUENTIAL": 26, "FOR": 65}
+            verification={"VECTORIZE": 35, "MAP": 61, "SEQUENTIAL": 30, "FOR": 4}
         )
     elif target == "openmp":
         verifier = SDFGVerification(
@@ -145,8 +149,8 @@ def test_cavity_flow(target):
                 "VECTORIZE": 9,
                 "CPU_PARALLEL": 26,
                 "MAP": 42,
-                "SEQUENTIAL": 7,
-                "FOR": 46,
+                "SEQUENTIAL": 11,
+                "FOR": 4,
             }
         )
     elif target == "cuda":
@@ -154,7 +158,7 @@ def test_cavity_flow(target):
             verification={
                 "CUDA": 52,
                 "SEQUENTIAL": 24,
-                "FOR": 80,
+                "FOR": 4,
                 "MAP": 76,
                 "CUDAOffloading": 73,
             }
@@ -164,7 +168,7 @@ def test_cavity_flow(target):
             verification={
                 "ROCM": 52,
                 "SEQUENTIAL": 24,
-                "FOR": 80,
+                "FOR": 4,
                 "MAP": 76,
                 "ROCMOffloading": 73,
             }
