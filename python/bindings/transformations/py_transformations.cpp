@@ -229,8 +229,7 @@ void register_transformations(py::module& m) {
                         if (dynamic_cast<sdfg::structured_control_flow::StructuredLoop*>(elem) == nullptr) continue;
                         auto* loop = static_cast<sdfg::structured_control_flow::ControlFlowNode*>(elem);
                         auto loop_info = loop_analysis.loop_info(loop);
-                        value["loop_level"] = loop_info.loop_level;
-                        value["map_stack_depth"] = loop_info.map_stack_depth;
+                        value["loop_info"] = loop_info_to_json(loop_info);
                     }
                 }
 

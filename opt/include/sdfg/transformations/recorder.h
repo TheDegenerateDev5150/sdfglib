@@ -70,19 +70,16 @@ public:
         nlohmann::json desc;
         transformation.to_json(desc);
 
-        // Enrich each subgraph loop entry with loop_level and map_stack_depth
-        if (desc.contains("subgraph")) {
-            auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
-            for (auto& [key, value] : desc["subgraph"].items()) {
-                if (!value.contains("element_id")) continue;
-                auto element_id = value["element_id"].get<size_t>();
-                auto* elem = builder.find_element_by_id(element_id);
-                if (dynamic_cast<structured_control_flow::StructuredLoop*>(elem) == nullptr) continue;
-                auto* loop = static_cast<structured_control_flow::ControlFlowNode*>(elem);
-                auto loop_info = loop_analysis.loop_info(loop);
-                value["loop_level"] = loop_info.loop_level;
-                value["map_stack_depth"] = loop_info.map_stack_depth;
-            }
+        // Enrich each subgraph loop entry with loop_info
+        auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+        for (auto& [key, value] : desc["subgraph"].items()) {
+            if (!value.contains("element_id")) continue;
+            auto element_id = value["element_id"].get<size_t>();
+            auto* elem = builder.find_element_by_id(element_id);
+            if (dynamic_cast<structured_control_flow::StructuredLoop*>(elem) == nullptr) continue;
+            auto* loop = static_cast<structured_control_flow::ControlFlowNode*>(elem);
+            auto loop_info = loop_analysis.loop_info(loop);
+            value["loop_info"] = loop_info_to_json(loop_info);
         }
 
         history_.push_back(desc);
