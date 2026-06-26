@@ -3,7 +3,7 @@
 #include <map>
 
 #include "sdfg/analysis/arguments_analysis.h"
-#include "sdfg/structured_control_flow/map.h"
+#include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/transformations/transformation.h"
 
 namespace sdfg {
@@ -11,12 +11,12 @@ namespace transformations {
 
 class OffloadTransform : public transformations::Transformation {
 protected:
-    structured_control_flow::Map& map_;
+    structured_control_flow::StructuredLoop& loop_;
     bool allow_dynamic_sizes_ = false;
     bool skip_unneeded_d2h_ = true;
 
 public:
-    explicit OffloadTransform(structured_control_flow::Map& map, bool allow_dynamic_sizes = false);
+    explicit OffloadTransform(structured_control_flow::StructuredLoop& loop, bool allow_dynamic_sizes = false);
 
     bool can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
 
@@ -55,7 +55,7 @@ protected:
         std::string prefix
     );
 
-    void update_map_containers(const std::map<std::string, analysis::RegionArgument>& arguments, std::string prefix);
+    void update_loop_containers(const std::map<std::string, analysis::RegionArgument>& arguments, std::string prefix);
 
     virtual void add_device_buffer(
         builder::StructuredSDFGBuilder& builder,

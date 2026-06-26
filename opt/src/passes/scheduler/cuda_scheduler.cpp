@@ -73,8 +73,7 @@ void CUDAScheduler::apply_schedule(
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    auto* map = dynamic_cast<structured_control_flow::Map*>(&loop);
-    cuda::CUDATransform cuda_transform(*map, 32, offload_unknown_sizes);
+    cuda::CUDATransform cuda_transform(loop, 32, offload_unknown_sizes);
     cuda_transform.apply(builder, analysis_manager);
 }
 

@@ -51,7 +51,7 @@ void PrintfTransform::allocate_device_arg(
 
     auto& malloc_node = builder.add_library_node<PrintfDataOffloadingNode>(
         alloc_block,
-        this->map_.debug_info(),
+        this->loop_.debug_info(),
         arg_size,
         offloading::DataTransferDirection::NONE,
         offloading::BufferLifecycle::ALLOC
@@ -73,7 +73,7 @@ void PrintfTransform::deallocate_device_arg(
 
     auto& free_node = builder.add_library_node<PrintfDataOffloadingNode>(
         dealloc_block,
-        this->map_.debug_info(),
+        this->loop_.debug_info(),
         arg_size,
         offloading::DataTransferDirection::NONE,
         offloading::BufferLifecycle::FREE
@@ -97,7 +97,7 @@ void PrintfTransform::copy_to_device(
 
     auto& memcpy_node = builder.add_library_node<PrintfDataOffloadingNode>(
         copy_block,
-        this->map_.debug_info(),
+        this->loop_.debug_info(),
         size,
         offloading::DataTransferDirection::H2D,
         offloading::BufferLifecycle::NO_CHANGE
@@ -123,7 +123,7 @@ void PrintfTransform::copy_to_device_with_allocation(
 
     auto& memcpy_node = builder.add_library_node<PrintfDataOffloadingNode>(
         copy_block,
-        this->map_.debug_info(),
+        this->loop_.debug_info(),
         size,
         offloading::DataTransferDirection::H2D,
         offloading::BufferLifecycle::ALLOC
@@ -149,7 +149,7 @@ void PrintfTransform::copy_from_device(
 
     auto& memcpy_node = builder.add_library_node<PrintfDataOffloadingNode>(
         copy_out_block,
-        this->map_.debug_info(),
+        this->loop_.debug_info(),
         size,
         offloading::DataTransferDirection::D2H,
         offloading::BufferLifecycle::NO_CHANGE
@@ -175,7 +175,7 @@ void PrintfTransform::copy_from_device_with_free(
 
     auto& memcpy_node = builder.add_library_node<PrintfDataOffloadingNode>(
         copy_out_block,
-        this->map_.debug_info(),
+        this->loop_.debug_info(),
         size,
         offloading::DataTransferDirection::D2H,
         offloading::BufferLifecycle::FREE
@@ -190,13 +190,13 @@ void PrintfTransform::copy_from_device_with_free(
 
 void PrintfTransform::to_json(nlohmann::json& j) const {
     j["type"] = "PrintfTransform";
-    j["map_element_id"] = map_.element_id();
+    j["loop_element_id"] = loop_.element_id();
 }
 
 PrintfTransform PrintfTransform::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
-    auto map_element_id = desc["map_element_id"].get<size_t>();
+    auto loop_element_id = desc["loop_element_id"].get<size_t>();
 
-    auto map = dynamic_cast<structured_control_flow::Map*>(builder.find_element_by_id(map_element_id));
+    auto map = dynamic_cast<structured_control_flow::Map*>(builder.find_element_by_id(loop_element_id));
 
     return PrintfTransform(*map);
 }
