@@ -51,6 +51,31 @@ Reduce::Reduce(
 
 void Reduce::validate(const Function& function) const { StructuredLoop::validate(function); };
 
+void Reduce::replace(const symbolic::Expression old_expression, const symbolic::Expression new_expression) {
+    StructuredLoop::replace(old_expression, new_expression);
+
+    if (SymEngine::is_a<SymEngine::Symbol>(*old_expression) && SymEngine::is_a<SymEngine::Symbol>(*new_expression)) {
+        const auto& old_name = SymEngine::rcp_static_cast<const SymEngine::Symbol>(old_expression)->get_name();
+        const auto& new_name = SymEngine::rcp_static_cast<const SymEngine::Symbol>(new_expression)->get_name();
+        for (auto& reduction : this->reductions_) {
+            if (reduction.container == old_name) {
+                reduction.container = new_name;
+            }
+        }
+    }
+}
+
+void Reduce::replace(const symbolic::ExpressionMapping& replacements) {
+    StructuredLoop::replace(replacements);
+
+    for (auto& reduction : this->reductions_) {
+        auto it = replacements.find(symbolic::symbol(reduction.container));
+        if (it != replacements.end() && SymEngine::is_a<SymEngine::Symbol>(*it->second)) {
+            reduction.container = SymEngine::rcp_static_cast<const SymEngine::Symbol>(it->second)->get_name();
+        }
+    }
+}
+
 const std::vector<ReductionInfo>& Reduce::reductions() const { return this->reductions_; };
 
 } // namespace structured_control_flow
