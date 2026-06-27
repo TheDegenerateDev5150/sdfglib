@@ -189,16 +189,32 @@ void PrintfTransform::copy_from_device_with_free(
 }
 
 void PrintfTransform::to_json(nlohmann::json& j) const {
-    j["type"] = "PrintfTransform";
-    j["loop_element_id"] = loop_.element_id();
+    j["transformation_type"] = this->name();
+    j["parameters"] = nlohmann::json::object();
+    j["parameters"] = {{"allow_dynamic_sizes", allow_dynamic_sizes_}};
+
+    serializer::JSONSerializer ser_flat(false);
+    j["subgraph"] = nlohmann::json::object();
+    j["subgraph"]["0"] = nlohmann::json::object();
+    ser_flat.serialize_node(j["subgraph"]["0"], loop_);
 }
 
 PrintfTransform PrintfTransform::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
-    auto loop_element_id = desc["loop_element_id"].get<size_t>();
+    auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
+    bool allow_dynamic_sizes = desc["parameters"]["allow_dynamic_sizes"].get<bool>();
+    auto element = builder.find_element_by_id(loop_id);
+    if (!element) {
+        throw transformations::
+            InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
+    }
+    auto loop = dynamic_cast<structured_control_flow::StructuredLoop*>(element);
+    if (!loop) {
+        throw transformations::InvalidTransformationDescriptionException(
+            "Element with ID " + std::to_string(loop_id) + " is not a StructuredLoop."
+        );
+    }
 
-    auto map = dynamic_cast<structured_control_flow::Map*>(builder.find_element_by_id(loop_element_id));
-
-    return PrintfTransform(*map);
+    return PrintfTransform(*loop, allow_dynamic_sizes);
 }
 
 } // namespace printf_target
