@@ -51,6 +51,12 @@ bool OffloadTransform::can_be_applied(builder::StructuredSDFGBuilder& builder, a
         throw InvalidTransformationDescriptionException("OffloadTransform: can only offload Map or Reduce nodes.");
     }
 
+    if (dynamic_cast<structured_control_flow::Reduce*>(&loop_)) {
+        if (report_) report_->transform_impossible(this, "reduce");
+        DEBUG_PRINTLN("Cannot apply transform: Reduce nodes are not offloaded yet");
+        return false;
+    }
+
     auto& sdfg = builder.subject();
 
     auto& arguments_analysis = analysis_manager.get<analysis::ArgumentsAnalysis>();
