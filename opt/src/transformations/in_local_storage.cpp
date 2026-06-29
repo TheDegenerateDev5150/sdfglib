@@ -62,6 +62,14 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
         return false;
     }
 
+    // Criterion (GPU path): Loop must not be outermost (shared memory is per-block, not global)
+    if (storage_type_.is_nv_shared()) {
+        auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+        if (loop_analysis.is_outermost_loop(&this->loop_)) {
+            return false;
+        }
+    }
+
     // Use MemoryLayoutAnalysis tile group API
     // Find a representative memlet from the access node to identify its group.
     auto& mla = analysis_manager.get<analysis::MemoryLayoutAnalysis>();
