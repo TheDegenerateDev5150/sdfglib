@@ -61,6 +61,14 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         return false;
     }
 
+    // Criterion (GPU path): Loop must not be outermost (shared memory is per-block, not global)
+    if (storage_type_.is_nv_shared()) {
+        auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+        if (loop_analysis.is_outermost_loop(&this->loop_)) {
+            return false;
+        }
+    }
+
     // Determine if container is also read (read-write vs write-only)
     tile_info_.has_read = !body_users.reads(this->container_).empty();
 
