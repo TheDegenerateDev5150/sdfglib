@@ -2980,3 +2980,76 @@ TEST(OutLocalStorageTest, GPU_Cooperative_SymbolicBounds) {
     EXPECT_TRUE(symbolic::eq(arr_type.num_elements(), symbolic::integer(256)));
     EXPECT_EQ(buf_type.storage_type(), types::StorageType::NV_Shared());
 }
+
+/**
+ * Test: OutLocalStorage with CPU_Stack (default) rejects when inside a GPU region.
+ *
+ * Setup:
+ *   Map X (i, 0..N, CUDA block_size=32) → For k = 0..K
+ *   C[i*K + k] = A[k]
+ *
+ * Applying OutLocalStorage with CPU_Stack on the For loop inside the GPU Map
+ * should fail because CPU_Stack is invalid inside a GPU kernel (the codegen
+ * would emit a stack array in device code, which is not a valid device pointer).
+ */
+TEST(OutLocalStorageTest, GPU_CPUStack_InsideGPU_Rejected) {
+    builder::StructuredSDFGBuilder builder("ols_cpustack_in_gpu", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    // GPU Map X: i = 0..N (block_size=32)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), N),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // For loop k = 0..K
+    auto& loop = builder.add_for(
+        map_x.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), K),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {symbolic::symbol("k")}, ptr);
+    builder.add_computational_memlet(
+        block,
+        tasklet,
+        "_out",
+        c_out,
+        {symbolic::add(symbolic::mul(symbolic::symbol("i"), K), symbolic::symbol("k"))},
+        ptr
+    );
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    // CPU_Stack (default) inside GPU region → must be rejected
+    transformations::OutLocalStorage ols(loop, c_out);
+    EXPECT_FALSE(ols.can_be_applied(builder_opt, am));
+}
