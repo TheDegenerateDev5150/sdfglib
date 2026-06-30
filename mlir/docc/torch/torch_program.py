@@ -240,6 +240,9 @@ class TorchProgram(DoccProgram):
         # step recompiles the existing source files instead of overwriting them.
         docc_reuse_sources = os.environ.get("DOCC_REUSE_SOURCES")
 
+        if docc_reuse_binaries or docc_reuse_sources:
+            os.environ["DOCC_DEBUG"] = "dump"
+
         if not os.path.exists(output_folder) and docc_reuse_sources:
             docc_reuse_sources = None
 
@@ -293,7 +296,7 @@ class TorchProgram(DoccProgram):
             backend = sdfg.metadata("device_backend")
             self._device_backend = backend or None
         elif docc_reuse_sources:
-            main_file = f"{output_folder}/__docc_GraphModule.cpp"
+            main_file = f"{output_folder}/{sdfg.name()}.cpp"
             if not os.path.exists(main_file):
                 raise ValueError(
                     f"Tried reusing sources '{main_file}' but does not exist"
