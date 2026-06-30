@@ -6,7 +6,6 @@
 #include <string>
 
 #include "sdfg/analysis/memory_layout_analysis.h"
-#include "sdfg/analysis/scope_analysis.h"
 #include "sdfg/analysis/users.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/access_node.h"
@@ -60,6 +59,14 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
     // Criterion: Container must be read-only within the loop (no writes)
     if (!body_users.writes(this->container_).empty()) {
         return false;
+    }
+
+    // Criterion (GPU path): Loop must not be outermost (shared memory is per-block, not global)
+    if (storage_type_.is_nv_shared()) {
+        auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+        if (loop_analysis.is_outermost_loop(&this->loop_)) {
+            return false;
+        }
     }
 
     // Use MemoryLayoutAnalysis tile group API
