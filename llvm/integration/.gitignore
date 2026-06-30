@@ -2,5 +2,5 @@ llvm-test-suite/
 __pycache__
 *.log
 
-pytestOut
 .pytest_cache
+pytestOut/
