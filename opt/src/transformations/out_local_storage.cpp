@@ -191,6 +191,31 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
                 return false;
             }
         }
+
+        // Criterion: CPU_Stack inside a GPU region is only valid for per-thread
+        // locals (all GPU map indvars appear in the tile bases). If there is a
+        // cooperative dimension (a GPU indvar NOT in the bases), the buffer must
+        // be NV_Shared so all threads in the block can see each other's writes.
+        auto ancestors = ControlFlowNode::parent_chain(loop_);
+        for (auto* node : ancestors) {
+            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+                if (!gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
+                    continue;
+                }
+                bool appears_in_bases = false;
+                for (auto& base : tile_info_.bases) {
+                    if (symbolic::uses(base, ancestor_map->indvar())) {
+                        appears_in_bases = true;
+                        break;
+                    }
+                }
+                if (!appears_in_bases) {
+                    // Cooperative dimension detected with CPU_Stack — invalid.
+                    // The buffer requires NV_Shared for cross-thread visibility.
+                    return false;
+                }
+            }
+        }
     }
 
     return true;
