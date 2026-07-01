@@ -202,6 +202,18 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
             return false;
         }
     } else {
+        // CPU_Stack must not be applied when the loop itself is a
+        // GPU-scheduled outermost map. In that case the init/writeback copies
+        // would be placed on the host while the compute runs on the device.
+        if (auto* self_map = dynamic_cast<structured_control_flow::Map*>(&loop_)) {
+            if (gpu::is_gpu_schedule(self_map->schedule_type())) {
+                auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+                if (loop_analysis.is_outermost_loop(&this->loop_)) {
+                    return false;
+                }
+            }
+        }
+
         // CPU_Stack inside a GPU region is only valid for per-thread locals
         // (all GPU map indvars appear in the tile bases). If there is a
         // cooperative dimension (a GPU indvar NOT in the bases), the buffer
