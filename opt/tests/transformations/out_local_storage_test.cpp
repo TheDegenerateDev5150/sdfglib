@@ -3053,3 +3053,74 @@ TEST(OutLocalStorageTest, GPU_CPUStack_InsideGPU_Rejected) {
     transformations::OutLocalStorage ols(loop, c_out);
     EXPECT_FALSE(ols.can_be_applied(builder_opt, am));
 }
+
+/**
+ * Test: OutLocalStorage with CPU_Stack rejects when applied to the outermost
+ * GPU-scheduled map itself.
+ *
+ * Setup:
+ *   Map X (i, 0..32, CUDA) → For k = 0..4
+ *   C[i*4 + k] = A[k]
+ *
+ * The GPU indvar 'i' appears in C's tile bases (per-thread), so there is no
+ * cooperative dimension — the existing cooperative check would NOT reject this.
+ * However, applying CPU_Stack OLS to the outermost CUDA map would place the
+ * init/writeback copies outside the kernel on the host, which is invalid.
+ */
+TEST(OutLocalStorageTest, GPU_CPUStack_OutermostCUDAMap_Rejected) {
+    builder::StructuredSDFGBuilder builder("ols_cpustack_outermost_cuda", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    // GPU Map X: i = 0..32 (outermost — this is the kernel boundary)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        seq,
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), symbolic::integer(32)),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // For loop k = 0..4
+    auto& loop = builder.add_for(
+        map_x.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), symbolic::integer(4)),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {symbolic::symbol("k")}, ptr);
+    // C[i*4 + k] — base depends on 'i' (GPU indvar), so per-thread (no coop dim)
+    builder.add_computational_memlet(
+        block,
+        tasklet,
+        "_out",
+        c_out,
+        {symbolic::add(symbolic::mul(symbolic::symbol("i"), symbolic::integer(4)), symbolic::symbol("k"))},
+        ptr
+    );
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    // CPU_Stack applied to the outermost CUDA map → must be rejected
+    transformations::OutLocalStorage ols(map_x, c_out);
+    EXPECT_FALSE(ols.can_be_applied(builder_opt, am));
+}
