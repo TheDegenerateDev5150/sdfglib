@@ -203,12 +203,22 @@ bool InLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, ana
         }
     } else {
         // CPU_Stack must not be applied when the loop itself is a
-        // GPU-scheduled outermost map. In that case the init/writeback copies
-        // would be placed on the host while the compute runs on the device.
+        // GPU-scheduled map at the kernel boundary (no GPU-scheduled ancestors).
+        // In that case the init/writeback copies would be placed on the host
+        // while the compute runs on the device.
         if (auto* self_map = dynamic_cast<structured_control_flow::Map*>(&loop_)) {
             if (gpu::is_gpu_schedule(self_map->schedule_type())) {
-                auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
-                if (loop_analysis.is_outermost_loop(&this->loop_)) {
+                auto ancestors = ControlFlowNode::parent_chain(loop_);
+                bool has_gpu_ancestor = false;
+                for (auto* node : ancestors) {
+                    if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+                        if (gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
+                            has_gpu_ancestor = true;
+                            break;
+                        }
+                    }
+                }
+                if (!has_gpu_ancestor) {
                     return false;
                 }
             }

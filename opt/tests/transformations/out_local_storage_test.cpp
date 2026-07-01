@@ -3124,3 +3124,72 @@ TEST(OutLocalStorageTest, GPU_CPUStack_OutermostCUDAMap_Rejected) {
     transformations::OutLocalStorage ols(map_x, c_out);
     EXPECT_FALSE(ols.can_be_applied(builder_opt, am));
 }
+
+// CUDA map wrapped by a regular For loop — still the kernel boundary.
+// CPU_Stack must be rejected because the buffer would be host-allocated.
+TEST(OutLocalStorageTest, GPU_CPUStack_CUDAMapWrappedByFor_Rejected) {
+    builder::StructuredSDFGBuilder builder("ols_cpustack_cuda_wrapped_for", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+    builder.add_container("n", loop_var);
+
+    // Outer For loop n = 0..2 (regular, not GPU)
+    auto& outer_for = builder.add_for(
+        seq,
+        symbolic::symbol("n"),
+        symbolic::Lt(symbolic::symbol("n"), symbolic::integer(2)),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("n"), symbolic::integer(1))
+    );
+
+    // GPU Map: i = 0..32 (kernel boundary — no GPU ancestors)
+    auto sched_x = cuda::ScheduleType_CUDA::create();
+    gpu::gpu_block_size(sched_x, symbolic::integer(32));
+    auto& map_x = builder.add_map(
+        outer_for.root(),
+        symbolic::symbol("i"),
+        symbolic::Lt(symbolic::symbol("i"), symbolic::integer(32)),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("i"), symbolic::integer(1)),
+        sched_x
+    );
+
+    // For loop k = 0..4
+    auto& loop = builder.add_for(
+        map_x.root(),
+        symbolic::symbol("k"),
+        symbolic::Lt(symbolic::symbol("k"), symbolic::integer(4)),
+        symbolic::integer(0),
+        symbolic::add(symbolic::symbol("k"), symbolic::integer(1))
+    );
+
+    auto& block = builder.add_block(loop.root());
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, a_in, tasklet, "_in", {symbolic::symbol("k")}, ptr);
+    builder.add_computational_memlet(
+        block,
+        tasklet,
+        "_out",
+        c_out,
+        {symbolic::add(symbolic::mul(symbolic::symbol("i"), symbolic::integer(4)), symbolic::symbol("k"))},
+        ptr
+    );
+
+    auto structured_sdfg = builder.move();
+    builder::StructuredSDFGBuilder builder_opt(structured_sdfg);
+    analysis::AnalysisManager am(builder_opt.subject());
+
+    // CPU_Stack on CUDA map wrapped by For — still kernel boundary, must reject
+    transformations::OutLocalStorage ols(map_x, c_out);
+    EXPECT_FALSE(ols.can_be_applied(builder_opt, am));
+}
