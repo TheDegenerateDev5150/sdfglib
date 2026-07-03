@@ -536,21 +536,27 @@ class NumPyHandler:
         n = shape_a[0]
 
         def get_stride(name, indices):
-            if not indices:
-                return "1"
             info = self.tensor_table[name]
             shapes = info.shape
-            ndim = len(info.shape)
+            ndim = len(shapes)
 
+            # Determine which dimension is being iterated over (the 1D axis).
             sliced_dim = -1
             for i, idx in enumerate(indices):
                 if isinstance(idx, ast.Slice):
                     sliced_dim = i
                     break
-
             if sliced_dim == -1:
-                return "1"
+                # Whole-array 1D operand: iterate over dimension 0.
+                sliced_dim = 0
 
+            # Prefer the tensor's actual strides so that views (e.g. np.flip,
+            # np.transpose) with non-contiguous / negative strides are honored.
+            strides = getattr(info, "strides", None)
+            if strides and sliced_dim < len(strides):
+                return str(strides[sliced_dim])
+
+            # Fallback: contiguous row-major stride.
             stride = "1"
             for i in range(sliced_dim + 1, ndim):
                 dim_size = shapes[i] if i < len(shapes) else f"_{name}_shape_{i}"
@@ -560,11 +566,22 @@ class NumPyHandler:
                     stride = f"({stride} * {dim_size})"
             return stride
 
+        def add_view_offset(name, flat_subset):
+            # Add the tensor's base offset (encodes the start element of views
+            # such as np.flip) to the flattened start-index offset.
+            info = self.tensor_table[name]
+            offset = getattr(info, "offset", "0") or "0"
+            if str(offset) in ("0", ""):
+                return flat_subset
+            if flat_subset:
+                return [f"({flat_subset[0]} + {offset})"]
+            return [str(offset)]
+
         incx = get_stride(name_a, indices_a)
         incy = get_stride(name_b, indices_b)
 
-        flat_subset_a = self.flatten_subset(name_a, subset_a)
-        flat_subset_b = self.flatten_subset(name_b, subset_b)
+        flat_subset_a = add_view_offset(name_a, self.flatten_subset(name_a, subset_a))
+        flat_subset_b = add_view_offset(name_b, self.flatten_subset(name_b, subset_b))
 
         tmp_res = f"_dot_res_{self._get_unique_id()}"
         self.builder.add_container(tmp_res, Scalar(PrimitiveType.Double), False)
