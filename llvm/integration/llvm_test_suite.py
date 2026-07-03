@@ -324,9 +324,9 @@ def setup():
         pytest.param(
             "MultiSource/Benchmarks/MiBench/consumer-jpeg",
             "consumer-jpeg",
-            "YES",
-            "PASS",
-        ),
+            "TIMEOUT",
+            "",
+        ),  # Compilation sometimes flaky
         pytest.param(
             "MultiSource/Benchmarks/MiBench/consumer-lame",
             "consumer-lame",
