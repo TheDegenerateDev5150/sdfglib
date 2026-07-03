@@ -1159,7 +1159,7 @@ class NumPyHandler:
         if not shape or not strides:
             return True
         f_strides = self._compute_strides(shape, "F")
-        return [str(s) for s in strides] == [str(s) for s in f_strides]
+        return self._strides_equal(strides, f_strides)
 
     def handle_numpy_call(self, node, func_name):
         if func_name in self.function_handlers:
@@ -2656,42 +2656,47 @@ class NumPyHandler:
 
         return strides
 
+    def _exprs_equal(self, a, b):
+        """Return True if two stride/shape expressions are mathematically equal.
+
+        Stride expressions are produced by different code paths with different
+        formatting (e.g. ``"(_s1 * _s2)"`` vs ``"((_s1) * (_s2))"``) and may
+        contain additions, so a purely textual comparison is insufficient. Fall
+        back to symbolic comparison via sympy, forcing every identifier to a
+        plain symbol so reserved names (``N``, ``E``, ``I``, ...) are not given
+        special meaning.
+        """
+        a, b = str(a), str(b)
+        if a.replace(" ", "") == b.replace(" ", ""):
+            return True
+        try:
+            import re
+            import sympy
+
+            names = set(re.findall(r"[A-Za-z_]\w*", a + " " + b))
+            local_dict = {n: sympy.Symbol(n) for n in names}
+            expr_a = sympy.sympify(a, locals=local_dict)
+            expr_b = sympy.sympify(b, locals=local_dict)
+            return sympy.simplify(expr_a - expr_b) == 0
+        except Exception:
+            return a.replace(" ", "") == b.replace(" ", "")
+
+    def _strides_equal(self, a_strides, b_strides):
+        """Compare two stride lists element-wise up to mathematical equality."""
+        if len(a_strides) != len(b_strides):
+            return False
+        return all(self._exprs_equal(a, b) for a, b in zip(a_strides, b_strides))
+
     def _is_contiguous(self, shape, strides):
         """Check if strides represent a contiguous (C or F order) layout."""
         if not shape or not strides:
             return True
 
-        def normalize(s):
-            # Normalize stride expression by removing spaces and outer parens
-            s = s.replace(" ", "")
-            while s.startswith("(") and s.endswith(")"):
-                # Only strip if balanced parens
-                inner = s[1:-1]
-                depth = 0
-                balanced = True
-                for c in inner:
-                    if c == "(":
-                        depth += 1
-                    elif c == ")":
-                        depth -= 1
-                        if depth < 0:
-                            balanced = False
-                            break
-                if balanced and depth == 0:
-                    s = inner
-                else:
-                    break
-            return s
-
         c_strides = self._compute_strides(shape, "C")
-        if all(
-            normalize(str(a)) == normalize(str(b)) for a, b in zip(strides, c_strides)
-        ):
+        if self._strides_equal(strides, c_strides):
             return True
         f_strides = self._compute_strides(shape, "F")
-        return all(
-            normalize(str(a)) == normalize(str(b)) for a, b in zip(strides, f_strides)
-        )
+        return self._strides_equal(strides, f_strides)
 
     def _create_array_temp(
         self,
