@@ -571,5 +571,125 @@ class TestWhereChainedOperations:
         np.testing.assert_allclose(result, expected)
 
 
+class TestBooleanMaskAssignment:
+    """Tests for boolean-mask assignment: ``arr[mask] = value``.
+
+    Semantics: elements where the mask is True are set to ``value``; all other
+    elements keep their original value. Lowered as
+    ``arr[:] = np.where(mask, value, arr)``.
+    """
+
+    def test_mask_assign_scalar_1d(self):
+        """arr[arr <= t] = c on a 1D array."""
+
+        @native
+        def mask_assign(a):
+            a[a <= 0.1] = 1.0
+            return a
+
+        a = np.array([0.05, 0.5, 0.1, 0.2, 0.09])
+        expected = a.copy()
+        expected[expected <= 0.1] = 1.0
+        result = mask_assign(a.copy())
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mask_assign_greater(self):
+        """Upper-clip via mask assignment: arr[arr > 1.0] = 1.0."""
+
+        @native
+        def clip_high(a):
+            a[a > 1.0] = 1.0
+            return a
+
+        a = np.array([0.5, 1.5, 2.0, 0.9, 3.0])
+        expected = a.copy()
+        expected[expected > 1.0] = 1.0
+        result = clip_high(a.copy())
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mask_assign_negative_to_zero(self):
+        """In-place ReLU: arr[arr < 0] = 0."""
+
+        @native
+        def relu_inplace(a):
+            a[a < 0.0] = 0.0
+            return a
+
+        a = np.array([1.0, -2.0, 3.0, -4.0, 5.0])
+        expected = a.copy()
+        expected[expected < 0.0] = 0.0
+        result = relu_inplace(a.copy())
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mask_assign_2d(self):
+        """Boolean-mask assignment over a 2D array."""
+
+        @native
+        def mask_2d(a):
+            a[a < 0.0] = 0.0
+            return a
+
+        a = np.array([[1.0, -2.0], [-3.0, 4.0]])
+        expected = a.copy()
+        expected[expected < 0.0] = 0.0
+        result = mask_2d(a.copy())
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mask_assign_bool_array(self):
+        """Mask supplied as a boolean array variable: arr[m] = value."""
+
+        @native
+        def mask_from_array(a, m):
+            a[m] = 5.0
+            return a
+
+        a = np.array([1.0, 2.0, 3.0, 4.0])
+        m = np.array([True, False, True, False])
+        expected = a.copy()
+        expected[m] = 5.0
+        result = mask_from_array(a.copy(), m)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mask_assign_all_false(self):
+        """No element matches: array is unchanged."""
+
+        @native
+        def mask_none(a):
+            a[a > 100.0] = 0.0
+            return a
+
+        a = np.array([1.0, 2.0, 3.0])
+        expected = a.copy()
+        result = mask_none(a.copy())
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mask_assign_all_true(self):
+        """Every element matches: whole array is set to the value."""
+
+        @native
+        def mask_all(a):
+            a[a > -100.0] = 7.0
+            return a
+
+        a = np.array([1.0, 2.0, 3.0])
+        expected = np.full_like(a, 7.0)
+        result = mask_all(a.copy())
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mask_assign_int_dtype(self):
+        """Boolean-mask assignment on an integer array."""
+
+        @native
+        def mask_int(a):
+            a[a < 0] = 0
+            return a
+
+        a = np.array([1, -2, 3, -4, 5], dtype=np.int64)
+        expected = a.copy()
+        expected[expected < 0] = 0
+        result = mask_int(a.copy())
+        np.testing.assert_array_equal(result, expected)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
