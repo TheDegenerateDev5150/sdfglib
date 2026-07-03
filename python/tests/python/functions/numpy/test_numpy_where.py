@@ -503,9 +503,6 @@ class TestWhere2DViews:
         expected = np.array([[0.0, 2.0, 0.0], [4.0, 0.0, 6.0]])
         np.testing.assert_array_equal(result, expected)
 
-    @pytest.mark.skip(
-        reason="Memory management bug with column slicing a[:, start:stop] - pre-existing issue"
-    )
     def test_2d_col_slice(self):
         """2D view slicing columns: a[:, 1:-1]"""
 

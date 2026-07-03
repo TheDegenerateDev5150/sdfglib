@@ -599,9 +599,21 @@ class NumPyHandler:
         return True
 
     def is_outer(self, node):
-        """Check if a node represents an outer product operation."""
+        """Check if a node represents an outer *product* operation.
+
+        Only ``np.outer(...)`` and ``np.multiply.outer(...)`` are genuine outer
+        products that can be lowered to a GEMM. Other ufunc outers such as
+        ``np.add.outer`` or ``np.subtract.outer`` are element-wise outer
+        operations and must not take this (multiplication) path.
+        """
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Attribute) and node.func.attr == "outer":
+                # np.<ufunc>.outer(...): func.value is the Attribute naming the
+                # ufunc (e.g. "add", "multiply"). Only multiplication is a true
+                # outer product.
+                if isinstance(node.func.value, ast.Attribute):
+                    return node.func.value.attr == "multiply"
+                # np.outer(...): func.value is the module name (Name).
                 return True
             if isinstance(node.func, ast.Name) and node.func.id == "outer":
                 return True
@@ -646,10 +658,7 @@ class NumPyHandler:
         for term in terms:
             if self._is_target(term, target_name):
                 target_found = True
-            elif isinstance(term, ast.Call) and (
-                (isinstance(term.func, ast.Attribute) and term.func.attr == "outer")
-                or (isinstance(term.func, ast.Name) and term.func.id == "outer")
-            ):
+            elif self.is_outer(term):
                 if len(term.args) != 2:
                     return False
                 outer_calls.append(term)
