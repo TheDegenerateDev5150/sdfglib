@@ -455,7 +455,7 @@ class NumPyHandler:
                 return ""
             shapes = self.tensor_table[name].shape
             if len(shapes) >= 2:
-                return str(shapes[1])
+                return str(shapes[-1])
             return "1"
 
         lda = get_ld(A_name)
@@ -1957,15 +1957,22 @@ class NumPyHandler:
         elif ndim_a == 1 and ndim_b == 2:
             output_shape = [real_shape_b[1]]
         elif ndim_a > 2 or ndim_b > 2:
-            if ndim_a == ndim_b:
-                output_shape = list(real_shape_a[:-2]) + [
-                    real_shape_a[-2],
-                    real_shape_b[-1],
-                ]
-            else:
-                raise NotImplementedError(
-                    "Broadcasting with different ranks not fully supported yet"
-                )
+            # Batched matmul with NumPy broadcasting of the leading (batch)
+            # dimensions. The trailing two dimensions are the matrix dims; the
+            # leading dims are broadcast (aligned to the right, size-1 dims and
+            # missing dims broadcast).
+            batch_a = [str(s) for s in real_shape_a[:-2]]
+            batch_b = [str(s) for s in real_shape_b[:-2]]
+            nb = max(len(batch_a), len(batch_b))
+            batch_a = ["1"] * (nb - len(batch_a)) + batch_a
+            batch_b = ["1"] * (nb - len(batch_b)) + batch_b
+            batch_out = []
+            for da, db in zip(batch_a, batch_b):
+                if da == "1":
+                    batch_out.append(db)
+                else:
+                    batch_out.append(da)
+            output_shape = batch_out + [real_shape_a[-2], real_shape_b[-1]]
         else:
             raise NotImplementedError(
                 f"Matmul with ranks {ndim_a} and {ndim_b} not supported"
@@ -1983,32 +1990,40 @@ class NumPyHandler:
             tmp_name = self._create_array_temp(output_shape, dtype)
 
         if ndim_a > 2 or ndim_b > 2:
-            batch_dims = ndim_a - 2
-            loop_vars = []
+            batch_dims = len(output_shape) - 2
+            batch_shape = output_shape[:batch_dims]
 
+            loop_vars = []
             for i in range(batch_dims):
                 loop_var = f"_i{self._get_unique_id()}"
                 self.builder.add_container(loop_var, Scalar(PrimitiveType.Int64), False)
                 loop_vars.append(loop_var)
-                dim_size = real_shape_a[i]
+                dim_size = batch_shape[i]
                 self.builder.begin_for(loop_var, "0", str(dim_size), "1")
 
-            def make_slice(name, indices):
+            def make_operand_slice(name, op_shape):
+                # Build name[b0, b1, ..., :, :] where each batch index is either
+                # the corresponding output loop var, or 0 when this operand
+                # broadcasts that dimension (size-1 or a missing leading dim).
+                op_batch = len(op_shape) - 2
                 elts = []
-                for idx in indices:
-                    if idx == ":":
-                        elts.append(ast.Slice())
+                for b in range(op_batch):
+                    out_b = batch_dims - op_batch + b
+                    op_dim = str(op_shape[b])
+                    out_dim = str(batch_shape[out_b])
+                    if op_dim == "1" and out_dim != "1":
+                        elts.append(ast.Name(id="0"))
                     else:
-                        elts.append(ast.Name(id=idx))
-
+                        elts.append(ast.Name(id=loop_vars[out_b]))
+                elts.append(ast.Slice())
+                elts.append(ast.Slice())
                 return ast.Subscript(
                     value=ast.Name(id=name), slice=ast.Tuple(elts=elts), ctx=ast.Load()
                 )
 
-            indices = loop_vars + [":", ":"]
-            slice_a = make_slice(name_a, indices)
-            slice_b = make_slice(name_b, indices)
-            slice_c = make_slice(tmp_name, indices)
+            slice_a = make_operand_slice(name_a, real_shape_a)
+            slice_b = make_operand_slice(name_b, real_shape_b)
+            slice_c = make_operand_slice(tmp_name, output_shape)
 
             self.handle_gemm(
                 slice_c, ast.BinOp(left=slice_a, op=ast.MatMult(), right=slice_b)
