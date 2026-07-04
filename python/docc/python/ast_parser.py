@@ -731,19 +731,17 @@ class ASTParser(ast.NodeVisitor):
     def visit_Assign(self, node):
         # Handle multiple targets: a = b = c or a, b = expr
         if len(node.targets) > 1:
-            tmp_name = self.builder.find_new_name()
-            # Assign value to temporary
-            val_assign = ast.Assign(
-                targets=[ast.Name(id=tmp_name, ctx=ast.Store())], value=node.value
-            )
-            ast.copy_location(val_assign, node)
-            self.visit_Assign(val_assign)
+            rhs_result = self.visit(node.value)
+            if isinstance(rhs_result, str) and rhs_result in self.container_table:
+                val_node = ast.Name(id=rhs_result, ctx=ast.Load())
+                ast.copy_location(val_node, node)
+            else:
+                # Literals / expressions without a container: re-emit directly.
+                val_node = node.value
 
-            # Assign temporary to targets
+            # Assign the evaluated value to each target
             for target in node.targets:
-                assign = ast.Assign(
-                    targets=[target], value=ast.Name(id=tmp_name, ctx=ast.Load())
-                )
+                assign = ast.Assign(targets=[target], value=val_node)
                 ast.copy_location(assign, node)
                 self.visit_Assign(assign)
             return
@@ -798,6 +796,17 @@ class ASTParser(ast.NodeVisitor):
             if has_slice:
                 self._handle_slice_assignment(
                     target, node.value, target_name, indices, debug_info
+                )
+                return
+
+            # Handle boolean-mask assignment: target[mask] = value
+            if (
+                len(indices) == 1
+                and target_name in self.tensor_table
+                and self._is_boolean_mask_index(indices[0])
+            ):
+                self._handle_masked_assignment(
+                    target, indices[0], node.value, target_name, node
                 )
                 return
 
@@ -1857,6 +1866,63 @@ class ASTParser(ast.NodeVisitor):
         if isinstance(node, ast.Name):
             return node.id in self.tensor_table
         return False
+
+    def _is_boolean_mask_index(self, node):
+        """Check if a subscript index is a boolean mask (e.g. arr[arr <= 0.1])."""
+        # A boolean array variable used directly as a mask.
+        if isinstance(node, ast.Name) and node.id in self.tensor_table:
+            element_type = self.tensor_table[node.id].element_type
+            return element_type.primitive_type == PrimitiveType.Bool
+        # A whole-array comparison (e.g. arr <= 0.1, x > y) yields a boolean mask.
+        if isinstance(node, ast.Compare):
+            operands = [node.left] + list(node.comparators)
+            return any(
+                isinstance(o, ast.Name) and o.id in self.tensor_table for o in operands
+            )
+        return False
+
+    def _handle_masked_assignment(
+        self, target, mask_node, value_node, target_name, orig_node
+    ):
+        """Handle boolean-mask assignment: target[mask] = value.
+
+        Rewritten as ``target[:] = np.where(mask, value, target)`` which has
+        identical NumPy semantics (elements where the mask is False keep their
+        original value) and reuses the existing np.where lowering.
+        """
+        ndim = len(self.tensor_table[target_name].shape)
+
+        full_slice = ast.Slice(lower=None, upper=None, step=None)
+        if ndim > 1:
+            slice_arg = ast.Tuple(
+                elts=[
+                    ast.Slice(lower=None, upper=None, step=None) for _ in range(ndim)
+                ],
+                ctx=ast.Load(),
+            )
+        else:
+            slice_arg = full_slice
+
+        new_target = ast.Subscript(
+            value=copy.deepcopy(target.value), slice=slice_arg, ctx=ast.Store()
+        )
+
+        where_call = ast.Call(
+            func=ast.Attribute(
+                value=ast.Name(id="np", ctx=ast.Load()), attr="where", ctx=ast.Load()
+            ),
+            args=[
+                copy.deepcopy(mask_node),
+                copy.deepcopy(value_node),
+                ast.Name(id=target_name, ctx=ast.Load()),
+            ],
+            keywords=[],
+        )
+
+        new_assign = ast.Assign(targets=[new_target], value=where_call)
+        ast.copy_location(new_assign, orig_node)
+        ast.fix_missing_locations(new_assign)
+        self.visit_Assign(new_assign)
 
     def _handle_gather(self, value_str, index_node, debug_info=None):
         """Handle gather operation: x[indices] where indices is an array."""

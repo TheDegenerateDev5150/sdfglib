@@ -455,7 +455,7 @@ class NumPyHandler:
                 return ""
             shapes = self.tensor_table[name].shape
             if len(shapes) >= 2:
-                return str(shapes[1])
+                return str(shapes[-1])
             return "1"
 
         lda = get_ld(A_name)
@@ -536,21 +536,27 @@ class NumPyHandler:
         n = shape_a[0]
 
         def get_stride(name, indices):
-            if not indices:
-                return "1"
             info = self.tensor_table[name]
             shapes = info.shape
-            ndim = len(info.shape)
+            ndim = len(shapes)
 
+            # Determine which dimension is being iterated over (the 1D axis).
             sliced_dim = -1
             for i, idx in enumerate(indices):
                 if isinstance(idx, ast.Slice):
                     sliced_dim = i
                     break
-
             if sliced_dim == -1:
-                return "1"
+                # Whole-array 1D operand: iterate over dimension 0.
+                sliced_dim = 0
 
+            # Prefer the tensor's actual strides so that views (e.g. np.flip,
+            # np.transpose) with non-contiguous / negative strides are honored.
+            strides = getattr(info, "strides", None)
+            if strides and sliced_dim < len(strides):
+                return str(strides[sliced_dim])
+
+            # Fallback: contiguous row-major stride.
             stride = "1"
             for i in range(sliced_dim + 1, ndim):
                 dim_size = shapes[i] if i < len(shapes) else f"_{name}_shape_{i}"
@@ -560,11 +566,22 @@ class NumPyHandler:
                     stride = f"({stride} * {dim_size})"
             return stride
 
+        def add_view_offset(name, flat_subset):
+            # Add the tensor's base offset (encodes the start element of views
+            # such as np.flip) to the flattened start-index offset.
+            info = self.tensor_table[name]
+            offset = getattr(info, "offset", "0") or "0"
+            if str(offset) in ("0", ""):
+                return flat_subset
+            if flat_subset:
+                return [f"({flat_subset[0]} + {offset})"]
+            return [str(offset)]
+
         incx = get_stride(name_a, indices_a)
         incy = get_stride(name_b, indices_b)
 
-        flat_subset_a = self.flatten_subset(name_a, subset_a)
-        flat_subset_b = self.flatten_subset(name_b, subset_b)
+        flat_subset_a = add_view_offset(name_a, self.flatten_subset(name_a, subset_a))
+        flat_subset_b = add_view_offset(name_b, self.flatten_subset(name_b, subset_b))
 
         tmp_res = f"_dot_res_{self._get_unique_id()}"
         self.builder.add_container(tmp_res, Scalar(PrimitiveType.Double), False)
@@ -599,9 +616,21 @@ class NumPyHandler:
         return True
 
     def is_outer(self, node):
-        """Check if a node represents an outer product operation."""
+        """Check if a node represents an outer *product* operation.
+
+        Only ``np.outer(...)`` and ``np.multiply.outer(...)`` are genuine outer
+        products that can be lowered to a GEMM. Other ufunc outers such as
+        ``np.add.outer`` or ``np.subtract.outer`` are element-wise outer
+        operations and must not take this (multiplication) path.
+        """
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Attribute) and node.func.attr == "outer":
+                # np.<ufunc>.outer(...): func.value is the Attribute naming the
+                # ufunc (e.g. "add", "multiply"). Only multiplication is a true
+                # outer product.
+                if isinstance(node.func.value, ast.Attribute):
+                    return node.func.value.attr == "multiply"
+                # np.outer(...): func.value is the module name (Name).
                 return True
             if isinstance(node.func, ast.Name) and node.func.id == "outer":
                 return True
@@ -646,10 +675,7 @@ class NumPyHandler:
         for term in terms:
             if self._is_target(term, target_name):
                 target_found = True
-            elif isinstance(term, ast.Call) and (
-                (isinstance(term.func, ast.Attribute) and term.func.attr == "outer")
-                or (isinstance(term.func, ast.Name) and term.func.id == "outer")
-            ):
+            elif self.is_outer(term):
                 if len(term.args) != 2:
                     return False
                 outer_calls.append(term)
@@ -1133,7 +1159,7 @@ class NumPyHandler:
         if not shape or not strides:
             return True
         f_strides = self._compute_strides(shape, "F")
-        return [str(s) for s in strides] == [str(s) for s in f_strides]
+        return self._strides_equal(strides, f_strides)
 
     def handle_numpy_call(self, node, func_name):
         if func_name in self.function_handlers:
@@ -1931,15 +1957,22 @@ class NumPyHandler:
         elif ndim_a == 1 and ndim_b == 2:
             output_shape = [real_shape_b[1]]
         elif ndim_a > 2 or ndim_b > 2:
-            if ndim_a == ndim_b:
-                output_shape = list(real_shape_a[:-2]) + [
-                    real_shape_a[-2],
-                    real_shape_b[-1],
-                ]
-            else:
-                raise NotImplementedError(
-                    "Broadcasting with different ranks not fully supported yet"
-                )
+            # Batched matmul with NumPy broadcasting of the leading (batch)
+            # dimensions. The trailing two dimensions are the matrix dims; the
+            # leading dims are broadcast (aligned to the right, size-1 dims and
+            # missing dims broadcast).
+            batch_a = [str(s) for s in real_shape_a[:-2]]
+            batch_b = [str(s) for s in real_shape_b[:-2]]
+            nb = max(len(batch_a), len(batch_b))
+            batch_a = ["1"] * (nb - len(batch_a)) + batch_a
+            batch_b = ["1"] * (nb - len(batch_b)) + batch_b
+            batch_out = []
+            for da, db in zip(batch_a, batch_b):
+                if da == "1":
+                    batch_out.append(db)
+                else:
+                    batch_out.append(da)
+            output_shape = batch_out + [real_shape_a[-2], real_shape_b[-1]]
         else:
             raise NotImplementedError(
                 f"Matmul with ranks {ndim_a} and {ndim_b} not supported"
@@ -1957,32 +1990,40 @@ class NumPyHandler:
             tmp_name = self._create_array_temp(output_shape, dtype)
 
         if ndim_a > 2 or ndim_b > 2:
-            batch_dims = ndim_a - 2
-            loop_vars = []
+            batch_dims = len(output_shape) - 2
+            batch_shape = output_shape[:batch_dims]
 
+            loop_vars = []
             for i in range(batch_dims):
                 loop_var = f"_i{self._get_unique_id()}"
                 self.builder.add_container(loop_var, Scalar(PrimitiveType.Int64), False)
                 loop_vars.append(loop_var)
-                dim_size = real_shape_a[i]
+                dim_size = batch_shape[i]
                 self.builder.begin_for(loop_var, "0", str(dim_size), "1")
 
-            def make_slice(name, indices):
+            def make_operand_slice(name, op_shape):
+                # Build name[b0, b1, ..., :, :] where each batch index is either
+                # the corresponding output loop var, or 0 when this operand
+                # broadcasts that dimension (size-1 or a missing leading dim).
+                op_batch = len(op_shape) - 2
                 elts = []
-                for idx in indices:
-                    if idx == ":":
-                        elts.append(ast.Slice())
+                for b in range(op_batch):
+                    out_b = batch_dims - op_batch + b
+                    op_dim = str(op_shape[b])
+                    out_dim = str(batch_shape[out_b])
+                    if op_dim == "1" and out_dim != "1":
+                        elts.append(ast.Name(id="0"))
                     else:
-                        elts.append(ast.Name(id=idx))
-
+                        elts.append(ast.Name(id=loop_vars[out_b]))
+                elts.append(ast.Slice())
+                elts.append(ast.Slice())
                 return ast.Subscript(
                     value=ast.Name(id=name), slice=ast.Tuple(elts=elts), ctx=ast.Load()
                 )
 
-            indices = loop_vars + [":", ":"]
-            slice_a = make_slice(name_a, indices)
-            slice_b = make_slice(name_b, indices)
-            slice_c = make_slice(tmp_name, indices)
+            slice_a = make_operand_slice(name_a, real_shape_a)
+            slice_b = make_operand_slice(name_b, real_shape_b)
+            slice_c = make_operand_slice(tmp_name, output_shape)
 
             self.handle_gemm(
                 slice_c, ast.BinOp(left=slice_a, op=ast.MatMult(), right=slice_b)
@@ -2630,42 +2671,47 @@ class NumPyHandler:
 
         return strides
 
+    def _exprs_equal(self, a, b):
+        """Return True if two stride/shape expressions are mathematically equal.
+
+        Stride expressions are produced by different code paths with different
+        formatting (e.g. ``"(_s1 * _s2)"`` vs ``"((_s1) * (_s2))"``) and may
+        contain additions, so a purely textual comparison is insufficient. Fall
+        back to symbolic comparison via sympy, forcing every identifier to a
+        plain symbol so reserved names (``N``, ``E``, ``I``, ...) are not given
+        special meaning.
+        """
+        a, b = str(a), str(b)
+        if a.replace(" ", "") == b.replace(" ", ""):
+            return True
+        try:
+            import re
+            import sympy
+
+            names = set(re.findall(r"[A-Za-z_]\w*", a + " " + b))
+            local_dict = {n: sympy.Symbol(n) for n in names}
+            expr_a = sympy.sympify(a, locals=local_dict)
+            expr_b = sympy.sympify(b, locals=local_dict)
+            return sympy.simplify(expr_a - expr_b) == 0
+        except Exception:
+            return a.replace(" ", "") == b.replace(" ", "")
+
+    def _strides_equal(self, a_strides, b_strides):
+        """Compare two stride lists element-wise up to mathematical equality."""
+        if len(a_strides) != len(b_strides):
+            return False
+        return all(self._exprs_equal(a, b) for a, b in zip(a_strides, b_strides))
+
     def _is_contiguous(self, shape, strides):
         """Check if strides represent a contiguous (C or F order) layout."""
         if not shape or not strides:
             return True
 
-        def normalize(s):
-            # Normalize stride expression by removing spaces and outer parens
-            s = s.replace(" ", "")
-            while s.startswith("(") and s.endswith(")"):
-                # Only strip if balanced parens
-                inner = s[1:-1]
-                depth = 0
-                balanced = True
-                for c in inner:
-                    if c == "(":
-                        depth += 1
-                    elif c == ")":
-                        depth -= 1
-                        if depth < 0:
-                            balanced = False
-                            break
-                if balanced and depth == 0:
-                    s = inner
-                else:
-                    break
-            return s
-
         c_strides = self._compute_strides(shape, "C")
-        if all(
-            normalize(str(a)) == normalize(str(b)) for a, b in zip(strides, c_strides)
-        ):
+        if self._strides_equal(strides, c_strides):
             return True
         f_strides = self._compute_strides(shape, "F")
-        return all(
-            normalize(str(a)) == normalize(str(b)) for a, b in zip(strides, f_strides)
-        )
+        return self._strides_equal(strides, f_strides)
 
     def _create_array_temp(
         self,
