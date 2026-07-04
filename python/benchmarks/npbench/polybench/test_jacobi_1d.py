@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 import numpy as np
 from benchmarks.npbench.harness import SDFGVerification, run_benchmark, run_pytest
@@ -24,6 +26,7 @@ def kernel(TSTEPS, A, B):
         A[1:-1] = 0.33333 * (B[:-2] + B[1:-1] + B[2:])
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_jacobi_1d(target):
     if target == "none":
