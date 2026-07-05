@@ -691,5 +691,37 @@ class TestBooleanMaskAssignment:
         np.testing.assert_array_equal(result, expected)
 
 
+class TestInfConstant:
+    """Tests for the np.inf / np.nan floating-point constants."""
+
+    def test_where_with_inf(self):
+        @native
+        def where_inf(a):
+            return np.where(a > 0, a, np.inf)
+
+        a = np.array([-2.0, 0.5, 3.0, -1.0])
+        compiled = where_inf.compile(a)
+        result = compiled(a)
+        np.testing.assert_array_equal(result, np.where(a > 0, a, np.inf))
+
+    def test_clip_with_neg_inf(self):
+        @native
+        def clip_inf(a, out):
+            out[:] = np.clip(a, -np.inf, 1.0)
+
+        a = np.array([-2.0, 0.5, 3.0, -1.0])
+        out = np.zeros(4)
+        clip_inf(a, out)
+        np.testing.assert_allclose(out, np.clip(a, -np.inf, 1.0))
+
+    def test_min_over_where_inf(self):
+        @native
+        def masked_min(a) -> float:
+            return np.min(np.where(a > 0, a, np.inf))
+
+        a = np.array([-2.0, 0.5, 3.0, -1.0])
+        assert np.isclose(masked_min(a), np.min(np.where(a > 0, a, np.inf)))
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

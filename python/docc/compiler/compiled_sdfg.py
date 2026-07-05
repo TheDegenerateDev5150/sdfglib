@@ -450,7 +450,8 @@ class CompiledSDFG:
 
         # Build _fields_ for ctypes.Structure
         fields = []
-        for member_name, (index, member_type) in sorted_members:
+        for member_name, member_info in sorted_members:
+            member_type = member_info[1]
             ct_type = self._get_ctypes_type(member_type)
             fields.append((member_name, ct_type))
 
@@ -896,9 +897,20 @@ class CompiledSDFG:
                 arg = args[info[1]]
                 shape_symbol_values[info[2]] = arg
                 struct_class = info[3]
-                struct_values = {
-                    m[0]: getattr(arg, m[0]) for m in info[4] if hasattr(arg, m[0])
-                }
+                struct_values = {}
+                for m in info[4]:
+                    member_name = m[0]
+                    if not hasattr(arg, member_name):
+                        continue
+                    member_value = getattr(arg, member_name)
+                    member_type = m[1][1]
+                    if isinstance(member_value, np.ndarray):
+                        # Array member: pass the data pointer (struct-of-arrays).
+                        struct_values[member_name] = member_value.ctypes.data_as(
+                            self._get_ctypes_type(member_type)
+                        )
+                    else:
+                        struct_values[member_name] = member_value
                 c_struct = struct_class(**struct_values)
                 structure_refs.append(c_struct)
                 converted_args.append(_ctypes_pointer(c_struct))

@@ -466,11 +466,13 @@ class PythonProgram(DoccProgram):
                             # the backend code generation
                             member_types = []
                             member_names = []
+                            member_shapes = []
                             for attr_name, attr_value in sorted(arg.__dict__.items()):
                                 if not attr_name.startswith("_"):
                                     # Infer member type from instance attribute
                                     # Check bool before int since bool is subclass of int
                                     member_type = None
+                                    member_shape = None
                                     if isinstance(attr_value, bool):
                                         member_type = Scalar(PrimitiveType.Bool)
                                     elif isinstance(attr_value, (int, np.int64)):
@@ -481,21 +483,33 @@ class PythonProgram(DoccProgram):
                                         member_type = Scalar(PrimitiveType.Int32)
                                     elif isinstance(attr_value, np.float32):
                                         member_type = Scalar(PrimitiveType.Float)
+                                    elif isinstance(attr_value, np.ndarray):
+                                        # Array member: stored as a pointer field
+                                        # (struct-of-arrays). Record the concrete
+                                        # shape so attribute access can build a
+                                        # tensor view over the member pointer.
+                                        member_type = self._infer_type(attr_value)
+                                        member_shape = [
+                                            str(int(s)) for s in attr_value.shape
+                                        ]
                                     # TODO: Consider using np.integer and np.floating abstract types
                                     # for more comprehensive numpy type coverage
-                                    # TODO: Add support for nested structures and arrays
+                                    # TODO: Add support for nested structures
 
                                     if member_type is not None:
                                         member_types.append(member_type)
                                         member_names.append(attr_name)
+                                        member_shapes.append(member_shape)
 
                             if member_types:
                                 structures_to_register[struct_name] = member_types
-                                # Build member name to (index, type) mapping
+                                # Build member name to (index, type, shape) mapping.
+                                # shape is None for scalar members and a list of
+                                # dimension-size strings for array members.
                                 structure_member_info[struct_name] = {
-                                    name: (idx, mtype)
-                                    for idx, (name, mtype) in enumerate(
-                                        zip(member_names, member_types)
+                                    name: (idx, mtype, shape)
+                                    for idx, (name, mtype, shape) in enumerate(
+                                        zip(member_names, member_types, member_shapes)
                                     )
                                 }
 
