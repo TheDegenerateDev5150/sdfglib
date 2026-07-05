@@ -67,6 +67,13 @@ def _map_python_type(dtype):
             elem_type = _map_python_type(args[1])
             return Pointer(elem_type)
 
+    # Handle a parametrized numpy dtype generic, e.g. numpy.dtype[numpy.float64]
+    # (produced by npt.NDArray[RealT] -> ndarray[Any, dtype[float64]]).
+    if get_origin(dtype) is np.dtype:
+        inner = get_args(dtype)
+        if inner:
+            return _map_python_type(inner[0])
+
     # Simple mapping for python types
     if dtype is float or dtype is np.float64:
         return Scalar(PrimitiveType.Double)
