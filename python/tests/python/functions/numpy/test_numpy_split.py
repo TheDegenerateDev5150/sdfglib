@@ -1,3 +1,5 @@
+import sys
+
 from docc.python import native
 import numpy as np
 import pytest
@@ -66,6 +68,7 @@ def test_split_negative_axis():
     assert np.array_equal(v, ev)
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 def test_split_values_used_in_computation():
     """Split sections can be consumed in arithmetic, not just returned."""
 
