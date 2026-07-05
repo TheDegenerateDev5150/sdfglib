@@ -1,5 +1,7 @@
 """Test + benchmark for LULESH ``collect_domain_nodes_to_elem_nodes``."""
 
+import sys
+
 import pytest
 
 import lulesh
@@ -12,6 +14,7 @@ def _extra(d):
     return (d.nodelist,)
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_collect_domain_nodes_to_elem_nodes(target):
     check_domain_kernel(

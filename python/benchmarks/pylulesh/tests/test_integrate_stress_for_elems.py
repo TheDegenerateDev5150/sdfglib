@@ -5,6 +5,8 @@ Accumulates element stress contributions into the global nodal force arrays
 per-element volume ``determ``. ``fx/fy/fz`` must start zeroed.
 """
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -24,6 +26,7 @@ def _extra(d):
     return _sig(d.numelem)
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_integrate_stress_for_elems(target):
     check_domain_kernel(

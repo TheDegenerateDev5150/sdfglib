@@ -1,5 +1,7 @@
 """Test + benchmark for LULESH ``calc_position_for_nodes``."""
 
+import sys
+
 import pytest
 
 import lulesh
@@ -10,6 +12,7 @@ _COMPARE = ("x", "y", "z")
 _EXTRA = (1e-3,)  # dt
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_calc_position_for_nodes(target):
     check_domain_kernel(

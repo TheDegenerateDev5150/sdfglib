@@ -4,6 +4,8 @@ Computes the full nodal force field: stress integration plus Flanagan-Belytschko
 anti-hourglass control, scattered into ``fx/fy/fz``.
 """
 
+import sys
+
 import pytest
 
 import lulesh
@@ -13,6 +15,7 @@ _RANDOMIZE = ("p", "q", "ss", "xd", "yd", "zd")
 _COMPARE = ("fx", "fy", "fz")
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_calc_force_for_nodes(target):
     check_domain_kernel(

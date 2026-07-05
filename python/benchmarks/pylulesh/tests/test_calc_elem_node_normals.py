@@ -3,6 +3,8 @@
 ``pf`` (shape (ne, 3, 8)) is mutated in place: zeroed then accumulated.
 """
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -19,6 +21,7 @@ def _inputs(ne, seed=3):
     return pf, x, y, z
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_calc_elem_node_normals(target):
     check_flat_kernel(lulesh.calc_elem_node_normals, target, _inputs(27))

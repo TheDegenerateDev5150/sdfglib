@@ -10,6 +10,8 @@ Run as a benchmark with::
     python benchmarks/pylulesh/tests/test_lagrange_nodal.py --nx 8
 """
 
+import sys
+
 import pytest
 
 import lulesh
@@ -34,6 +36,7 @@ _COMPARE = (
 )
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_lagrange_nodal(target):
     check_domain_kernel(

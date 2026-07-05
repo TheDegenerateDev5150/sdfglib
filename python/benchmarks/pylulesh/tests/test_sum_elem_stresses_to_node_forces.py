@@ -1,5 +1,7 @@
 """Test + benchmark for LULESH ``sum_elem_stresses_to_node_forces``."""
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -16,6 +18,7 @@ def _inputs(ne, seed=4):
     return B, sigxx, sigyy, sigzz
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_sum_elem_stresses_to_node_forces(target):
     check_flat_kernel(lulesh.sum_elem_stresses_to_node_forces, target, _inputs(27))

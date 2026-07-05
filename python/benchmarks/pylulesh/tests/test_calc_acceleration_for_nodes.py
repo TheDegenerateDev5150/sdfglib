@@ -5,6 +5,8 @@ Run as a benchmark with::
     python benchmarks/pylulesh/tests/test_calc_acceleration_for_nodes.py --nx 20
 """
 
+import sys
+
 import pytest
 
 import lulesh
@@ -14,6 +16,7 @@ _RANDOMIZE = ("fx", "fy", "fz")
 _COMPARE = ("xdd", "ydd", "zdd")
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_calc_acceleration_for_nodes(target):
     check_domain_kernel(

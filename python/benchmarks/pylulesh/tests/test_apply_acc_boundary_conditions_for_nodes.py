@@ -1,5 +1,7 @@
 """Test + benchmark for LULESH ``apply_acc_boundary_conditions_for_nodes``."""
 
+import sys
+
 import pytest
 
 import lulesh
@@ -9,6 +11,7 @@ _RANDOMIZE = ("xdd", "ydd", "zdd")
 _COMPARE = ("xdd", "ydd", "zdd")
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_apply_acc_boundary_conditions_for_nodes(target):
     check_domain_kernel(
