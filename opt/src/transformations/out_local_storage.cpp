@@ -562,8 +562,10 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
         // ============================================================
         if (tile_info_.has_read) {
             std::vector<symbolic::Symbol> init_indvars;
-            structured_control_flow::Sequence* init_scope =
+            int copy_index = parent->index(loop_);
+            structured_control_flow::Sequence* copy_scope =
                 &builder.add_sequence_before(*parent, loop_, {}, loop_.debug_info());
+            structured_control_flow::Sequence* current_scope = copy_scope;
             for (size_t i = 0; i < varying_dims.size(); i++) {
                 size_t d = varying_dims[i];
                 auto indvar_name =
@@ -578,7 +580,7 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
                 auto update = symbolic::add(indvar, symbolic::integer(1));
 
                 auto& init_loop = builder.add_map(
-                    *init_scope,
+                    *current_scope,
                     indvar,
                     condition,
                     init,
@@ -587,11 +589,11 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
                     {},
                     loop_.debug_info()
                 );
-                init_scope = &init_loop.root();
+                current_scope = &init_loop.root();
             }
 
             // Create init copy block
-            auto& init_block = builder.add_block(*init_scope);
+            auto& init_block = builder.add_block(*current_scope);
             auto& init_src = builder.add_access(init_block, this->container_);
             auto& init_dst = builder.add_access(init_block, local_name_);
             auto& init_tasklet = builder.add_tasklet(init_block, data_flow::TaskletCode::assign, "_out", {"_in"});
@@ -602,13 +604,18 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
 
             builder.add_computational_memlet(init_block, init_src, init_tasklet, "_in", init_src_subset, pointer_type);
             builder.add_computational_memlet(init_block, init_tasklet, "_out", init_dst, init_dst_subset, buffer_type);
+
+            builder.move_children(*copy_scope, *parent, copy_index + 1);
+            builder.remove_child(*parent, copy_index);
         }
 
         // Writeback Maps
         {
             std::vector<symbolic::Symbol> wb_indvars;
-            structured_control_flow::Sequence* wb_scope =
+            int copy_index = parent->index(loop_) + 1;
+            structured_control_flow::Sequence* copy_scope =
                 &builder.add_sequence_after(*parent, loop_, {}, loop_.debug_info());
+            structured_control_flow::Sequence* current_scope = copy_scope;
             for (size_t i = 0; i < varying_dims.size(); i++) {
                 size_t d = varying_dims[i];
                 auto indvar_name =
@@ -623,7 +630,7 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
                 auto update = symbolic::add(indvar, symbolic::integer(1));
 
                 auto& wb_loop = builder.add_map(
-                    *wb_scope,
+                    *current_scope,
                     indvar,
                     condition,
                     init,
@@ -632,11 +639,11 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
                     {},
                     loop_.debug_info()
                 );
-                wb_scope = &wb_loop.root();
+                current_scope = &wb_loop.root();
             }
 
             // Create writeback copy block
-            auto& wb_block = builder.add_block(*wb_scope);
+            auto& wb_block = builder.add_block(*current_scope);
             auto& wb_src = builder.add_access(wb_block, local_name_);
             auto& wb_dst = builder.add_access(wb_block, this->container_);
             auto& wb_tasklet = builder.add_tasklet(wb_block, data_flow::TaskletCode::assign, "_out", {"_in"});
@@ -647,6 +654,9 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
 
             builder.add_computational_memlet(wb_block, wb_src, wb_tasklet, "_in", wb_src_subset, buffer_type);
             builder.add_computational_memlet(wb_block, wb_tasklet, "_out", wb_dst, wb_dst_subset, pointer_type);
+
+            builder.move_children(*copy_scope, *parent, copy_index + 1);
+            builder.remove_child(*parent, copy_index);
         }
     }
 
@@ -775,15 +785,6 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
 
     // Cleanup
     analysis_manager.invalidate_all();
-
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, analysis_manager);
-        applies |= sf_pass.run(builder, analysis_manager);
-    } while (applies);
 };
 
 void OutLocalStorage::to_json(nlohmann::json& j) const {

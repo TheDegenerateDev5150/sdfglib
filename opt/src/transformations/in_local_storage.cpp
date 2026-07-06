@@ -531,8 +531,12 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
         builder.add_container(local_name_, buffer_type);
 
         std::vector<symbolic::Symbol> copy_indvars;
+        int copy_index = parent->index(loop_);
+        assert(copy_index >= 0);
         structured_control_flow::Sequence* copy_scope =
             &builder.add_sequence_before(*parent, loop_, {}, loop_.debug_info());
+        structured_control_flow::Sequence* current_scope = copy_scope;
+
         for (size_t i = 0; i < varying_dims.size(); i++) {
             size_t d = varying_dims[i];
             auto indvar_name = builder.find_new_name("__daisy_ils_" + this->container_ + "_d" + std::to_string(d));
@@ -546,7 +550,7 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
             auto update = symbolic::add(indvar, symbolic::integer(1));
 
             auto& copy_loop = builder.add_map(
-                *copy_scope,
+                *current_scope,
                 indvar,
                 condition,
                 init,
@@ -555,11 +559,11 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
                 {},
                 loop_.debug_info()
             );
-            copy_scope = &copy_loop.root();
+            current_scope = &copy_loop.root();
         }
 
         // Create copy block
-        auto& copy_block = builder.add_block(*copy_scope);
+        auto& copy_block = builder.add_block(*current_scope);
         auto& copy_src = builder.add_access(copy_block, this->container_);
         auto& copy_dst = builder.add_access(copy_block, local_name_);
         auto& copy_tasklet = builder.add_tasklet(copy_block, data_flow::TaskletCode::assign, "_out", {"_in"});
@@ -571,6 +575,10 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
         builder.add_computational_memlet(copy_block, copy_src, copy_tasklet, "_in", copy_src_subset, pointer_type);
         types::Array buffer_type_ref(storage_type_, 0, {}, scalar_type, total_size);
         builder.add_computational_memlet(copy_block, copy_tasklet, "_out", copy_dst, copy_dst_subset, buffer_type_ref);
+
+        // Remove temporary copy scope
+        builder.move_children(*copy_scope, *parent, copy_index + 1);
+        builder.remove_child(*parent, copy_index);
     }
 
     // ==================================================================
@@ -687,17 +695,7 @@ void InLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::An
     };
     rewrite_accesses(loop_.root());
 
-    // Cleanup
     analysis_manager.invalidate_all();
-
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, analysis_manager);
-        applies |= sf_pass.run(builder, analysis_manager);
-    } while (applies);
 }
 
 void InLocalStorage::to_json(nlohmann::json& j) const {
