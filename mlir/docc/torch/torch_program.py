@@ -240,7 +240,9 @@ class TorchProgram(DoccProgram):
         # step recompiles the existing source files instead of overwriting them.
         docc_reuse_sources = os.environ.get("DOCC_REUSE_SOURCES")
 
-        if docc_reuse_binaries or docc_reuse_sources:
+        if (docc_reuse_binaries or docc_reuse_sources) and not os.environ.get(
+            "DOCC_DEBUG"
+        ):
             os.environ["DOCC_DEBUG"] = "dump"
 
         if not os.path.exists(output_folder) and docc_reuse_sources:
