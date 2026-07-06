@@ -7,8 +7,6 @@
 #include "sdfg/data_flow/access_node.h"
 #include "sdfg/data_flow/library_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
-#include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
-#include "sdfg/passes/structured_control_flow/sequence_fusion.h"
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/for.h"
 #include "sdfg/structured_control_flow/map.h"
@@ -74,17 +72,6 @@ TEST(InLocalStorageTest, For_Array) {
     EXPECT_TRUE(transformation.can_be_applied(builder, am));
     transformation.apply(builder, am);
 
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
-
     // Verify: local buffer was created
     EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
     types::Array array_desc(elem_desc, symbolic::integer(4));
@@ -137,7 +124,6 @@ TEST(InLocalStorageTest, For_Array) {
     // Second element should be the main loop
     auto* main_loop = dynamic_cast<structured_control_flow::For*>(&new_root.at(1).first);
     EXPECT_NE(main_loop, nullptr);
-
 
     // Verify main loop uses local buffer
     auto& main_body = main_loop->root();
@@ -218,16 +204,6 @@ TEST(InLocalStorageTest, For_Array_Linearized) {
     transformations::InLocalStorage ils(loop, a_in);
     EXPECT_TRUE(ils.can_be_applied(builder_opt, am));
     ils.apply(builder_opt, am);
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder_opt, am);
-        applies |= sf_pass.run(builder_opt, am);
-    } while (applies);
 
     // Verify: buffer created, structure inside outer loop = [copy_loop, main_loop]
     EXPECT_TRUE(builder_opt.subject().exists("__daisy_in_local_storage_A0"));
@@ -352,17 +328,6 @@ TEST(InLocalStorageTest, For_Array_PolyBench) {
     transformations::InLocalStorage transformation(outer_loop, a_in);
     EXPECT_TRUE(transformation.can_be_applied(builder, am));
     transformation.apply(builder, am);
-
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
 
     // Verify: local buffer was created
     EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
@@ -520,17 +485,6 @@ TEST(InLocalStorageTest, For_Scalar) {
     EXPECT_TRUE(transformation.can_be_applied(builder, am));
     transformation.apply(builder, am);
 
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
-
     // Verify: local buffer was created
     EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
     types::Array array_desc(elem_desc, symbolic::integer(1));
@@ -646,17 +600,6 @@ TEST(InLocalStorageTest, Map_Array) {
     transformations::InLocalStorage transformation(loop, a_in);
     EXPECT_TRUE(transformation.can_be_applied(builder, am));
     transformation.apply(builder, am);
-
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
 
     // Verify: local buffer was created
     EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
@@ -813,30 +756,10 @@ TEST(InLocalStorageTest, For_MultipleGroups) {
     ASSERT_TRUE(ils_ik.can_be_applied(builder, am));
     ils_ik.apply(builder, am);
 
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
-
     // Second ILS: pack A[j,k] group
     transformations::InLocalStorage ils_jk(k_loop, ajk_in);
     EXPECT_TRUE(ils_jk.can_be_applied(builder, am));
     ils_jk.apply(builder, am);
-
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
 
     // Verify: local buffer was created
     EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
@@ -1012,17 +935,6 @@ TEST(InLocalStorageTest, For_MultipleGroups_SplitNode) {
     ASSERT_TRUE(ils_ik.can_be_applied(builder, am));
     ils_ik.apply(builder, am);
 
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
-
     const data_flow::AccessNode* new_a_in = nullptr;
     for (auto* node : block.dataflow().data_nodes()) {
         if (node->data() == "A") {
@@ -1036,15 +948,6 @@ TEST(InLocalStorageTest, For_MultipleGroups_SplitNode) {
     transformations::InLocalStorage ils_jk(k_loop, *new_a_in);
     EXPECT_TRUE(ils_jk.can_be_applied(builder, am));
     ils_jk.apply(builder, am);
-
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder, am);
-        applies |= sf_pass.run(builder, am);
-    } while (applies);
 
     // Verify: local buffer was created
     EXPECT_TRUE(builder.subject().exists("__daisy_in_local_storage_A0"));
@@ -1492,17 +1395,6 @@ TEST(InLocalStorageTest, TiledAccess_2D) {
     if (can_apply) {
         ils.apply(builder_opt, am);
 
-        // Cleanup for simpler verification
-        am.invalidate_all();
-        passes::SequenceFusion sf_pass;
-        passes::DeadCFGElimination dce_pass;
-        bool applies = false;
-        do {
-            applies = false;
-            applies |= dce_pass.run(builder_opt, am);
-            applies |= sf_pass.run(builder_opt, am);
-        } while (applies);
-
         // Verify: local buffer was created
         EXPECT_TRUE(builder_opt.subject().exists("__daisy_in_local_storage_A0"));
 
@@ -1624,16 +1516,6 @@ TEST(InLocalStorageTest, TiledAccess_1D) {
 
     if (can_apply) {
         ils.apply(builder_opt, am);
-        // Cleanup for simpler verification
-        am.invalidate_all();
-        passes::SequenceFusion sf_pass;
-        passes::DeadCFGElimination dce_pass;
-        bool applies = false;
-        do {
-            applies = false;
-            applies |= dce_pass.run(builder_opt, am);
-            applies |= sf_pass.run(builder_opt, am);
-        } while (applies);
 
         // Verify: local buffer was created
         EXPECT_TRUE(builder_opt.subject().exists("__daisy_in_local_storage_A0"));
@@ -1752,16 +1634,6 @@ TEST(InLocalStorageTest, TiledAccess_2D_Panel) {
 
     if (can_apply) {
         ils.apply(builder_opt, am);
-        // Cleanup for simpler verification
-        am.invalidate_all();
-        passes::SequenceFusion sf_pass;
-        passes::DeadCFGElimination dce_pass;
-        bool applies = false;
-        do {
-            applies = false;
-            applies |= dce_pass.run(builder_opt, am);
-            applies |= sf_pass.run(builder_opt, am);
-        } while (applies);
 
 
         // Verify: local buffer was created
@@ -1958,16 +1830,6 @@ TEST(InLocalStorageTest, TiledStencil_2D_5Point) {
 
     if (can_apply) {
         ils.apply(builder_opt, am);
-        // Cleanup for simpler verification
-        am.invalidate_all();
-        passes::SequenceFusion sf_pass;
-        passes::DeadCFGElimination dce_pass;
-        bool applies = false;
-        do {
-            applies = false;
-            applies |= dce_pass.run(builder_opt, am);
-            applies |= sf_pass.run(builder_opt, am);
-        } while (applies);
 
 
         // Verify: local buffer was created
@@ -2224,16 +2086,6 @@ TEST(InLocalStorageTest, GPU_Cooperative_FlatPointer) {
     transformations::InLocalStorage ils(loop, a_in, types::StorageType::NV_Shared());
     EXPECT_TRUE(ils.can_be_applied(builder_opt, am));
     ils.apply(builder_opt, am);
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder_opt, am);
-        applies |= sf_pass.run(builder_opt, am);
-    } while (applies);
 
 
     // Verify: shared buffer was created
@@ -2361,16 +2213,6 @@ TEST(InLocalStorageTest, GPU_Cooperative_SymbolicBounds) {
     transformations::InLocalStorage ils(loop, a_in, types::StorageType::NV_Shared());
     EXPECT_TRUE(ils.can_be_applied(builder_opt, am));
     ils.apply(builder_opt, am);
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder_opt, am);
-        applies |= sf_pass.run(builder_opt, am);
-    } while (applies);
 
 
     // Verify: shared buffer with resolved size (M→8)
@@ -2566,16 +2408,6 @@ TEST(InLocalStorageTest, GPU_Cooperative_AllDimsFree) {
     transformations::InLocalStorage ils(loop, a_in, types::StorageType::NV_Shared());
     EXPECT_TRUE(ils.can_be_applied(builder_opt, am));
     ils.apply(builder_opt, am);
-    // Cleanup for simpler verification
-    am.invalidate_all();
-    passes::SequenceFusion sf_pass;
-    passes::DeadCFGElimination dce_pass;
-    bool applies = false;
-    do {
-        applies = false;
-        applies |= dce_pass.run(builder_opt, am);
-        applies |= sf_pass.run(builder_opt, am);
-    } while (applies);
 
 
     // Verify buffer: extent N resolved to 32

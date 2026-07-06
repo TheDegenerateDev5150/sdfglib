@@ -436,12 +436,21 @@ class TorchProgram(DoccProgram):
     def _convert_inputs(self, args: tuple) -> tuple:
         import torch
         import numpy as np
+        import ml_dtypes
 
         converted = []
         for arg in args:
             if isinstance(arg, torch.Tensor):
                 # Ensure contiguous and convert to numpy
-                arr = arg.detach().cpu().contiguous().numpy()
+                contiguous_arg = arg.detach().cpu().contiguous()
+                if arg.dtype == torch.bfloat16:
+                    arr = (
+                        contiguous_arg.view(dtype=torch.uint16)
+                        .numpy()
+                        .view(dtype=ml_dtypes.bfloat16)
+                    )
+                else:
+                    arr = contiguous_arg.numpy()
                 converted.append(arr)
             elif isinstance(arg, np.ndarray):
                 converted.append(arg)
@@ -452,6 +461,7 @@ class TorchProgram(DoccProgram):
 
     def _convert_outputs(self, result: Any, original_args: tuple) -> Any:
         import torch
+        import ml_dtypes
 
         # Determine target device from input
         device = torch.device("cpu")
@@ -469,7 +479,12 @@ class TorchProgram(DoccProgram):
                 # For non-CPU devices, .to(device) creates a copy anyway
                 # For CPU, the shared memory is fine since CompiledSDFG
                 # allocates new buffers on each call
-                t = torch.from_numpy(val)
+                if val.dtype == ml_dtypes.bfloat16:
+                    t = torch.from_numpy(val.view(dtype=np.uint16)).view(
+                        dtype=torch.bfloat16
+                    )
+                else:
+                    t = torch.from_numpy(val)
                 if not is_cpu:
                     t = t.to(device)
                 return t
