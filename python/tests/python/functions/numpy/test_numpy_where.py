@@ -691,5 +691,94 @@ class TestBooleanMaskAssignment:
         np.testing.assert_array_equal(result, expected)
 
 
+class TestInfConstant:
+    """Tests for the np.inf / np.nan floating-point constants."""
+
+    def test_where_with_inf(self):
+        @native
+        def where_inf(a):
+            return np.where(a > 0, a, np.inf)
+
+        a = np.array([-2.0, 0.5, 3.0, -1.0])
+        compiled = where_inf.compile(a)
+        result = compiled(a)
+        np.testing.assert_array_equal(result, np.where(a > 0, a, np.inf))
+
+    def test_clip_with_neg_inf(self):
+        @native
+        def clip_inf(a, out):
+            out[:] = np.clip(a, -np.inf, 1.0)
+
+        a = np.array([-2.0, 0.5, 3.0, -1.0])
+        out = np.zeros(4)
+        clip_inf(a, out)
+        np.testing.assert_allclose(out, np.clip(a, -np.inf, 1.0))
+
+    def test_min_over_where_inf(self):
+        @native
+        def masked_min(a) -> float:
+            return np.min(np.where(a > 0, a, np.inf))
+
+        a = np.array([-2.0, 0.5, 3.0, -1.0])
+        assert np.isclose(masked_min(a), np.min(np.where(a > 0, a, np.inf)))
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_select_basic():
+    """np.select with two conditions and a default, lowered to nested where."""
+
+    @native
+    def sel2(masked, a, b):
+        return np.select(
+            [(masked == 4) | (masked == 0), masked == 1],
+            [a, b],
+            default=0,
+        )
+
+    masked = np.array([4, 0, 1, 2], dtype=np.int64)
+    a = np.array([10.0, 20.0, 30.0, 40.0])
+    b = np.array([100.0, 200.0, 300.0, 400.0])
+
+    compiled = sel2.compile(masked, a, b)
+    result = compiled(masked, a, b)
+    expected = np.select(
+        [(masked == 4) | (masked == 0), masked == 1], [a, b], default=0
+    )
+    np.testing.assert_allclose(result, expected)
+
+
+def test_select_first_match_priority():
+    """Overlapping conditions: the first matching condition must win."""
+
+    @native
+    def sel_prio(cond0, cond1, a, b):
+        return np.select([cond0, cond1], [a, b], default=-1.0)
+
+    cond0 = np.array([True, True, False, False])
+    cond1 = np.array([True, False, True, False])
+    a = np.array([1.0, 2.0, 3.0, 4.0])
+    b = np.array([10.0, 20.0, 30.0, 40.0])
+
+    compiled = sel_prio.compile(cond0, cond1, a, b)
+    result = compiled(cond0, cond1, a, b)
+    expected = np.select([cond0, cond1], [a, b], default=-1.0)
+    np.testing.assert_allclose(result, expected)
+
+
+def test_select_default_positional():
+    """np.select accepts the default as a positional third argument."""
+
+    @native
+    def sel_pos(cond, a):
+        return np.select([cond], [a], 7.0)
+
+    cond = np.array([True, False, True, False])
+    a = np.array([1.0, 2.0, 3.0, 4.0])
+
+    compiled = sel_pos.compile(cond, a)
+    result = compiled(cond, a)
+    expected = np.select([cond], [a], 7.0)
+    np.testing.assert_allclose(result, expected)

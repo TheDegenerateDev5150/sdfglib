@@ -48,11 +48,14 @@ class NumPyHandler:
             "absolute": self._handle_numpy_unary_op,
             "sqrt": self._handle_numpy_unary_op,
             "tanh": self._handle_numpy_unary_op,
+            "cbrt": self._handle_numpy_cbrt,
             "sum": self._handle_numpy_reduce,
             "max": self._handle_numpy_reduce,
             "min": self._handle_numpy_reduce,
             "mean": self._handle_numpy_reduce,
             "std": self._handle_numpy_reduce,
+            "any": self._handle_numpy_any,
+            "all": self._handle_numpy_all,
             "matmul": self._handle_numpy_matmul,
             "dot": self._handle_numpy_matmul,
             "matvec": self._handle_numpy_matmul,
@@ -60,6 +63,7 @@ class NumPyHandler:
             "minimum": self._handle_numpy_binary_op,
             "maximum": self._handle_numpy_binary_op,
             "where": self._handle_numpy_where,
+            "select": self._handle_numpy_select,
             "clip": self._handle_numpy_clip,
             "transpose": self._handle_numpy_transpose,
             "flip": self._handle_numpy_flip,
@@ -67,6 +71,8 @@ class NumPyHandler:
             "flipud": self._handle_numpy_flipud,
             "reshape": self._handle_numpy_reshape,
             "einsum": self._handle_numpy_einsum,
+            "copy": self._handle_numpy_copy_func,
+            "split": self._handle_numpy_split,
         }
 
     # Expose parent properties for convenience
@@ -1131,11 +1137,141 @@ class NumPyHandler:
 
         return tmp_name
 
+    def _handle_numpy_split(self, node, func_name):
+        """Handle np.split(ary, sections, axis=0) -> list of sub-array views.
+
+        Only the "integer number of equal sections" form is supported (which is
+        what pylulesh uses, e.g. ``np.split(x[:, idx], 6, axis=1)``). Each
+        section is produced as a strided slice view along ``axis`` (no copy),
+        keeping the split dimension (matching NumPy semantics). Splitting at an
+        explicit list of indices, a non-constant number of sections, a
+        non-constant axis, or an axis length not evenly divisible by the number
+        of sections is not supported and raises clearly.
+        """
+        if len(node.args) < 2:
+            raise NotImplementedError(
+                "np.split requires (array, sections[, axis]) arguments"
+            )
+
+        def _const_int(n):
+            if isinstance(n, ast.Constant) and isinstance(n.value, int):
+                return n.value
+            if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+                inner = _const_int(n.operand)
+                return None if inner is None else -inner
+            return None
+
+        # Parse the number of sections (must be a constant integer).
+        sections = _const_int(node.args[1])
+        if sections is None:
+            raise NotImplementedError(
+                "np.split is only supported with a constant integer number of "
+                "equal sections (splitting at an explicit list of indices is "
+                "not supported)"
+            )
+        if sections <= 0:
+            raise NotImplementedError("np.split: number of sections must be positive")
+
+        # Parse the axis (positional 3rd arg or `axis=` keyword), default 0.
+        axis_node = node.args[2] if len(node.args) >= 3 else None
+        for kw in node.keywords:
+            if kw.arg == "axis":
+                axis_node = kw.value
+            else:
+                raise NotImplementedError(
+                    f"np.split keyword argument '{kw.arg}' is not supported"
+                )
+        axis = 0
+        if axis_node is not None:
+            axis = _const_int(axis_node)
+            if axis is None:
+                raise NotImplementedError("np.split axis must be a constant integer")
+
+        # Materialize the array operand once, then slice it repeatedly.
+        ary_name = self.visit(node.args[0])
+        if ary_name not in self.tensor_table:
+            raise NotImplementedError("np.split argument must be an array")
+        tensor = self.tensor_table[ary_name]
+        shape = tensor.shape
+        ndim = len(shape)
+        if axis < 0:
+            axis += ndim
+        if axis < 0 or axis >= ndim:
+            raise NotImplementedError(
+                f"np.split axis {axis} out of range for {ndim}-D array"
+            )
+
+        # The axis length may be a compile-time constant or a runtime-symbolic
+        # expression. NumPy requires it to be evenly divisible by `sections`
+        # (raising otherwise at runtime); we assume that holds and build each
+        # section as a zero-copy view of shape `[..., step, ...]` where
+        # `step = axis_len // sections`, offset by `j*step` along `axis`. Shapes
+        # and offsets are kept symbolic in terms of the source array's own
+        # shape/stride symbols so the (return-)shape marshaling can evaluate
+        # them. If the axis length is a known constant, verify divisibility
+        # eagerly for a clearer error.
+        axis_len_str = str(shape[axis])
+        if not axis_len_str:
+            raise NotImplementedError("np.split requires a determinable axis length")
+        try:
+            axis_len_int = int(axis_len_str)
+        except ValueError:
+            axis_len_int = None
+        if axis_len_int is not None and axis_len_int % sections != 0:
+            raise NotImplementedError(
+                f"np.split: axis length {axis_len_int} is not evenly divisible "
+                f"into {sections} sections (uneven split / np.array_split is not "
+                "supported)"
+            )
+        step_str = f"idiv({axis_len_str}, {sections})"
+
+        dtype = tensor.element_type
+        in_strides = (
+            tensor.strides
+            if hasattr(tensor, "strides") and tensor.strides
+            else self._compute_strides(shape, "C")
+        )
+        in_offset = getattr(tensor, "offset", "0") or "0"
+        stride_axis = in_strides[axis]
+
+        results = []
+        for j in range(sections):
+            out_shape = list(shape)
+            out_shape[axis] = step_str
+            out_strides = list(in_strides)
+
+            if j == 0:
+                out_offset = in_offset
+            else:
+                term = f"(({j}) * {step_str} * {stride_axis})"
+                out_offset = (
+                    term if in_offset in ("0", "") else f"({in_offset} + {term})"
+                )
+
+            tmp_name = f"_tmp_{self._get_unique_id()}"
+            ptr_type = Pointer(dtype)
+            self.builder.add_container(tmp_name, ptr_type, False)
+            self.container_table[tmp_name] = ptr_type
+            self.tensor_table[tmp_name] = Tensor(
+                dtype, out_shape, out_strides, out_offset
+            )
+
+            block = self.builder.add_block()
+            t_src = self.builder.add_access(block, ary_name)
+            t_dst = self.builder.add_access(block, tmp_name)
+            self.builder.add_reference_memlet(block, t_src, t_dst, "0", ptr_type)
+
+            results.append(tmp_name)
+
+        return results
+
     def _parse_shape(self, shape_node):
-        """Parse a shape argument (tuple, list, or single int)."""
-        if isinstance(shape_node, ast.Tuple) or isinstance(shape_node, ast.List):
+        """Parse a shape argument (tuple, list, single int, or a variable
+        bound to a tuple/list)."""
+        elts = self._ev._resolve_tuple(shape_node)
+        if elts is not None:
             result = []
-            for elt in shape_node.elts:
+            for elt in elts:
                 if isinstance(elt, ast.Constant):
                     result.append(str(elt.value))
                 elif isinstance(elt, ast.Name):
@@ -1149,8 +1285,9 @@ class NumPyHandler:
         elif isinstance(shape_node, ast.Constant):
             return [str(shape_node.value)]
         elif isinstance(shape_node, ast.Name):
-            # Could be a variable holding a shape tuple - not supported yet
-            raise NotImplementedError("Shape variable not supported, use literal tuple")
+            raise NotImplementedError(
+                "Shape variable not supported unless it holds a tuple/list literal"
+            )
         else:
             raise ValueError(f"Cannot parse shape: {ast.dump(shape_node)}")
 
@@ -1185,6 +1322,7 @@ class NumPyHandler:
                 "absolute": CMathFunction.fabs,
                 "exp": CMathFunction.exp,
                 "tanh": CMathFunction.tanh,
+                "cbrt": CMathFunction.cbrt,
             }
 
             block = self.builder.add_block()
@@ -1482,19 +1620,132 @@ class NumPyHandler:
 
         return tmp_name
 
+    def handle_array_bitwise_op(self, op, left, right):
+        """Elementwise integer bitwise op (``&``, ``|``, ``^``, ``<<``, ``>>``)
+        for arrays. Supports array-op-array (same shape) and array-op-scalar.
+        Returns the name of the result array."""
+        left_is_array = left in self.tensor_table
+        right_is_array = right in self.tensor_table
+
+        if left_is_array:
+            shape = self.tensor_table[left].shape
+            arr_name = left
+        else:
+            shape = self.tensor_table[right].shape
+            arr_name = right
+
+        dtype = self._ev._element_type(arr_name)
+        if dtype.primitive_type not in (
+            PrimitiveType.Int32,
+            PrimitiveType.Int64,
+            PrimitiveType.Bool,
+        ):
+            raise NotImplementedError(
+                f"Bitwise operator {op} requires integer/boolean arrays"
+            )
+
+        is_signed = dtype.primitive_type in (PrimitiveType.Int32, PrimitiveType.Int64)
+        bit_ops = {
+            "&": TaskletCode.int_and,
+            "|": TaskletCode.int_or,
+            "^": TaskletCode.int_xor,
+            "<<": TaskletCode.int_shl,
+            ">>": TaskletCode.int_ashr if is_signed else TaskletCode.int_lshr,
+        }
+        if op not in bit_ops:
+            raise NotImplementedError(f"Bitwise operator {op} not supported for arrays")
+        tasklet_code = bit_ops[op]
+
+        tmp_name = self._create_array_temp(shape, dtype)
+        left_tensor = self.tensor_table.get(left) if left_is_array else None
+        right_tensor = self.tensor_table.get(right) if right_is_array else None
+        tmp_tensor = self.tensor_table[tmp_name]
+
+        loop_vars = []
+        for i, dim in enumerate(shape):
+            loop_var = f"_bit_i{i}_{self._get_unique_id()}"
+            if not self.builder.exists(loop_var):
+                self.builder.add_container(loop_var, Scalar(PrimitiveType.Int64), False)
+                self.container_table[loop_var] = Scalar(PrimitiveType.Int64)
+            loop_vars.append(loop_var)
+            self.builder.begin_for(loop_var, "0", str(dim), "1")
+
+        multi_dim_subset = ",".join(loop_vars)
+        block = self.builder.add_block()
+
+        if left_is_array:
+            t_left = self.builder.add_access(block, left)
+            left_sub = multi_dim_subset
+        else:
+            t_left, left_sub = self._add_read(block, left)
+
+        if right_is_array:
+            t_right = self.builder.add_access(block, right)
+            right_sub = multi_dim_subset
+        else:
+            t_right, right_sub = self._add_read(block, right)
+
+        t_out = self.builder.add_access(block, tmp_name)
+        t_task = self.builder.add_tasklet(
+            block, tasklet_code, ["_in1", "_in2"], ["_out"]
+        )
+
+        if left_is_array and left_tensor:
+            self.builder.add_memlet(
+                block, t_left, "void", t_task, "_in1", left_sub, left_tensor
+            )
+        else:
+            self.builder.add_memlet(block, t_left, "void", t_task, "_in1", left_sub)
+
+        if right_is_array and right_tensor:
+            self.builder.add_memlet(
+                block, t_right, "void", t_task, "_in2", right_sub, right_tensor
+            )
+        else:
+            self.builder.add_memlet(block, t_right, "void", t_task, "_in2", right_sub)
+
+        self.builder.add_memlet(
+            block, t_task, "_out", t_out, "void", multi_dim_subset, tmp_tensor
+        )
+
+        for _ in loop_vars:
+            self.builder.end_for()
+
+        return tmp_name
+
     # ========== NumPy Function Handlers ==========
+
+    def _element_type_for_dtype_arg(self, dtype_arg):
+        """Resolve the element type for a ``dtype=`` argument.
+
+        Extends ``element_type_from_ast_node`` (which handles ``np.float64``,
+        builtins, global aliases, and ``<name>.dtype``) with ``.dtype`` on an
+        arbitrary array *expression* -- e.g. a struct member ``domain.x.dtype``
+        -- by resolving the array and reading its element type.
+        """
+        if (
+            isinstance(dtype_arg, ast.Attribute)
+            and dtype_arg.attr == "dtype"
+            and not isinstance(dtype_arg.value, ast.Name)
+        ):
+            arr = self.visit(dtype_arg.value)
+            if arr in self.tensor_table:
+                return self.tensor_table[arr].element_type
+        return element_type_from_ast_node(
+            dtype_arg, self.container_table, self.globals_dict
+        )
 
     def _handle_numpy_alloc(self, node, func_name):
         """Handle np.empty, np.zeros, np.ones, np.ndarray."""
         shape_arg = node.args[0]
         dims = []
         dims_runtime = []
-        if isinstance(shape_arg, ast.Tuple):
-            dims = [self.visit(elt) for elt in shape_arg.elts]
-            dims_runtime = [self._shape_to_runtime_expr(elt) for elt in shape_arg.elts]
-        elif isinstance(shape_arg, ast.List):
-            dims = [self.visit(elt) for elt in shape_arg.elts]
-            dims_runtime = [self._shape_to_runtime_expr(elt) for elt in shape_arg.elts]
+        # A tuple/list shape -- either a literal or a variable bound to one
+        # (e.g. `shp = (a.shape[0], a.shape[1]); np.ndarray(shp, ...)`).
+        shape_elts = self._ev._resolve_tuple(shape_arg)
+        if shape_elts is not None:
+            dims = [self.visit(elt) for elt in shape_elts]
+            dims_runtime = [self._shape_to_runtime_expr(elt) for elt in shape_elts]
         else:
             val = self.visit(shape_arg)
             runtime_val = self._shape_to_runtime_expr(shape_arg)
@@ -1530,7 +1781,7 @@ class NumPyHandler:
                         self._shape_to_runtime_expr(elt) for elt in kw.value.elts
                     ]
 
-        element_type = element_type_from_ast_node(dtype_arg, self.container_table)
+        element_type = self._element_type_for_dtype_arg(dtype_arg)
 
         # Use explicit strides if provided, otherwise compute from order
         if explicit_strides is not None:
@@ -1572,7 +1823,9 @@ class NumPyHandler:
 
         element_type = None
         if dtype_arg:
-            element_type = element_type_from_ast_node(dtype_arg, self.container_table)
+            element_type = element_type_from_ast_node(
+                dtype_arg, self.container_table, self.globals_dict
+            )
         else:
             if prototype_name in self.container_table:
                 sym_type = self.container_table[prototype_name]
@@ -1610,7 +1863,9 @@ class NumPyHandler:
 
         element_type = None
         if dtype_arg:
-            element_type = element_type_from_ast_node(dtype_arg, self.container_table)
+            element_type = element_type_from_ast_node(
+                dtype_arg, self.container_table, self.globals_dict
+            )
         else:
             if prototype_name in self.container_table:
                 sym_type = self.container_table[prototype_name]
@@ -1656,7 +1911,9 @@ class NumPyHandler:
 
         M_runtime = self._shape_to_runtime_expr(M_arg)
 
-        element_type = element_type_from_ast_node(dtype_arg, self.container_table)
+        element_type = element_type_from_ast_node(
+            dtype_arg, self.container_table, self.globals_dict
+        )
 
         ptr_name = self._create_array_temp(
             [N_str, M_str],
@@ -1737,6 +1994,111 @@ class NumPyHandler:
             op_name = "abs"
 
         return self.handle_array_unary_op(op_name, args[0])
+
+    def _handle_numpy_cbrt(self, node, func_name):
+        """Handle np.cbrt (cube root).
+
+        There is no tensor library node for cube root, so an array operand is
+        lowered to an explicit elementwise loop that applies the ``cbrt`` C math
+        function per element. A scalar (0-d) operand reuses the scalar cmath
+        path. Unlike ``x ** (1/3)`` this is correct for negative inputs.
+        """
+        if len(node.args) != 1:
+            raise NotImplementedError("np.cbrt requires exactly one argument")
+
+        operand = self.visit(node.args[0])
+
+        # Scalar / 0-d operand: reuse the scalar cmath path.
+        if (
+            operand not in self.tensor_table
+            or len(self.tensor_table[operand].shape) == 0
+        ):
+            return self.handle_array_unary_op("cbrt", operand)
+
+        in_tensor = self.tensor_table[operand]
+
+        # The loop uses flat pointer indexing, so ensure the source is
+        # contiguous with zero offset; otherwise copy it first.
+        in_strides = getattr(in_tensor, "strides", None)
+        in_offset = getattr(in_tensor, "offset", "0") or "0"
+        needs_copy = str(in_offset) != "0"
+        if in_strides is not None and not (
+            self._is_contiguous(in_tensor.shape, in_strides)
+            or self._is_contiguous_f(in_tensor.shape, in_strides)
+        ):
+            needs_copy = True
+        if needs_copy:
+            operand = self.handle_numpy_copy(None, operand)
+            in_tensor = self.tensor_table[operand]
+
+        dtype = in_tensor.element_type
+        shape = in_tensor.shape
+        tmp_name = self._create_array_temp(
+            shape, dtype, strides=self._compute_strides(shape, "C")
+        )
+
+        total = "1"
+        for d in shape:
+            total = f"({total} * ({d}))"
+
+        loop_var = self.builder.find_new_name("_cbrt_i_")
+        self.builder.add_container(loop_var, Scalar(PrimitiveType.Int64), False)
+        self.container_table[loop_var] = Scalar(PrimitiveType.Int64)
+
+        self.builder.begin_for(loop_var, "0", total, "1")
+        block = self.builder.add_block()
+        t_src = self.builder.add_access(block, operand)
+        t_dst = self.builder.add_access(block, tmp_name)
+        t_task = self.builder.add_cmath(block, CMathFunction.cbrt, dtype.primitive_type)
+        self.builder.add_memlet(block, t_src, "void", t_task, "_in1", loop_var, None)
+        self.builder.add_memlet(block, t_task, "_out", t_dst, "void", loop_var, None)
+        self.builder.end_for()
+
+        return tmp_name
+
+    def _handle_numpy_select(self, node, func_name):
+        """Handle np.select(condlist, choicelist, default=0).
+
+        Lowered to a chain of nested np.where so that the first matching
+        condition wins: np.select([c0,c1],[v0,v1],default=d) becomes
+        np.where(c0, v0, np.where(c1, v1, d)).
+        """
+        if len(node.args) < 2:
+            raise NotImplementedError(
+                "np.select requires condlist and choicelist arguments"
+            )
+
+        conds = self._ev._resolve_tuple(node.args[0])
+        choices = self._ev._resolve_tuple(node.args[1])
+        if conds is None or choices is None:
+            raise NotImplementedError(
+                "np.select condlist/choicelist must be list/tuple literals"
+            )
+        if len(conds) != len(choices):
+            raise ValueError("np.select condlist and choicelist must be same length")
+
+        default_node = None
+        if len(node.args) >= 3:
+            default_node = node.args[2]
+        for kw in node.keywords:
+            if kw.arg == "default":
+                default_node = kw.value
+        if default_node is None:
+            default_node = ast.Constant(value=0)
+
+        # Build nested where bottom-up; process reversed so condlist[0] is the
+        # outermost (highest-priority) selection.
+        result_node = default_node
+        result_name = None
+        for cond_ast, choice_ast in zip(reversed(conds), reversed(choices)):
+            where_node = ast.Call(
+                func=node.func,
+                args=[cond_ast, choice_ast, result_node],
+                keywords=[],
+            )
+            result_name = self._handle_numpy_where(where_node, "where")
+            result_node = ast.Name(id=result_name, ctx=ast.Load())
+        return result_name
 
     def _handle_numpy_where(self, node, func_name):
         """Handle np.where(condition, x, y) - elementwise ternary selection."""
@@ -1907,6 +2269,22 @@ class NumPyHandler:
 
         return result
 
+    def _contiguous_matmul_operand(self, name, node):
+        """Copy a matmul operand to contiguous storage if it has a base offset.
+
+        The GEMM/GEMV code generation ignores an operand's base offset, so an
+        offset view (e.g. a row `gamma[i]` of a 2-D array) would otherwise be
+        read from the wrong location. Returns (name, node), replacing both with
+        a contiguous copy when the operand's tensor has a non-zero offset.
+        """
+        if name in self.tensor_table:
+            tensor = self.tensor_table[name]
+            offset = getattr(tensor, "offset", "0") or "0"
+            if str(offset) != "0":
+                new_name = self.handle_numpy_copy(None, name)
+                return new_name, ast.Name(id=new_name)
+        return name, node
+
     def _handle_numpy_matmul(self, node, func_name):
         """Handle np.matmul, np.dot."""
         if len(node.args) != 2:
@@ -1921,7 +2299,6 @@ class NumPyHandler:
         """Helper for matrix multiplication operations."""
         res_a = self.parse_arg(left_node)
         res_b = self.parse_arg(right_node)
-
         if not res_a[0]:
             left_name = self.visit(left_node)
             left_node = ast.Name(id=left_name)
@@ -1937,6 +2314,12 @@ class NumPyHandler:
 
         if not name_a or not name_b:
             raise NotImplementedError("Could not resolve matmul operands")
+
+        # The GEMM/GEMV lowering does not honor a non-zero base offset on an
+        # operand (e.g. a row view `gamma[i]`). Materialize a contiguous copy
+        # of any offset operand so the multiplication reads the correct data.
+        name_a, left_node = self._contiguous_matmul_operand(name_a, left_node)
+        name_b, right_node = self._contiguous_matmul_operand(name_b, right_node)
 
         real_shape_a = shape_a
         real_shape_b = shape_b
@@ -2271,6 +2654,38 @@ class NumPyHandler:
 
         return tmp_name
 
+    def _handle_numpy_any(self, node, func_name):
+        """Handle np.any(arr): truthy if any element is truthy.
+
+        Implemented as the maximum over the mask cast to float (1.0/0.0). The
+        cast is required because the max reduction's identity element is -inf,
+        which is not a valid value for a boolean/integer array.
+        """
+        return self._reduce_mask(node, "max")
+
+    def _handle_numpy_all(self, node, func_name):
+        """Handle np.all(arr): truthy iff all elements are truthy.
+
+        Implemented as the minimum over the mask cast to float (1.0/0.0).
+        """
+        return self._reduce_mask(node, "min")
+
+    def _reduce_mask(self, node, reduce_op):
+        if len(node.args) < 1:
+            raise ValueError("np.any/np.all require an array argument")
+        mask_name = self.visit(node.args[0])
+        if mask_name not in self.tensor_table:
+            raise ValueError(
+                f"np.any/np.all argument must resolve to an array, got {mask_name}"
+            )
+        float_name = self._cast_array(mask_name, Scalar(PrimitiveType.Double))
+        reduce_node = ast.Call(
+            func=node.func,
+            args=[ast.Name(id=float_name, ctx=ast.Load())],
+            keywords=[],
+        )
+        return self._handle_numpy_reduce(reduce_node, reduce_op)
+
     def _handle_numpy_reduce(self, node, func_name):
         """Handle np.sum, np.max, np.min, np.mean, np.std."""
         args = node.args
@@ -2482,15 +2897,24 @@ class NumPyHandler:
                 if idx not in seen_indices:
                     seen_indices.append(idx)
 
+        # Remap the (single-letter) einsum indices to collision-safe symbol
+        # names. A bare letter like 'e' or 'i' is parsed by the symbolic engine
+        # as a reserved constant (Euler's number / imaginary unit) rather than a
+        # symbol, which breaks the EinsumNode index/indvar matching. Use unique
+        # opaque names instead.
+        idx_map = {c: f"__einidx_{k}" for k, c in enumerate(seen_indices)}
+
         dims = []
         for idx in seen_indices:
-            dims.append((idx, "0", str(index_to_dim[idx])))
+            dims.append((idx_map[idx], "0", str(index_to_dim[idx])))
 
         # Build output indices (the index variables for output dimensions)
-        out_indices = list(output_subscripts)
+        out_indices = [idx_map[idx] for idx in output_subscripts]
 
         # Build input indices for each operand
-        in_indices = [list(subscript) for subscript in input_subscripts]
+        in_indices = [
+            [idx_map[idx] for idx in subscript] for subscript in input_subscripts
+        ]
 
         # Compute output shape from output subscripts
         output_shape = [str(index_to_dim[idx]) for idx in output_subscripts]
@@ -2543,7 +2967,9 @@ class NumPyHandler:
                     raise NotImplementedError("astype with copy=False is not supported")
 
         dtype_arg = node.args[0]
-        target_dtype = element_type_from_ast_node(dtype_arg, self.container_table)
+        target_dtype = element_type_from_ast_node(
+            dtype_arg, self.container_table, self.globals_dict
+        )
 
         if array_name not in self.tensor_table:
             raise ValueError(f"Array {array_name} not found in tensor_table")
@@ -2570,11 +2996,26 @@ class NumPyHandler:
 
         return tmp_name
 
+    def _handle_numpy_copy_func(self, node, func_name):
+        """Handle np.copy(arr) - function form of the array .copy() method.
+
+        The argument may be an arbitrary array expression (e.g. a gather like
+        ``np.copy(domain.e[region_elems])``); resolve it to an array container
+        first, then reuse the method-form copy.
+        """
+        if len(node.args) < 1:
+            raise ValueError("np.copy requires an array argument")
+        array_name = self.visit(node.args[0])
+        if array_name not in self.tensor_table:
+            raise ValueError(
+                f"np.copy argument must resolve to an array, got {array_name}"
+            )
+        return self.handle_numpy_copy(node, array_name)
+
     def handle_numpy_copy(self, node, array_name):
         """Handle numpy array.copy() method calls using memcpy."""
         if array_name not in self.tensor_table:
             raise ValueError(f"Array {array_name} not found in tensor_table")
-
         input_tensor = self.tensor_table[array_name]
         input_shape = input_tensor.shape
         input_strides = getattr(input_tensor, "strides", None)

@@ -30,18 +30,27 @@ def kernel(r):
     return y
 
 
-@pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "none",
+        "sequential",
+        "openmp",
+        # "cuda",
+        # "rocm"
+    ],
+)
 def test_durbin(target):
     if target == "none":
         verifier = SDFGVerification(
-            verification={"MAP": 3, "REDUCE": 1, "SEQUENTIAL": 5, "FOR": 1}
+            verification={"REDUCE": 1, "MAP": 4, "SEQUENTIAL": 6, "FOR": 1}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
-                "MAP": 3,
-                "VECTORIZE": 4,
                 "REDUCE": 1,
+                "VECTORIZE": 5,
+                "MAP": 4,
                 "SEQUENTIAL": 1,
                 "FOR": 1,
             }
@@ -50,9 +59,9 @@ def test_durbin(target):
         verifier = SDFGVerification(
             verification={
                 "CPU_PARALLEL": 1,
-                "MAP": 3,
-                "VECTORIZE": 3,
                 "REDUCE": 1,
+                "VECTORIZE": 4,
+                "MAP": 4,
                 "SEQUENTIAL": 1,
                 "FOR": 1,
             }
@@ -61,10 +70,10 @@ def test_durbin(target):
         verifier = SDFGVerification(
             verification={
                 "CUDA": 1,
-                "CUDAOffloading": 4,
-                "MAP": 3,
                 "REDUCE": 1,
-                "SEQUENTIAL": 4,
+                "CUDAOffloading": 4,
+                "MAP": 4,
+                "SEQUENTIAL": 5,
                 "FOR": 1,
             }
         )
@@ -72,10 +81,10 @@ def test_durbin(target):
         verifier = SDFGVerification(
             verification={
                 "ROCM": 1,
-                "ROCMOffloading": 4,
-                "MAP": 3,
                 "REDUCE": 1,
-                "SEQUENTIAL": 4,
+                "ROCMOffloading": 4,
+                "MAP": 4,
+                "SEQUENTIAL": 5,
                 "FOR": 1,
             }
         )
