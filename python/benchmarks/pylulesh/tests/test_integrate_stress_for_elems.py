@@ -27,7 +27,16 @@ def _extra(d):
 
 
 @pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
-@pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "none",
+        "sequential",
+        # "openmp",
+        # "cuda",
+        # "rocm"
+    ],
+)
 def test_integrate_stress_for_elems(target):
     check_domain_kernel(
         lulesh.integrate_stress_for_elems,

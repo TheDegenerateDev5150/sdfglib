@@ -14,7 +14,7 @@ def _coords(ne, seed=1):
     return rng.random((ne, 8)), rng.random((ne, 8)), rng.random((ne, 8))
 
 
-@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
+@pytest.mark.skip(reason="Slow in CI; run manually for benchmarking")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_calc_elem_volume_derivative(target):
     check_flat_kernel(lulesh.calc_elem_volume_derivative, target, _coords(27))

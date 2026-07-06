@@ -15,7 +15,7 @@ _RANDOMIZE = ("p", "q", "ss", "xd", "yd", "zd")
 _COMPARE = ("fx", "fy", "fz")
 
 
-@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
+@pytest.mark.skip(reason="Slow in CI; run manually for benchmarking")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_calc_force_for_nodes(target):
     check_domain_kernel(

@@ -259,3 +259,34 @@ def test_array_member_attribute_assignment():
     assign_members(c, src)
     np.testing.assert_allclose(c.x, src[:, 0])
     np.testing.assert_allclose(c.out, src[:, 1] + 1.0)
+
+
+def test_scalar_member_writeback():
+    """A scalar struct member written in the kernel round-trips back to the
+    Python object (LULESH `domain.dtcourant = ...` pattern)."""
+
+    @native
+    def set_scale(c: TwoVecs):
+        c.scale = 42.0
+
+    c = TwoVecs(np.zeros(4), np.zeros(4), np.zeros(4), 1.0)
+    set_scale(c)
+    assert c.scale == 42.0
+
+
+def test_scalar_member_conditional_update():
+    """A scalar member conditionally updated (min-reduction guard) round-trips."""
+
+    @native
+    def clamp_scale(c: TwoVecs, cand):
+        c.scale = 100.0
+        if cand < c.scale:
+            c.scale = cand
+
+    c = TwoVecs(np.zeros(4), np.zeros(4), np.zeros(4), 1.0)
+    clamp_scale(c, 7.0)
+    assert c.scale == 7.0
+
+    c2 = TwoVecs(np.zeros(4), np.zeros(4), np.zeros(4), 1.0)
+    clamp_scale(c2, 250.0)
+    assert c2.scale == 100.0

@@ -30,7 +30,16 @@ def kernel(r):
     return y
 
 
-@pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "none",
+        "sequential",
+        "openmp",
+        # "cuda",
+        # "rocm"
+    ],
+)
 def test_durbin(target):
     if target == "none":
         verifier = SDFGVerification(

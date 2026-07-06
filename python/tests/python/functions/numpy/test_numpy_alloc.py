@@ -386,3 +386,59 @@ def test_alloc_global_dtype_alias_integer():
     assert result.shape == (5,)
     assert result.dtype == np.int32
     assert np.all(result == 0)
+
+
+# Tuple/list-valued shape *variables* used as the shape argument of array
+# creation (e.g. LULESH's `shp = (n.shape[1], n.shape[0]); np.ndarray(shp, ...)`).
+def test_alloc_tuple_shape_variable_from_dims():
+    @native
+    def alloc_from_var(a, out):
+        shp = (a.shape[0], a.shape[1])
+        b = np.ndarray(shp, np.float64)
+        b[:] = a * 2.0
+        out[:] = b
+
+    a = np.arange(12, dtype=np.float64).reshape(3, 4)
+    out = np.zeros((3, 4), dtype=np.float64)
+    alloc_from_var(a, out)
+    assert np.allclose(out, a * 2.0)
+
+
+def test_zeros_tuple_shape_variable_constants():
+    @native
+    def zeros_var(out):
+        shp = (2, 3)
+        b = np.zeros(shp, np.float64)
+        b[1, 2] = 7.0
+        out[:] = b
+
+    out = np.zeros((2, 3), dtype=np.float64)
+    zeros_var(out)
+    expected = np.zeros((2, 3), dtype=np.float64)
+    expected[1, 2] = 7.0
+    assert np.allclose(out, expected)
+
+
+def test_alloc_list_shape_variable():
+    @native
+    def alloc_list(a, out):
+        shp = [a.shape[0], a.shape[1]]
+        b = np.zeros(shp, np.float64)
+        b[:] = a + 1.0
+        out[:] = b
+
+    a = np.arange(6, dtype=np.float64).reshape(2, 3)
+    out = np.zeros((2, 3), dtype=np.float64)
+    alloc_list(a, out)
+    assert np.allclose(out, a + 1.0)
+
+
+def test_reshape_tuple_shape_variable():
+    @native
+    def reshape_var(a):
+        shp = (a.shape[1], a.shape[0])
+        return np.reshape(a, shp)
+
+    a = np.arange(12, dtype=np.float64).reshape(3, 4)
+    result = reshape_var(a)
+    assert np.array_equal(result, a.reshape(4, 3))

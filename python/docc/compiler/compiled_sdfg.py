@@ -844,6 +844,9 @@ class CompiledSDFG:
         return_buffers = (
             []
         )  # List of (np_arr, size, dims, compiled_strides, primitive_type)
+        # Structs whose scalar members must be copied back into the Python
+        # object after the call: (python_obj, c_struct, sorted_members).
+        struct_writebacks = []
 
         for info in self._arg_info:
             arg_type = info[0]
@@ -914,6 +917,8 @@ class CompiledSDFG:
                 c_struct = struct_class(**struct_values)
                 structure_refs.append(c_struct)
                 converted_args.append(_ctypes_pointer(c_struct))
+                # Record for scalar-member write-back after the call.
+                struct_writebacks.append((arg, c_struct, info[4]))
 
             else:  # _ARG_TYPE_USER_SCALAR
                 # info = (type, user_idx, name, target_type)
@@ -923,6 +928,18 @@ class CompiledSDFG:
 
         # 3. Call the function
         func_result = self.func(*converted_args)
+
+        # 3b. Copy scalar struct members modified in-place back into the Python
+        # object. Array members share the numpy buffer via their data pointer,
+        # but scalar members are passed by value and must be mirrored back so
+        # writes like `domain.dtcourant = ...` are visible to the caller.
+        for py_obj, c_struct, sorted_members in struct_writebacks:
+            for m in sorted_members:
+                member_name = m[0]
+                if isinstance(m[1][1], Pointer):
+                    continue  # array member: written in place via the pointer
+                if hasattr(py_obj, member_name):
+                    setattr(py_obj, member_name, getattr(c_struct, member_name))
 
         # 4. Process returns using pre-sorted order
         if not return_buffers:

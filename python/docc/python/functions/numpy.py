@@ -63,6 +63,7 @@ class NumPyHandler:
             "minimum": self._handle_numpy_binary_op,
             "maximum": self._handle_numpy_binary_op,
             "where": self._handle_numpy_where,
+            "select": self._handle_numpy_select,
             "clip": self._handle_numpy_clip,
             "transpose": self._handle_numpy_transpose,
             "flip": self._handle_numpy_flip,
@@ -1265,10 +1266,12 @@ class NumPyHandler:
         return results
 
     def _parse_shape(self, shape_node):
-        """Parse a shape argument (tuple, list, or single int)."""
-        if isinstance(shape_node, ast.Tuple) or isinstance(shape_node, ast.List):
+        """Parse a shape argument (tuple, list, single int, or a variable
+        bound to a tuple/list)."""
+        elts = self._ev._resolve_tuple(shape_node)
+        if elts is not None:
             result = []
-            for elt in shape_node.elts:
+            for elt in elts:
                 if isinstance(elt, ast.Constant):
                     result.append(str(elt.value))
                 elif isinstance(elt, ast.Name):
@@ -1282,8 +1285,9 @@ class NumPyHandler:
         elif isinstance(shape_node, ast.Constant):
             return [str(shape_node.value)]
         elif isinstance(shape_node, ast.Name):
-            # Could be a variable holding a shape tuple - not supported yet
-            raise NotImplementedError("Shape variable not supported, use literal tuple")
+            raise NotImplementedError(
+                "Shape variable not supported unless it holds a tuple/list literal"
+            )
         else:
             raise ValueError(f"Cannot parse shape: {ast.dump(shape_node)}")
 
@@ -1616,19 +1620,132 @@ class NumPyHandler:
 
         return tmp_name
 
+    def handle_array_bitwise_op(self, op, left, right):
+        """Elementwise integer bitwise op (``&``, ``|``, ``^``, ``<<``, ``>>``)
+        for arrays. Supports array-op-array (same shape) and array-op-scalar.
+        Returns the name of the result array."""
+        left_is_array = left in self.tensor_table
+        right_is_array = right in self.tensor_table
+
+        if left_is_array:
+            shape = self.tensor_table[left].shape
+            arr_name = left
+        else:
+            shape = self.tensor_table[right].shape
+            arr_name = right
+
+        dtype = self._ev._element_type(arr_name)
+        if dtype.primitive_type not in (
+            PrimitiveType.Int32,
+            PrimitiveType.Int64,
+            PrimitiveType.Bool,
+        ):
+            raise NotImplementedError(
+                f"Bitwise operator {op} requires integer/boolean arrays"
+            )
+
+        is_signed = dtype.primitive_type in (PrimitiveType.Int32, PrimitiveType.Int64)
+        bit_ops = {
+            "&": TaskletCode.int_and,
+            "|": TaskletCode.int_or,
+            "^": TaskletCode.int_xor,
+            "<<": TaskletCode.int_shl,
+            ">>": TaskletCode.int_ashr if is_signed else TaskletCode.int_lshr,
+        }
+        if op not in bit_ops:
+            raise NotImplementedError(f"Bitwise operator {op} not supported for arrays")
+        tasklet_code = bit_ops[op]
+
+        tmp_name = self._create_array_temp(shape, dtype)
+        left_tensor = self.tensor_table.get(left) if left_is_array else None
+        right_tensor = self.tensor_table.get(right) if right_is_array else None
+        tmp_tensor = self.tensor_table[tmp_name]
+
+        loop_vars = []
+        for i, dim in enumerate(shape):
+            loop_var = f"_bit_i{i}_{self._get_unique_id()}"
+            if not self.builder.exists(loop_var):
+                self.builder.add_container(loop_var, Scalar(PrimitiveType.Int64), False)
+                self.container_table[loop_var] = Scalar(PrimitiveType.Int64)
+            loop_vars.append(loop_var)
+            self.builder.begin_for(loop_var, "0", str(dim), "1")
+
+        multi_dim_subset = ",".join(loop_vars)
+        block = self.builder.add_block()
+
+        if left_is_array:
+            t_left = self.builder.add_access(block, left)
+            left_sub = multi_dim_subset
+        else:
+            t_left, left_sub = self._add_read(block, left)
+
+        if right_is_array:
+            t_right = self.builder.add_access(block, right)
+            right_sub = multi_dim_subset
+        else:
+            t_right, right_sub = self._add_read(block, right)
+
+        t_out = self.builder.add_access(block, tmp_name)
+        t_task = self.builder.add_tasklet(
+            block, tasklet_code, ["_in1", "_in2"], ["_out"]
+        )
+
+        if left_is_array and left_tensor:
+            self.builder.add_memlet(
+                block, t_left, "void", t_task, "_in1", left_sub, left_tensor
+            )
+        else:
+            self.builder.add_memlet(block, t_left, "void", t_task, "_in1", left_sub)
+
+        if right_is_array and right_tensor:
+            self.builder.add_memlet(
+                block, t_right, "void", t_task, "_in2", right_sub, right_tensor
+            )
+        else:
+            self.builder.add_memlet(block, t_right, "void", t_task, "_in2", right_sub)
+
+        self.builder.add_memlet(
+            block, t_task, "_out", t_out, "void", multi_dim_subset, tmp_tensor
+        )
+
+        for _ in loop_vars:
+            self.builder.end_for()
+
+        return tmp_name
+
     # ========== NumPy Function Handlers ==========
+
+    def _element_type_for_dtype_arg(self, dtype_arg):
+        """Resolve the element type for a ``dtype=`` argument.
+
+        Extends ``element_type_from_ast_node`` (which handles ``np.float64``,
+        builtins, global aliases, and ``<name>.dtype``) with ``.dtype`` on an
+        arbitrary array *expression* -- e.g. a struct member ``domain.x.dtype``
+        -- by resolving the array and reading its element type.
+        """
+        if (
+            isinstance(dtype_arg, ast.Attribute)
+            and dtype_arg.attr == "dtype"
+            and not isinstance(dtype_arg.value, ast.Name)
+        ):
+            arr = self.visit(dtype_arg.value)
+            if arr in self.tensor_table:
+                return self.tensor_table[arr].element_type
+        return element_type_from_ast_node(
+            dtype_arg, self.container_table, self.globals_dict
+        )
 
     def _handle_numpy_alloc(self, node, func_name):
         """Handle np.empty, np.zeros, np.ones, np.ndarray."""
         shape_arg = node.args[0]
         dims = []
         dims_runtime = []
-        if isinstance(shape_arg, ast.Tuple):
-            dims = [self.visit(elt) for elt in shape_arg.elts]
-            dims_runtime = [self._shape_to_runtime_expr(elt) for elt in shape_arg.elts]
-        elif isinstance(shape_arg, ast.List):
-            dims = [self.visit(elt) for elt in shape_arg.elts]
-            dims_runtime = [self._shape_to_runtime_expr(elt) for elt in shape_arg.elts]
+        # A tuple/list shape -- either a literal or a variable bound to one
+        # (e.g. `shp = (a.shape[0], a.shape[1]); np.ndarray(shp, ...)`).
+        shape_elts = self._ev._resolve_tuple(shape_arg)
+        if shape_elts is not None:
+            dims = [self.visit(elt) for elt in shape_elts]
+            dims_runtime = [self._shape_to_runtime_expr(elt) for elt in shape_elts]
         else:
             val = self.visit(shape_arg)
             runtime_val = self._shape_to_runtime_expr(shape_arg)
@@ -1664,9 +1781,7 @@ class NumPyHandler:
                         self._shape_to_runtime_expr(elt) for elt in kw.value.elts
                     ]
 
-        element_type = element_type_from_ast_node(
-            dtype_arg, self.container_table, self.globals_dict
-        )
+        element_type = self._element_type_for_dtype_arg(dtype_arg)
 
         # Use explicit strides if provided, otherwise compute from order
         if explicit_strides is not None:
@@ -1940,6 +2055,50 @@ class NumPyHandler:
         self.builder.end_for()
 
         return tmp_name
+
+    def _handle_numpy_select(self, node, func_name):
+        """Handle np.select(condlist, choicelist, default=0).
+
+        Lowered to a chain of nested np.where so that the first matching
+        condition wins: np.select([c0,c1],[v0,v1],default=d) becomes
+        np.where(c0, v0, np.where(c1, v1, d)).
+        """
+        if len(node.args) < 2:
+            raise NotImplementedError(
+                "np.select requires condlist and choicelist arguments"
+            )
+
+        conds = self._ev._resolve_tuple(node.args[0])
+        choices = self._ev._resolve_tuple(node.args[1])
+        if conds is None or choices is None:
+            raise NotImplementedError(
+                "np.select condlist/choicelist must be list/tuple literals"
+            )
+        if len(conds) != len(choices):
+            raise ValueError("np.select condlist and choicelist must be same length")
+
+        default_node = None
+        if len(node.args) >= 3:
+            default_node = node.args[2]
+        for kw in node.keywords:
+            if kw.arg == "default":
+                default_node = kw.value
+        if default_node is None:
+            default_node = ast.Constant(value=0)
+
+        # Build nested where bottom-up; process reversed so condlist[0] is the
+        # outermost (highest-priority) selection.
+        result_node = default_node
+        result_name = None
+        for cond_ast, choice_ast in zip(reversed(conds), reversed(choices)):
+            where_node = ast.Call(
+                func=node.func,
+                args=[cond_ast, choice_ast, result_node],
+                keywords=[],
+            )
+            result_name = self._handle_numpy_where(where_node, "where")
+            result_node = ast.Name(id=result_name, ctx=ast.Load())
+        return result_name
 
     def _handle_numpy_where(self, node, func_name):
         """Handle np.where(condition, x, y) - elementwise ternary selection."""

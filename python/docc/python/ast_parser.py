@@ -68,6 +68,10 @@ class ASTParser(ast.NodeVisitor):
         self.shapes_runtime_info = (
             {}
         )  # Map array name to runtime shapes (separate from Tensor)
+        # Map variable name -> tuple/list AST for tuple-valued variables
+        # (e.g. `shp = (a.shape[0], a.shape[1])`), so they can later be resolved
+        # as array-creation shape arguments.
+        self.tuple_table = {}
 
         # Memory manager for hoisted allocations (shared with inline parsers)
         self.memory_handler = (
@@ -275,6 +279,8 @@ class ASTParser(ast.NodeVisitor):
                 return self.numpy_visitor.handle_array_binary_op(
                     op_map[op], left, right
                 )
+            elif op in ("&", "|", "^", "<<", ">>"):
+                return self.numpy_visitor.handle_array_bitwise_op(op, left, right)
             else:
                 raise NotImplementedError(f"Array operation {op} not supported")
 
@@ -682,6 +688,17 @@ class ASTParser(ast.NodeVisitor):
         return tmp_name
 
     def visit_Subscript(self, node):
+        # Compile-time constant folding for subscripts on global constant
+        # collections, e.g. `XI["M"]["mask"]` where XI is a global dict of bit
+        # masks. Folds to the numeric literal so it can be used in expressions.
+        ok, const_val = self._try_const_eval(node)
+        if (
+            ok
+            and isinstance(const_val, (int, float))
+            and not isinstance(const_val, bool)
+        ):
+            return str(const_val)
+
         value_str = self.visit(node.value)
 
         if value_str.startswith("_shape_proxy_"):
@@ -761,7 +778,9 @@ class ASTParser(ast.NodeVisitor):
                     node, value_str, indices_nodes, shapes, ndim
                 )
 
-            if len(indices_nodes) == 1 and self._is_array_index(indices_nodes[0]):
+            if len(indices_nodes) == 1 and self._is_array_valued_index(
+                indices_nodes[0]
+            ):
                 if self.builder:
                     return self._handle_gather(value_str, indices_nodes[0])
 
@@ -943,6 +962,15 @@ class ASTParser(ast.NodeVisitor):
                 "Tuple unpacking from non-tuple values not supported"
             )
 
+        # Tuple/list-valued variable: `shp = (a.shape[0], a.shape[1])`. Record
+        # it so it can later be resolved as an array-creation shape argument.
+        # Only stored (not lowered); other uses of the variable are unaffected.
+        if isinstance(target, ast.Name) and isinstance(
+            node.value, (ast.Tuple, ast.List)
+        ):
+            self.tuple_table[target.id] = node.value
+            return
+
         # Special cases, where rhs is not just a simple expression but requires special handling
         if self.numpy_visitor.is_gemm(node.value):
             if self.numpy_visitor.handle_gemm(target, node.value):
@@ -966,6 +994,24 @@ class ASTParser(ast.NodeVisitor):
                 indices = target.slice.elts
             else:
                 indices = [target.slice]
+
+            # Partial indexing on the LHS: `b[i] = <sub-array>` on an N-D array
+            # (N > number of indices) means `b[i, :] = ...`. Pad implicit
+            # trailing full slices so it routes to slice-assignment. This only
+            # applies to genuine scalar partial indices -- never a boolean mask
+            # (`a[a < 0] = ...`) or a fancy/scatter index, which address the
+            # array as a whole and must reach their dedicated handlers below.
+            if target_name in self.tensor_table:
+                ndim = len(self.tensor_table[target_name].shape)
+                is_special_index = len(indices) == 1 and (
+                    self._is_boolean_mask_index(indices[0])
+                    or self._is_array_valued_index(indices[0])
+                )
+                if not is_special_index and 0 < len(indices) < ndim:
+                    indices = list(indices) + [
+                        ast.Slice(lower=None, upper=None, step=None)
+                        for _ in range(ndim - len(indices))
+                    ]
 
             # Handle slice assignment separately
             has_slice = False
@@ -1042,6 +1088,18 @@ class ASTParser(ast.NodeVisitor):
         # Resolve the member view and perform a whole-array slice assignment so
         # the write propagates back through the struct member pointer.
         if isinstance(target, ast.Attribute):
+            # Scalar struct member: `domain.dtcourant = <scalar>`. Store the
+            # value back into obj[0, member_index] so it round-trips through the
+            # marshalled struct (checked before the array path, which would
+            # otherwise emit a spurious member load).
+            scalar_member = self._struct_scalar_member(target)
+            if scalar_member is not None:
+                obj_name, member_index, member_type = scalar_member
+                self._store_scalar_member(
+                    obj_name, member_index, member_type, node.value, node
+                )
+                return
+
             resolved = self.visit(target)
             if isinstance(resolved, str) and resolved in self.tensor_table:
                 ndim = len(self.tensor_table[resolved].shape)
@@ -1519,6 +1577,52 @@ class ASTParser(ast.NodeVisitor):
 
         raise NotImplementedError(f"Function call {func_name} not supported")
 
+    @staticmethod
+    def _stmts_always_return(body):
+        """True if executing `body` always hits a `return` (so any statements
+        that follow it are only reachable when it does not)."""
+        if not body:
+            return False
+        last = body[-1]
+        if isinstance(last, ast.Return):
+            return True
+        if isinstance(last, ast.If):
+            return ASTParser._stmts_always_return(
+                last.body
+            ) and ASTParser._stmts_always_return(last.orelse)
+        return False
+
+    def _lift_early_returns(self, body):
+        """Rewrite early `return`s into if/else so the inliner's return->assign
+        conversion preserves control flow.
+
+        The inliner turns each `return X` into `res = X`; without this, a guard
+        like ``if c: return a`` followed by ``return b`` would emit
+        ``if c: res = a`` then unconditionally ``res = b`` (fallback always
+        wins). Here, statements following an `if` whose body always returns are
+        moved into that `if`'s `else`, and dead code after a `return` is dropped.
+        """
+        result = []
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, ast.If):
+                new_if = copy.copy(stmt)
+                new_if.body = self._lift_early_returns(stmt.body)
+                new_if.orelse = self._lift_early_returns(stmt.orelse)
+                rest = body[i + 1 :]
+                if rest and self._stmts_always_return(new_if.body):
+                    # The remaining statements are only reachable when the guard
+                    # is false: fold them into the else branch.
+                    new_if.orelse = list(new_if.orelse) + self._lift_early_returns(rest)
+                    result.append(new_if)
+                    return result
+                result.append(new_if)
+            else:
+                result.append(stmt)
+                if isinstance(stmt, ast.Return):
+                    # Statements after a return are unreachable.
+                    return result
+        return result
+
     def _handle_inline_call(self, node, func_obj):
         try:
             source_lines, start_line = inspect.getsourcelines(func_obj)
@@ -1544,6 +1648,16 @@ class ASTParser(ast.NodeVisitor):
         arg_vars = []
         for arg_def, arg in zip(func_def.args.args, node.args):
             if isinstance(arg, literal_arg_types):
+                substitutions[arg_def.arg] = arg
+                arg_vars.append(None)
+            elif (
+                isinstance(arg, ast.Name)
+                and arg.id in self.globals_dict
+                and isinstance(self.globals_dict[arg.id], (dict, list, tuple, set))
+            ):
+                # A global compile-time-constant collection (e.g. a dict of bit
+                # masks). It has no runtime container; substitute the reference
+                # into the body so constant subscripts fold at compile time.
                 substitutions[arg_def.arg] = arg
                 arg_vars.append(None)
             else:
@@ -1632,7 +1746,7 @@ class ASTParser(ast.NodeVisitor):
         renamer = VariableRenamer(suffix, combined_globals, substitutions)
         renamer.return_count = 0
         new_body = []
-        for stmt in func_def.body:
+        for stmt in self._lift_early_returns(func_def.body):
             transformed = renamer.visit(stmt)
             if isinstance(transformed, list):
                 new_body.extend(transformed)
@@ -2223,16 +2337,121 @@ class ASTParser(ast.NodeVisitor):
             return True
         return False
 
+    def _expr_array_ndim(self, node):
+        """Best-effort number of dimensions of an array-valued expression.
+
+        Side-effect-free (inspects metadata only). Returns the ndim, or None if
+        the expression is scalar or not a recognizable array. Used to decide
+        whether a subscript index (e.g. a column view ``n[:, i]``) is itself an
+        array and should be treated as a gather index rather than a scalar.
+        """
+        if isinstance(node, ast.Name):
+            if node.id in self.tensor_table:
+                return len(self.tensor_table[node.id].shape)
+            return None
+        if self._is_array_member_attribute(node):
+            obj_type = self.container_table.get(node.value.id)
+            member = self.structure_member_info[obj_type.pointee_type.name][node.attr]
+            member_shape = member[2]
+            return len(member_shape) if member_shape else 1
+        if isinstance(node, ast.Subscript):
+            base_ndim = self._expr_array_ndim(node.value)
+            if base_ndim is None:
+                return None
+            idx_nodes = (
+                node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            )
+            consumed = 0  # base axes consumed by non-newaxis indices
+            added = 0  # axes contributed by slices/newaxis/array (fancy) indices
+            for idx in idx_nodes:
+                if self._is_newaxis(idx):
+                    added += 1
+                elif isinstance(idx, ast.Slice):
+                    added += 1
+                    consumed += 1
+                else:
+                    # A scalar index drops one axis; an array-valued (fancy)
+                    # index such as `lm[ielem]` replaces one base axis with its
+                    # own dimensions (a gather).
+                    idx_ndim = self._expr_array_ndim(idx)
+                    if idx_ndim is not None and idx_ndim >= 1:
+                        added += idx_ndim
+                    consumed += 1
+            remaining = base_ndim - consumed
+            if remaining < 0:
+                return None
+            return added + remaining
+        return None
+
+    def _is_array_valued_index(self, node):
+        """True if `node` yields an array (>=1D) usable as a gather index.
+
+        Covers array Names, array-member attributes, and array-valued
+        subscript expressions such as a column view ``n[:, i]``.
+        """
+        if self._is_array_index(node):
+            return True
+        ndim = self._expr_array_ndim(node)
+        return ndim is not None and ndim >= 1
+
+    def _try_const_eval(self, node):
+        """Best-effort compile-time evaluation of an expression built from
+        global constants (int/float/str/dict/list/tuple) and constant subscript
+        access, e.g. ``XI["M"]["mask"]``. Returns ``(True, value)`` on success,
+        ``(False, None)`` otherwise.
+        """
+        if isinstance(node, ast.Constant):
+            return True, node.value
+        if isinstance(node, ast.Name):
+            if node.id in self.globals_dict:
+                val = self.globals_dict[node.id]
+                if isinstance(val, (int, float, str, dict, list, tuple)):
+                    return True, val
+            return False, None
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            ok, v = self._try_const_eval(node.operand)
+            return (True, -v) if ok else (False, None)
+        if isinstance(node, ast.Subscript):
+            ok_base, base = self._try_const_eval(node.value)
+            if not ok_base:
+                return False, None
+            ok_idx, key = self._try_const_eval(node.slice)
+            if not ok_idx:
+                return False, None
+            try:
+                return True, base[key]
+            except (KeyError, IndexError, TypeError):
+                return False, None
+        return False, None
+
+    def _resolve_tuple(self, node):
+        """Return the element AST list if `node` denotes a tuple/list.
+
+        A tuple is either a literal (``ast.Tuple``/``ast.List``) or a ``Name``
+        bound to one via a prior ``shp = (...)`` assignment (tracked in
+        ``tuple_table``). Returns ``None`` if `node` is not a tuple. This is the
+        single entry point every tuple consumer (shapes, index sequences, ...)
+        should use so variable-bound tuples work everywhere literals do.
+        """
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return node.elts
+        if isinstance(node, ast.Name):
+            bound = self.tuple_table.get(node.id)
+            if bound is not None:
+                return bound.elts
+        return None
+
     def _const_int_sequence(self, node):
         """Return a list of ints if `node` is a constant integer tuple/list.
 
         Used to detect fancy indexing with a compile-time-constant index list,
         e.g. `x[:, (1, 2, 3, 4, 5, 7)]`. Returns None otherwise.
         """
-        if not isinstance(node, (ast.Tuple, ast.List)):
+        elts = self._resolve_tuple(node)
+        if elts is None:
             return None
         values = []
-        for elt in node.elts:
+        for elt in elts:
             if (
                 isinstance(elt, ast.Constant)
                 and isinstance(elt.value, int)
@@ -2440,6 +2659,47 @@ class ASTParser(ast.NodeVisitor):
         member = self.structure_member_info.get(pointee.name, {}).get(node.attr)
         return member is not None and isinstance(member[1], Pointer)
 
+    def _struct_scalar_member(self, node):
+        """If `node` is `obj.attr` where attr is a SCALAR struct member (not an
+        array/pointer member), return (obj_name, member_index, member_type);
+        otherwise None."""
+        if not (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)):
+            return None
+        obj_name = node.value.id
+        obj_type = self.container_table.get(obj_name)
+        if not (isinstance(obj_type, Pointer) and obj_type.has_pointee_type()):
+            return None
+        pointee = obj_type.pointee_type
+        if not isinstance(pointee, Structure):
+            return None
+        member = self.structure_member_info.get(pointee.name, {}).get(node.attr)
+        if member is None or isinstance(member[1], Pointer):
+            return None
+        member_index, member_type, _member_shape = member
+        return obj_name, member_index, member_type
+
+    def _store_scalar_member(
+        self, obj_name, member_index, member_type, value_node, node
+    ):
+        """Store a scalar value into a struct member: `obj.attr = value` becomes
+        a write to obj[0, member_index] so it propagates through the struct."""
+        debug_info = get_debug_info(node, self.filename, self.function_name)
+        rhs = self.visit(value_node)
+        subset = "0," + str(member_index)
+
+        block = self.builder.add_block(debug_info)
+        t_task = self.builder.add_tasklet(
+            block, TaskletCode.assign, ["_in"], ["_out"], debug_info
+        )
+        t_src, src_sub = self._add_read(block, rhs, debug_info)
+        self.builder.add_memlet(
+            block, t_src, "void", t_task, "_in", src_sub, None, debug_info
+        )
+        obj_access = self.builder.add_access(block, obj_name, debug_info)
+        self.builder.add_memlet(
+            block, t_task, "_out", obj_access, "", subset, None, debug_info
+        )
+
     def _is_boolean_mask_index(self, node):
         """Check if a subscript index is a boolean mask (e.g. arr[arr <= 0.1])."""
         # A boolean array variable used directly as a mask.
@@ -2585,6 +2845,11 @@ class ASTParser(ast.NodeVisitor):
         tasklet_load = self.builder.add_tasklet(
             block_load_idx, TaskletCode.assign, ["_in"], ["_out"], debug_info
         )
+        # For a 1-D index array pass its Tensor as the memlet base type so a
+        # strided index (e.g. a column view `nodelist[:, i]`) is linearized with
+        # its stride/offset; a flat (None) base type would ignore the stride and
+        # read out of bounds. N-D index arrays are assumed contiguous (flat).
+        idx_base_type = self.tensor_table[idx_array_name] if idx_ndim == 1 else None
         self.builder.add_memlet(
             block_load_idx,
             idx_arr_access,
@@ -2592,7 +2857,7 @@ class ASTParser(ast.NodeVisitor):
             tasklet_load,
             "_in",
             loop_var,
-            None,
+            idx_base_type,
             debug_info,
         )
         self.builder.add_memlet(

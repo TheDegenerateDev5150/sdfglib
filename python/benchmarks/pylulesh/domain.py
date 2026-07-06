@@ -219,6 +219,17 @@ class Domain:
         self.dyy = np.zeros([self.numelem], RealT)
         self.dzz = np.zeros([self.numelem], RealT)
 
+        # Velocity/coordinate gradients across the element faces (per element).
+        # Pre-declared here so the fields are part of the fixed struct layout for
+        # the docc native compiler; they are (re)computed in
+        # calc_monotonic_q_gradients_for_elems.
+        self.delv_xi = np.zeros([self.numelem], RealT)
+        self.delv_eta = np.zeros([self.numelem], RealT)
+        self.delv_zeta = np.zeros([self.numelem], RealT)
+        self.delx_xi = np.zeros([self.numelem], RealT)
+        self.delx_eta = np.zeros([self.numelem], RealT)
+        self.delx_zeta = np.zeros([self.numelem], RealT)
+
         self.build_mesh(nx, edge_nodes, edge_elems)
         self.create_region_index_sets(nr, balance)
         self.setup_symmetry_planes(edge_nodes)

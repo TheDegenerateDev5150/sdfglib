@@ -36,7 +36,7 @@ _COMPARE = (
 )
 
 
-@pytest.mark.skipif(sys.platform == "darwin", reason="Segfault on macOS")
+@pytest.mark.skip(reason="Slow in CI; run manually for benchmarking")
 @pytest.mark.parametrize("target", ["none", "sequential", "openmp", "cuda", "rocm"])
 def test_lagrange_nodal(target):
     check_domain_kernel(

@@ -519,3 +519,76 @@ class TestFancyConstantIndex:
         exp = a[:, [0, 2]]
         assert res.shape == exp.shape
         assert np.array_equal(res, exp)
+
+
+class TestGatherSubscriptIndex:
+    """Gather where the index is an array-valued *expression* (e.g. a column
+    view `nodelist[:, i]`), not just a plain Name."""
+
+    def test_gather_column_view_index(self):
+        @native
+        def gather_col(dx, nodelist, out):
+            out[:] = dx[nodelist[:, 0]]
+
+        dx = np.arange(20, dtype=np.float64)
+        nodelist = np.array([[2, 7], [0, 5], [3, 8], [1, 9]], dtype=np.int64)
+        out = np.zeros(4, dtype=np.float64)
+        gather_col(dx, nodelist, out)
+        np.testing.assert_array_equal(out, dx[nodelist[:, 0]])
+
+    def test_gather_column_view_index_in_loop(self):
+        @native
+        def gather_rows(dx, nodelist, out):
+            for i in range(nodelist.shape[1]):
+                out[i] = dx[nodelist[:, i]]
+
+        dx = np.arange(20, dtype=np.float64)
+        nodelist = np.array(
+            [[2, 7, 1], [0, 5, 4], [3, 8, 6], [1, 9, 2]], dtype=np.int64
+        )
+        out = np.zeros((3, 4), dtype=np.float64)
+        gather_rows(dx, nodelist, out)
+        exp = np.zeros((3, 4), dtype=np.float64)
+        for i in range(3):
+            exp[i] = dx[nodelist[:, i]]
+        np.testing.assert_array_equal(out, exp)
+
+    def test_gather_column_view_int32_index(self):
+        @native
+        def gather_col32(dx, nodelist, out):
+            out[:] = dx[nodelist[:, 1]]
+
+        dx = np.arange(15, dtype=np.float64)
+        nodelist = np.array([[2, 7], [0, 5], [3, 8], [1, 9]], dtype=np.int32)
+        out = np.zeros(4, dtype=np.float64)
+        gather_col32(dx, nodelist, out)
+        np.testing.assert_array_equal(out, dx[nodelist[:, 1]])
+
+
+class TestNestedGather:
+    """Gather whose index is itself a gather: y = delv[lm[ielem]] (LULESH
+    monotonic-Q neighbour lookup)."""
+
+    def test_nested_gather_1d(self):
+        @native
+        def nested(delv, lm, ielem, out):
+            out[:] = delv[lm[ielem]]
+
+        delv = np.arange(10, 20).astype(np.float64)
+        lm = np.array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0], dtype=np.int64)
+        ielem = np.array([0, 2, 4, 1], dtype=np.int64)
+        out = np.zeros(4, dtype=np.float64)
+        nested(delv.copy(), lm.copy(), ielem.copy(), out)
+        np.testing.assert_array_equal(out, delv[lm[ielem]])
+
+    def test_nested_gather_return(self):
+        @native
+        def nested_ret(delv, lm, ielem):
+            return delv[lm[ielem]]
+
+        delv = np.arange(30, 40).astype(np.float64)
+        lm = np.array([5, 0, 9, 3, 7, 1, 8, 2, 6, 4], dtype=np.int64)
+        ielem = np.array([1, 3, 5, 7, 9], dtype=np.int64)
+        compiled = nested_ret.compile(delv, lm, ielem)
+        result = compiled(delv, lm, ielem)
+        np.testing.assert_array_equal(result, delv[lm[ielem]])

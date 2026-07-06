@@ -157,3 +157,54 @@ def test_global_array_matvec():
     for i in range(4):
         exp[:, i] = a @ GLOBAL_MATRIX[i]
     assert np.allclose(out, exp)
+
+
+# Nested dict of integer bit masks (LULESH XI/ETA/ZETA boundary-condition tables)
+BC_MASKS = {
+    "M": {"mask": 0x007, "SYMM": 0x001, "FREE": 0x002, "COMM": 0x004},
+    "P": {"mask": 0x038, "SYMM": 0x008, "FREE": 0x010, "COMM": 0x020},
+}
+
+
+def test_global_dict_constant_fold():
+    """A subscript chain into a nested global dict of ints folds to a literal
+    at compile time (LULESH XI["M"]["mask"] boundary-condition pattern)."""
+
+    @native
+    def mask_and(bc_mask, out):
+        out[:] = bc_mask & BC_MASKS["M"]["mask"]
+
+    bc_mask = np.array([0x7, 0x3, 0x38, 0x1], dtype=np.int64)
+    out = np.zeros(4, dtype=np.int64)
+    mask_and(bc_mask.copy(), out)
+    assert np.array_equal(out, bc_mask & 0x007)
+
+
+def test_global_dict_constant_scalar():
+    """A folded dict constant is usable as a plain scalar operand."""
+
+    @native
+    def add_symm(arr) -> int:
+        return arr[0] + BC_MASKS["P"]["SYMM"]
+
+    arr = np.array([1], dtype=np.int64)
+    assert add_symm(arr) == 1 + 0x008
+
+
+def _region_mask(bc, bc_mask):
+    # `bc` is bound to a global dict constant via inline substitution.
+    return bc_mask & bc["P"]["mask"]
+
+
+def test_global_dict_constant_inlined():
+    """A global dict constant passed as an argument to an inlined helper is
+    substituted into the body and folded (LULESH _calc_*_region_bc pattern)."""
+
+    @native
+    def use_region(bc_mask, out):
+        out[:] = _region_mask(BC_MASKS, bc_mask)
+
+    bc_mask = np.array([0x7, 0x3, 0x38, 0x1], dtype=np.int64)
+    out = np.zeros(4, dtype=np.int64)
+    use_region(bc_mask.copy(), out)
+    assert np.array_equal(out, bc_mask & 0x038)
