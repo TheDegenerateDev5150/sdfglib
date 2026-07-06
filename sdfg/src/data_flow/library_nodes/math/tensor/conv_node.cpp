@@ -210,12 +210,12 @@ bool ConvNode::check_expandable(data_flow::DataFlowGraph& dfg, ConvExpandPrerequ
     }
 
     // Get block & its parent
-    boundary.block = dynamic_cast<structured_control_flow::Block*>(dfg.get_parent());
+    boundary.block = dyn_cast<structured_control_flow::Block*>(dfg.get_parent());
     if (!boundary.block) {
         return false;
     }
 
-    boundary.block_parent = dynamic_cast<structured_control_flow::Sequence*>(boundary.block->get_parent());
+    boundary.block_parent = dyn_cast<structured_control_flow::Sequence*>(boundary.block->get_parent());
     if (!boundary.block_parent) {
         return false;
     }

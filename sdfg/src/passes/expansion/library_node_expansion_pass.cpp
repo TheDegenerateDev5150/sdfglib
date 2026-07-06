@@ -55,7 +55,7 @@ bool LibNodeExpansionVisitor::visit(sdfg::structured_control_flow::Sequence& seq
 
         for (; i < total_children; ++i) {
             auto& child = seq.at(i).first;
-            if (auto* block = dynamic_cast<structured_control_flow::Block*>(&child)) {
+            if (auto* block = dyn_cast<structured_control_flow::Block*>(&child)) {
                 auto outcome = handle_block(seq, i, *block);
 
                 if (outcome.block_removed) { // recheck with same i, its now a new block

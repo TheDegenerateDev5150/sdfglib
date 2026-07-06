@@ -455,7 +455,7 @@ Element* StructuredSDFGBuilder::find_element_by_id(const size_t& element_id) con
             return current;
         }
 
-        if (auto block_stmt = dynamic_cast<structured_control_flow::Block*>(current)) {
+        if (auto block_stmt = dyn_cast<structured_control_flow::Block*>(current)) {
             auto& dataflow = block_stmt->dataflow();
             for (auto& node : dataflow.nodes()) {
                 queue.push_back(&node);
@@ -463,28 +463,28 @@ Element* StructuredSDFGBuilder::find_element_by_id(const size_t& element_id) con
             for (auto& edge : dataflow.edges()) {
                 queue.push_back(&edge);
             }
-        } else if (auto sequence_stmt = dynamic_cast<structured_control_flow::Sequence*>(current)) {
+        } else if (auto sequence_stmt = dyn_cast<structured_control_flow::Sequence*>(current)) {
             for (size_t i = 0; i < sequence_stmt->size(); i++) {
                 queue.push_back(&sequence_stmt->at(i).first);
                 queue.push_back(&sequence_stmt->at(i).second);
             }
-        } else if (dynamic_cast<structured_control_flow::Return*>(current)) {
+        } else if (dyn_cast<structured_control_flow::Return*>(current)) {
             // Do nothing
-        } else if (auto if_else_stmt = dynamic_cast<structured_control_flow::IfElse*>(current)) {
+        } else if (auto if_else_stmt = dyn_cast<structured_control_flow::IfElse*>(current)) {
             for (size_t i = 0; i < if_else_stmt->size(); i++) {
                 queue.push_back(&if_else_stmt->at(i).first);
             }
-        } else if (auto for_stmt = dynamic_cast<structured_control_flow::For*>(current)) {
+        } else if (auto for_stmt = dyn_cast<structured_control_flow::For*>(current)) {
             queue.push_back(&for_stmt->root());
-        } else if (auto while_stmt = dynamic_cast<structured_control_flow::While*>(current)) {
+        } else if (auto while_stmt = dyn_cast<structured_control_flow::While*>(current)) {
             queue.push_back(&while_stmt->root());
-        } else if (dynamic_cast<structured_control_flow::Continue*>(current)) {
+        } else if (dyn_cast<structured_control_flow::Continue*>(current)) {
             // Do nothing
-        } else if (dynamic_cast<structured_control_flow::Break*>(current)) {
+        } else if (dyn_cast<structured_control_flow::Break*>(current)) {
             // Do nothing
-        } else if (auto map_stmt = dynamic_cast<structured_control_flow::Map*>(current)) {
+        } else if (auto map_stmt = dyn_cast<structured_control_flow::Map*>(current)) {
             queue.push_back(&map_stmt->root());
-        } else if (auto reduce_stmt = dynamic_cast<structured_control_flow::Reduce*>(current)) {
+        } else if (auto reduce_stmt = dyn_cast<structured_control_flow::Reduce*>(current)) {
             queue.push_back(&reduce_stmt->root());
         }
     }
@@ -545,7 +545,7 @@ std::pair<Sequence&, Transition&> StructuredSDFGBuilder::
 }
 
 void StructuredSDFGBuilder::remove_from_parent(ControlFlowNode& child) {
-    auto* parent = dynamic_cast<structured_control_flow::Sequence*>(child.get_parent());
+    auto* parent = dyn_cast<structured_control_flow::Sequence*>(child.get_parent());
     if (parent == nullptr) {
         throw InvalidSDFGException(
             "StructuredSDFGBuilder: Child has no sequence parent: #" + std::to_string(child.element_id())
@@ -1560,7 +1560,7 @@ void StructuredSDFGBuilder::add_dataflow(const data_flow::DataFlowGraph& from, B
 
 void StructuredSDFGBuilder::merge_siblings(data_flow::AccessNode& source_node) {
     auto& user_graph = source_node.get_parent();
-    auto* block = dynamic_cast<structured_control_flow::Block*>(user_graph.get_parent());
+    auto* block = dyn_cast<structured_control_flow::Block*>(user_graph.get_parent());
     if (!block) {
         throw InvalidSDFGException("Parent of user graph must be a block!");
     }

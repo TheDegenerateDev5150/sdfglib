@@ -31,9 +31,9 @@ void VectorizeDispatcher::dispatch_node(
     codegen::CodeSnippetFactory& library_snippet_factory
 ) {
     // Generate code
-    if (dynamic_cast<structured_control_flow::Map*>(&node_)) {
+    if (dyn_cast<structured_control_flow::Map*>(&node_)) {
         main_stream << "// Map" << std::endl;
-    } else if (dynamic_cast<structured_control_flow::Reduce*>(&node_)) {
+    } else if (dyn_cast<structured_control_flow::Reduce*>(&node_)) {
         main_stream << "// Reduce" << std::endl;
     }
 

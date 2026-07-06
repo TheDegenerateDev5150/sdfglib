@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "sdfg/exceptions.h"
 #include "sdfg/symbolic/symbolic.h"
@@ -193,31 +194,62 @@ public:
 typedef size_t ElementId;
 
 /**
+ * Resolves the concrete target type for isa/dyn_cast, accepting the type itself
+ * (`Block`), a pointer to it (`Block*`), or a reference to it (`Block&`).
+ */
+template<typename T>
+using element_cast_target_t = std::remove_pointer_t<std::remove_reference_t<T>>;
+
+/**
  * LLVM-style RTTI check: true if \p element belongs to type category \p T.
  *
  * \p T must expose a `static bool classof(const Element&)` predicate (typically
  * implemented via a power-of-two ElementType category mask). This is a
  * branch-free alternative to dynamic_cast for element categories.
+ *
+ * \p T may be given as the target type (`isa<While>`), a pointer (`isa<While*>`),
+ * or a reference (`isa<While&>`); all are treated identically.
  */
 template<typename T>
 bool isa(const Element& element) {
-    return T::classof(element);
+    return element_cast_target_t<T>::classof(element);
 }
 
 template<typename T>
 bool isa(const Element* element) {
-    return element != nullptr && T::classof(*element);
+    return element != nullptr && element_cast_target_t<T>::classof(*element);
 }
 
-/// Efficient down-cast to category \p T, or nullptr if \p element is not a \p T.
+/// Efficient down-cast to \p T, or nullptr if \p element is not a \p T.
 template<typename T>
-T* dyn_cast(Element* element) {
-    return (element != nullptr && T::classof(*element)) ? static_cast<T*>(element) : nullptr;
+element_cast_target_t<T>* dyn_cast(Element* element) {
+    using Target = element_cast_target_t<T>;
+    return (element != nullptr && Target::classof(*element)) ? static_cast<Target*>(element) : nullptr;
 }
 
 template<typename T>
-const T* dyn_cast(const Element* element) {
-    return (element != nullptr && T::classof(*element)) ? static_cast<const T*>(element) : nullptr;
+const element_cast_target_t<T>* dyn_cast(const Element* element) {
+    using Target = element_cast_target_t<T>;
+    return (element != nullptr && Target::classof(*element)) ? static_cast<const Target*>(element) : nullptr;
+}
+
+/// Checked down-cast to \p T; throws InvalidSDFGException if \p element is not a \p T.
+template<typename T>
+element_cast_target_t<T>& dyn_cast(Element& element) {
+    using Target = element_cast_target_t<T>;
+    if (!Target::classof(element)) {
+        throw InvalidSDFGException("dyn_cast: element is not of the requested type");
+    }
+    return static_cast<Target&>(element);
+}
+
+template<typename T>
+const element_cast_target_t<T>& dyn_cast(const Element& element) {
+    using Target = element_cast_target_t<T>;
+    if (!Target::classof(element)) {
+        throw InvalidSDFGException("dyn_cast: element is not of the requested type");
+    }
+    return static_cast<const Target&>(element);
 }
 
 } // namespace sdfg

@@ -843,7 +843,7 @@ void TenstorrentMapDispatcher::dispatch_node(
     }
     for (int ci = 0; ci < outer_map_body.size(); ++ci) {
         auto child = outer_map_body.at(ci);
-        if (auto* map_candidate = dynamic_cast<structured_control_flow::Map*>(&child.first)) {
+        if (auto* map_candidate = dyn_cast<structured_control_flow::Map*>(&child.first)) {
             if (map_candidate->schedule_type().value() == ScheduleType_Tenstorrent_Kernel::value()) {
                 inner_map_ptr = map_candidate;
             }
