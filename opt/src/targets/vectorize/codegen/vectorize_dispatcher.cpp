@@ -76,7 +76,7 @@ codegen::InstrumentationInfo VectorizeDispatcher::instrumentation_info() const {
     }
 
     return codegen::InstrumentationInfo(
-        node_.element_id(), codegen::ElementType_Map, codegen::TargetType_CPU_PARALLEL, loop_info, metrics
+        node_.element_id(), node_.element_type(), codegen::TargetType_CPU_PARALLEL, loop_info, metrics
     );
 };
 

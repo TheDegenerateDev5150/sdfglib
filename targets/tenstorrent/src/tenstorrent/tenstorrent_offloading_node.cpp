@@ -337,7 +337,7 @@ codegen::InstrumentationInfo TTDataOffloadingNodeDispatcher::instrumentation_inf
     if (tt_node.is_d2h()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            codegen::ElementType_D2HTransfer,
+            std::string(tt_node.element_type()) + ":::" + tt_node.code().value(),
             TargetType_Tenstorrent,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(tt_node.size())}}
@@ -345,7 +345,7 @@ codegen::InstrumentationInfo TTDataOffloadingNodeDispatcher::instrumentation_inf
     } else if (tt_node.is_h2d()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            codegen::ElementType_H2DTransfer,
+            std::string(tt_node.element_type()) + ":::" + tt_node.code().value(),
             TargetType_Tenstorrent,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(tt_node.size())}}
