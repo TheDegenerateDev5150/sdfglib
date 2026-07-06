@@ -67,6 +67,7 @@
 #include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_context.h"
 #include "sdfg/passes/rpc/rpc_scheduler.h"
+#include "sdfg/passes/schedules/expansion_pass.h"
 #include "sdfg/passes/targets/target_mapping_pass.h"
 #include "sdfg/util/offloading_instrumentation_plan.h"
 #include "targets/target_mapping.h"
@@ -191,9 +192,15 @@ void PyStructuredSDFG::expand(const docc::target::TargetOptions& options) {
     auto local_buffer_reuse_pipeline = sdfg::passes::local_buffer_reuse_pipeline();
     local_buffer_reuse_pipeline.run(builder_opt, analysis_manager);
 
-    // Expand library nodes
-    sdfg::passes::Pipeline libnode_expansion = sdfg::passes::Pipeline::expansion();
-    libnode_expansion.run(builder_opt, analysis_manager);
+    // Special expansion for einsum, because it can cut blocks apart manually, and the new expansion is not capable of
+    // doing that generically
+    sdfg::passes::Pipeline einsum_expand_pipe("EinsumExpansion");
+    einsum_expand_pipe.register_pass<sdfg::passes::EinsumExpansionPass>();
+    einsum_expand_pipe.run(builder_opt, analysis_manager);
+
+    // Expand Math library nodes
+    sdfg::passes::LibraryNodeExpansionPass math_expand;
+    math_expand.run(builder_opt, analysis_manager);
 
     sdfg::passes::TensorToPointerConversionPass tensor_to_pointer_conversion_pass;
     tensor_to_pointer_conversion_pass.run(builder_opt, analysis_manager);
@@ -541,10 +548,7 @@ std::string PyStructuredSDFG::compile(
 
     sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
 
-    // Run expansion pass
-    sdfg::passes::Pipeline expansion = sdfg::passes::Pipeline::expansion();
     sdfg::builder::StructuredSDFGBuilder builder_opt(*sdfg_);
-    expansion.run(builder_opt, analysis_manager);
 
     // Instrumentation plan
     std::unique_ptr<sdfg::codegen::InstrumentationPlan> instrumentation_plan;
