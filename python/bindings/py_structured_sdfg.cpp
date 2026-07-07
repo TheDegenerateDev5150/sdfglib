@@ -77,12 +77,14 @@
 #endif
 
 // Platform-specific compiler selection
+#ifndef DOCC_CXX_COMPILER
 #if defined(__APPLE__)
 #define DOCC_CXX_COMPILER "clang++"
 #elif defined(__linux__)
 #define DOCC_CXX_COMPILER "clang-19"
 #else
 #error "Unsupported platform"
+#endif
 #endif
 
 namespace fs = std::filesystem;
