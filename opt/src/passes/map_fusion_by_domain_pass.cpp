@@ -638,7 +638,7 @@ bool NeighboringPatternVisitor::visit(sdfg::structured_control_flow::Sequence& n
     structured_control_flow::ControlFlowNode* override_last = nullptr;
     while (i < node.size()) {
         auto& child_node = node.at(i).first;
-        auto* first = dynamic_cast<structured_control_flow::Map*>(&child_node);
+        auto* first = dyn_cast<structured_control_flow::Map*>(&child_node);
         if (!first) {
             i++;
             dispatch(child_node);
@@ -652,7 +652,7 @@ bool NeighboringPatternVisitor::visit(sdfg::structured_control_flow::Sequence& n
         Map* second = nullptr;
 
         if (i + 1 < node.size()) {
-            second = dynamic_cast<structured_control_flow::Map*>(&node.at(i + 1).first);
+            second = dyn_cast<structured_control_flow::Map*>(&node.at(i + 1).first);
             if (second) {
                 if (second->root().size() == 0) {
                     i++;
@@ -674,7 +674,7 @@ bool NeighboringPatternVisitor::visit(sdfg::structured_control_flow::Sequence& n
                     continue;
                 }
             } else if (i + 2 < node.size()) {
-                auto* mid_block = dynamic_cast<structured_control_flow::Block*>(&node.at(i + 1).first);
+                auto* mid_block = dyn_cast<structured_control_flow::Block*>(&node.at(i + 1).first);
                 bool skippable = false;
                 std::unordered_set<std::string> skipped_containers;
                 if (mid_block) {
@@ -690,7 +690,7 @@ bool NeighboringPatternVisitor::visit(sdfg::structured_control_flow::Sequence& n
                     }
                 }
                 if (skippable) {
-                    second = dynamic_cast<structured_control_flow::Map*>(&node.at(i + 2).first);
+                    second = dyn_cast<structured_control_flow::Map*>(&node.at(i + 2).first);
                     if (second) {
                         if (second->root().size() == 0) {
                             i += 2;

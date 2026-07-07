@@ -60,12 +60,12 @@ TEST(ReduceTest, SumNode_1D) {
     EXPECT_TRUE(outcome.block_removed);
 
     EXPECT_EQ(sdfg.root().size(), 1);
-    auto& new_sequence = dynamic_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
+    auto& new_sequence = dyn_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
     EXPECT_EQ(new_sequence.size(), 2);
 
     // Init block
     {
-        auto init_block = dynamic_cast<structured_control_flow::Block*>(&new_sequence.at(0).first);
+        auto init_block = dyn_cast<structured_control_flow::Block*>(&new_sequence.at(0).first);
         EXPECT_NE(init_block, nullptr);
         EXPECT_EQ(init_block->dataflow().nodes().size(), 3);
         EXPECT_EQ(init_block->dataflow().edges().size(), 2);
@@ -94,11 +94,11 @@ TEST(ReduceTest, SumNode_1D) {
 
     // Reduction loops
     {
-        auto sum_loop = dynamic_cast<structured_control_flow::For*>(&new_sequence.at(1).first);
+        auto sum_loop = dyn_cast<structured_control_flow::For*>(&new_sequence.at(1).first);
         EXPECT_NE(sum_loop, nullptr);
         EXPECT_EQ(sum_loop->root().size(), 1);
 
-        auto reduce_block = dynamic_cast<structured_control_flow::Block*>(&sum_loop->root().at(0).first);
+        auto reduce_block = dyn_cast<structured_control_flow::Block*>(&sum_loop->root().at(0).first);
         EXPECT_EQ(reduce_block->dataflow().nodes().size(), 4);
         EXPECT_EQ(reduce_block->dataflow().edges().size(), 3);
         EXPECT_EQ(reduce_block->dataflow().tasklets().size(), 1);
@@ -178,19 +178,19 @@ TEST(ReduceTest, SumNode_2D) {
     EXPECT_TRUE(outcome.expanded);
     EXPECT_TRUE(outcome.block_removed);
 
-    auto& new_sequence = dynamic_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
+    auto& new_sequence = dyn_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
 
     // Reduction loops
     // Outer loop: dim 0 (Map)
     // Inner loop: dim 1 (For)
     {
-        auto map_loop = dynamic_cast<structured_control_flow::Map*>(&new_sequence.at(1).first);
+        auto map_loop = dyn_cast<structured_control_flow::Map*>(&new_sequence.at(1).first);
         EXPECT_NE(map_loop, nullptr);
 
-        auto for_loop = dynamic_cast<structured_control_flow::For*>(&map_loop->root().at(0).first);
+        auto for_loop = dyn_cast<structured_control_flow::For*>(&map_loop->root().at(0).first);
         EXPECT_NE(for_loop, nullptr);
 
-        auto reduce_block = dynamic_cast<structured_control_flow::Block*>(&for_loop->root().at(0).first);
+        auto reduce_block = dyn_cast<structured_control_flow::Block*>(&for_loop->root().at(0).first);
         auto reduce_tasklet = *reduce_block->dataflow().tasklets().begin();
         auto& dataflow = reduce_tasklet->get_parent();
 
@@ -250,19 +250,19 @@ TEST(ReduceTest, SumNode_2D_KeepDims) {
     EXPECT_TRUE(outcome.expanded);
     EXPECT_TRUE(outcome.block_removed);
 
-    auto& new_sequence = dynamic_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
+    auto& new_sequence = dyn_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
 
     // Reduction loops
     // Outer loop: dim 0 (Map)
     // Inner loop: dim 1 (For)
     {
-        auto map_loop = dynamic_cast<structured_control_flow::Map*>(&new_sequence.at(1).first);
+        auto map_loop = dyn_cast<structured_control_flow::Map*>(&new_sequence.at(1).first);
         EXPECT_NE(map_loop, nullptr);
 
-        auto for_loop = dynamic_cast<structured_control_flow::For*>(&map_loop->root().at(0).first);
+        auto for_loop = dyn_cast<structured_control_flow::For*>(&map_loop->root().at(0).first);
         EXPECT_NE(for_loop, nullptr);
 
-        auto reduce_block = dynamic_cast<structured_control_flow::Block*>(&for_loop->root().at(0).first);
+        auto reduce_block = dyn_cast<structured_control_flow::Block*>(&for_loop->root().at(0).first);
         auto reduce_tasklet = *reduce_block->dataflow().tasklets().begin();
         auto& dataflow = reduce_tasklet->get_parent();
 
@@ -324,22 +324,22 @@ TEST(ReduceTest, SumNode_3D_Reduce_0_2) {
     EXPECT_TRUE(outcome.expanded);
     EXPECT_TRUE(outcome.block_removed);
 
-    auto& new_sequence = dynamic_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
+    auto& new_sequence = dyn_cast<structured_control_flow::Sequence&>(sdfg.root().at(0).first);
 
     // Reduction loops
     // Outer loop: dim 1 (Map)
     // Inner loops: dim 0 (For), dim 2 (For)
     {
-        auto map_loop = dynamic_cast<structured_control_flow::Map*>(&new_sequence.at(1).first);
+        auto map_loop = dyn_cast<structured_control_flow::Map*>(&new_sequence.at(1).first);
         EXPECT_NE(map_loop, nullptr);
 
-        auto for_loop_0 = dynamic_cast<structured_control_flow::For*>(&map_loop->root().at(0).first);
+        auto for_loop_0 = dyn_cast<structured_control_flow::For*>(&map_loop->root().at(0).first);
         EXPECT_NE(for_loop_0, nullptr);
 
-        auto for_loop_2 = dynamic_cast<structured_control_flow::For*>(&for_loop_0->root().at(0).first);
+        auto for_loop_2 = dyn_cast<structured_control_flow::For*>(&for_loop_0->root().at(0).first);
         EXPECT_NE(for_loop_2, nullptr);
 
-        auto reduce_block = dynamic_cast<structured_control_flow::Block*>(&for_loop_2->root().at(0).first);
+        auto reduce_block = dyn_cast<structured_control_flow::Block*>(&for_loop_2->root().at(0).first);
         auto reduce_tasklet = *reduce_block->dataflow().tasklets().begin();
         auto& dataflow = reduce_tasklet->get_parent();
 
@@ -411,12 +411,12 @@ TEST(ReduceTest, MeanNode_1D) {
     EXPECT_EQ(sdfg.root().size(), 1);
     auto& repl_seq = dynamic_cast<Sequence&>(sdfg.root().at(0).first);
     EXPECT_EQ(repl_seq.size(), 3);
-    auto& sum_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(0).first);
+    auto& sum_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(0).first);
     EXPECT_EQ(sum_block.dataflow().nodes().size(), 3);
     EXPECT_EQ(sum_block.dataflow().edges().size(), 2);
     EXPECT_EQ(sum_block.dataflow().library_nodes().size(), 1);
 
-    auto& count_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(1).first);
+    auto& count_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(1).first);
     EXPECT_EQ(count_block.dataflow().nodes().size(), 0);
     auto& count_transition = repl_seq.at(1).second;
     EXPECT_EQ(count_transition.assignments().size(), 1);
@@ -424,7 +424,7 @@ TEST(ReduceTest, MeanNode_1D) {
     auto count_expr = count_transition.assignments().begin()->second;
     EXPECT_TRUE(symbolic::eq(count_expr, symbolic::integer(32)));
 
-    auto& div_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(2).first);
+    auto& div_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(2).first);
     EXPECT_EQ(div_block.dataflow().nodes().size(), 3);
     EXPECT_EQ(div_block.dataflow().edges().size(), 3);
     EXPECT_EQ(div_block.dataflow().library_nodes().size(), 1);
@@ -475,12 +475,12 @@ TEST(ReduceTest, MeanNode_2D) {
     EXPECT_EQ(sdfg.root().size(), 1);
     auto& repl_seq = dynamic_cast<Sequence&>(sdfg.root().at(0).first);
     EXPECT_EQ(repl_seq.size(), 3);
-    auto& sum_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(0).first);
+    auto& sum_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(0).first);
     EXPECT_EQ(sum_block.dataflow().nodes().size(), 3);
     EXPECT_EQ(sum_block.dataflow().edges().size(), 2);
     EXPECT_EQ(sum_block.dataflow().library_nodes().size(), 1);
 
-    auto& count_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(1).first);
+    auto& count_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(1).first);
     EXPECT_EQ(count_block.dataflow().nodes().size(), 0);
     auto& count_transition = repl_seq.at(1).second;
     EXPECT_EQ(count_transition.assignments().size(), 1);
@@ -488,7 +488,7 @@ TEST(ReduceTest, MeanNode_2D) {
     auto count_expr = count_transition.assignments().begin()->second;
     EXPECT_TRUE(symbolic::eq(count_expr, symbolic::integer(16)));
 
-    auto& div_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(2).first);
+    auto& div_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(2).first);
     EXPECT_EQ(div_block.dataflow().nodes().size(), 3);
     EXPECT_EQ(div_block.dataflow().edges().size(), 3);
     EXPECT_EQ(div_block.dataflow().library_nodes().size(), 1);
@@ -545,14 +545,14 @@ TEST(ReduceTest, StdNode_1D) {
     EXPECT_EQ(repl_seq.size(), 7);
 
     // Check first block (Pow X^2)
-    auto& pow_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(1).first);
+    auto& pow_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(1).first);
     EXPECT_EQ(pow_block.dataflow().library_nodes().size(), 1);
 
     // Check second block (Mean X^2)
-    auto& mean_x2_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(2).first);
+    auto& mean_x2_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(2).first);
     EXPECT_EQ(mean_x2_block.dataflow().library_nodes().size(), 1);
 
     // Check last block (Sqrt)
-    auto& sqrt_block = dynamic_cast<structured_control_flow::Block&>(repl_seq.at(6).first);
+    auto& sqrt_block = dyn_cast<structured_control_flow::Block&>(repl_seq.at(6).first);
     EXPECT_EQ(sqrt_block.dataflow().library_nodes().size(), 1);
 }

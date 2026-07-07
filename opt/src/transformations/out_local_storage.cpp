@@ -130,7 +130,7 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
 
         // Build substitution map: symbolic GPU map bounds → integer block sizes
         for (auto* node : ancestors) {
-            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+            if (auto* ancestor_map = dyn_cast<structured_control_flow::Map*>(node)) {
                 if (!gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
                     continue;
                 }
@@ -164,7 +164,7 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         // Criterion: At least one cooperative dimension
         bool has_cooperative_dim = false;
         for (auto* node : ancestors) {
-            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+            if (auto* ancestor_map = dyn_cast<structured_control_flow::Map*>(node)) {
                 if (!gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
                     continue;
                 }
@@ -198,7 +198,7 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         auto ancestors = ControlFlowNode::parent_chain(loop_);
         bool has_gpu_ancestor = false;
         for (auto* node : ancestors) {
-            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+            if (auto* ancestor_map = dyn_cast<structured_control_flow::Map*>(node)) {
                 if (gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
                     has_gpu_ancestor = true;
                     break;
@@ -210,7 +210,7 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
             // The loop is outside any GPU kernel.  Reject if the loop itself
             // is GPU-scheduled (it IS the kernel boundary) or if its body
             // contains GPU-scheduled maps (buffer on host, referenced in kernel).
-            if (auto* self_map = dynamic_cast<structured_control_flow::Map*>(&loop_)) {
+            if (auto* self_map = dyn_cast<structured_control_flow::Map*>(&loop_)) {
                 if (gpu::is_gpu_schedule(self_map->schedule_type())) {
                     return false;
                 }
@@ -218,7 +218,7 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
 
             auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
             for (auto* desc : loop_analysis.descendants(&loop_)) {
-                if (auto* desc_map = dynamic_cast<structured_control_flow::Map*>(desc)) {
+                if (auto* desc_map = dyn_cast<structured_control_flow::Map*>(desc)) {
                     if (gpu::is_gpu_schedule(desc_map->schedule_type())) {
                         return false;
                     }
@@ -231,7 +231,7 @@ bool OutLocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, an
         // cooperative dimension (a GPU indvar NOT in the bases), the buffer must
         // be NV_Shared so all threads in the block can see each other's writes.
         for (auto* node : ancestors) {
-            if (auto* ancestor_map = dynamic_cast<structured_control_flow::Map*>(node)) {
+            if (auto* ancestor_map = dyn_cast<structured_control_flow::Map*>(node)) {
                 if (!gpu::is_gpu_schedule(ancestor_map->schedule_type())) {
                     continue;
                 }
@@ -259,7 +259,7 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
     auto& users = analysis_manager.get<analysis::Users>();
 
     auto parent_node = loop_.get_parent();
-    auto parent = dynamic_cast<structured_control_flow::Sequence*>(parent_node);
+    auto parent = dyn_cast<structured_control_flow::Sequence*>(parent_node);
     if (!parent) {
         throw InvalidSDFGException("OutLocalStorage: Parent of loop must be a Sequence!");
     }
@@ -309,7 +309,7 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
     if (storage_type_.is_nv_shared()) {
         auto ancestors = ControlFlowNode::parent_chain(loop_);
         for (auto* node : ancestors) {
-            auto* m = dynamic_cast<structured_control_flow::Map*>(node);
+            auto* m = dyn_cast<structured_control_flow::Map*>(node);
             if (!m || !gpu::is_gpu_schedule(m->schedule_type())) continue;
             if (m->schedule_type().value() == "ROCM") {
                 is_rocm = true;
@@ -329,7 +329,7 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
             return "?";
         };
         for (auto* node : ancestors) {
-            auto* m = dynamic_cast<structured_control_flow::Map*>(node);
+            auto* m = dyn_cast<structured_control_flow::Map*>(node);
             if (!m || !gpu::is_gpu_schedule(m->schedule_type())) continue;
             GpuDim gd;
             gd.dim = gpu::gpu_dimension(m->schedule_type());
@@ -668,7 +668,7 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
     // Recursive helper to traverse all blocks in the loop body
     std::function<void(structured_control_flow::ControlFlowNode&)> rewrite_accesses;
     rewrite_accesses = [&](structured_control_flow::ControlFlowNode& node) {
-        if (auto* block = dynamic_cast<structured_control_flow::Block*>(&node)) {
+        if (auto* block = dyn_cast<structured_control_flow::Block*>(&node)) {
             auto& dfg = block->dataflow();
 
             // Collect access nodes to process (avoid iterator invalidation when splitting)
@@ -769,13 +769,13 @@ void OutLocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::A
                     }
                 }
             }
-        } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(&node)) {
+        } else if (auto* seq = dyn_cast<structured_control_flow::Sequence*>(&node)) {
             for (size_t i = 0; i < seq->size(); i++) {
                 rewrite_accesses(seq->at(i).first);
             }
-        } else if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(&node)) {
+        } else if (auto* loop = dyn_cast<structured_control_flow::StructuredLoop*>(&node)) {
             rewrite_accesses(loop->root());
-        } else if (auto* if_else = dynamic_cast<structured_control_flow::IfElse*>(&node)) {
+        } else if (auto* if_else = dyn_cast<structured_control_flow::IfElse*>(&node)) {
             for (size_t i = 0; i < if_else->size(); i++) {
                 rewrite_accesses(if_else->at(i).first);
             }
@@ -811,7 +811,7 @@ OutLocalStorage OutLocalStorage::from_json(builder::StructuredSDFGBuilder& build
     if (!element) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
     }
-    auto loop = dynamic_cast<structured_control_flow::StructuredLoop*>(element);
+    auto loop = dyn_cast<structured_control_flow::StructuredLoop*>(element);
 
     auto access_node = dynamic_cast<
         data_flow::AccessNode*>(builder.find_element_by_id(desc.at("subgraph").at("1").at("element_id").get<size_t>()));
