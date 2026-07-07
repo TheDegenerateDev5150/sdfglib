@@ -171,21 +171,6 @@ class DoccProgram(ABC):
             if self.debug_dump:
                 sdfg.dump(output_folder, "py1.einsum", dump_dot=True)
 
-            sdfg.validate()
-
-            if remote_tuning is None:
-                remote_tuning = self.remote_tuning
-
-            target_options = TargetOptions()
-            target_options.target = self.target
-            target_options.category = self.category
-            target_options.remote_tuning = remote_tuning
-
-            # Einsum detection
-            sdfg.einsum()
-            if self.debug_dump:
-                sdfg.dump(output_folder, "py1.einsum", dump_dot=True)
-
             # Tensor targets keep tensor nodes
             custom_expand_fn = get_target_expand_fn(self.target)
             if custom_expand_fn is not None:
