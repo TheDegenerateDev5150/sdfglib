@@ -176,7 +176,7 @@ codegen::InstrumentationInfo CUDADataOffloadingNodeDispatcher::instrumentation_i
     if (cuda_node.is_d2h()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            std::string(cuda_node.element_type()) + ":::" + cuda_node.code().value(),
+            "d2h_transfer",
             TargetType_CUDA,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(cuda_node.size())}}
@@ -184,7 +184,7 @@ codegen::InstrumentationInfo CUDADataOffloadingNodeDispatcher::instrumentation_i
     } else if (cuda_node.is_h2d()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            std::string(cuda_node.element_type()) + ":::" + cuda_node.code().value(),
+            "h2d_transfer",
             TargetType_CUDA,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(cuda_node.size())}}

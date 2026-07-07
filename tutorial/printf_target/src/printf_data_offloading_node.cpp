@@ -158,7 +158,7 @@ codegen::InstrumentationInfo PrintfDataOffloadingNodeDispatcher::instrumentation
     if (printf_node.is_d2h()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            std::string(printf_node.element_type()) + ":::" + printf_node.code().value(),
+            "d2h_transfer",
             TargetType_Printf,
             analysis::LoopInfo{},
             {{"bytes", language_extension_.expression(printf_node.size())}}
@@ -166,7 +166,7 @@ codegen::InstrumentationInfo PrintfDataOffloadingNodeDispatcher::instrumentation
     } else if (printf_node.is_h2d()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            std::string(printf_node.element_type()) + ":::" + printf_node.code().value(),
+            "h2d_transfer",
             TargetType_Printf,
             analysis::LoopInfo{},
             {{"bytes", language_extension_.expression(printf_node.size())}}
