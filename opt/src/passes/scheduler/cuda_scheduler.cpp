@@ -74,8 +74,12 @@ void CUDAScheduler::apply_schedule(
     bool offload_unknown_sizes
 ) {
     auto* map = dyn_cast<structured_control_flow::Map*>(&loop);
-    cuda::CUDATransform cuda_transform(*map, 32, offload_unknown_sizes);
-    cuda_transform.apply(builder, analysis_manager);
+    if (recorder_ != nullptr) {
+        recorder_->apply<cuda::CUDATransform>(builder, analysis_manager, false, *map, 32, offload_unknown_sizes);
+    } else {
+        cuda::CUDATransform cuda_transform(*map, 32, offload_unknown_sizes);
+        cuda_transform.apply(builder, analysis_manager);
+    }
 }
 
 void CUDAScheduler::pre_schedule(
