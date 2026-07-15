@@ -67,8 +67,12 @@ void OMPScheduler::apply_schedule(
     bool offload_unknown_sizes
 ) {
     auto* map = dyn_cast<structured_control_flow::Map*>(&loop);
-    transformations::OMPTransform omp_transform(*map);
-    omp_transform.apply(builder, analysis_manager);
+    if (recorder_ != nullptr) {
+        recorder_->apply<transformations::OMPTransform>(builder, analysis_manager, false, *map);
+    } else {
+        transformations::OMPTransform omp_transform(*map);
+        omp_transform.apply(builder, analysis_manager);
+    }
 }
 
 void OMPScheduler::pre_schedule(

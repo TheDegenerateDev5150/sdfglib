@@ -19,6 +19,7 @@ bool LoopSchedulingPass::run_pass_target(
         throw std::runtime_error("Unsupported scheduling target: " + target);
     }
     scheduler->set_report(report_);
+    scheduler->set_recorder(recorder_);
 
     UniqueLoopIndvars unique_indvar_pass;
     unique_indvar_pass.run_pass(builder, analysis_manager);

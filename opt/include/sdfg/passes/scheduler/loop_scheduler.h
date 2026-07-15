@@ -3,6 +3,7 @@
 #include <sdfg/analysis/flop_analysis.h>
 #include <sdfg/analysis/loop_analysis.h>
 #include <sdfg/passes/pass.h>
+#include <sdfg/transformations/recorder.h>
 #include <unordered_set>
 #include <vector>
 #include "sdfg/optimization_report/pass_report_consumer.h"
@@ -29,6 +30,7 @@ struct SchedulerLoopInfo {
 class LoopScheduler {
 protected:
     PassReportConsumer* report_ = nullptr;
+    transformations::Recorder* recorder_ = nullptr;
 
 public:
     virtual ~LoopScheduler() = default;
@@ -108,6 +110,12 @@ public:
     ) {}
 
     virtual void set_report(PassReportConsumer* report) { report_ = report; }
+
+    /**
+     * @brief Attach an optional Recorder that captures each scheduling transform
+     * applied via ``apply_schedule`` as a replayable descriptor.
+     */
+    virtual void set_recorder(transformations::Recorder* recorder) { recorder_ = recorder; }
 
     virtual std::unordered_set<ScheduleTypeCategory> compatible_types() = 0;
 };

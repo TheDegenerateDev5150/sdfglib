@@ -7,6 +7,9 @@
 #include "sdfg/optimization_report/pass_report_consumer.h"
 
 namespace sdfg {
+namespace transformations {
+class Recorder;
+}
 namespace passes {
 namespace scheduler {
 
@@ -15,6 +18,7 @@ private:
     std::vector<std::string> targets_;
     sdfg::PassReportConsumer* report_;
     bool offload_unknown_sizes_;
+    sdfg::transformations::Recorder* recorder_ = nullptr;
 
     bool run_pass_target(
         builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, const std::string& target
@@ -26,6 +30,14 @@ public:
     )
         : targets_(targets), report_(report), offload_unknown_sizes_(offload_unknown_sizes) {}
     ~LoopSchedulingPass() override = default;
+
+    /**
+     * @brief Attach an optional Recorder that captures each scheduling transform.
+     *
+     * When set, the recorder accumulates the transformations applied by the
+     * target schedulers.
+     */
+    void set_recorder(sdfg::transformations::Recorder* recorder) { recorder_ = recorder; }
 
     bool run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
 
