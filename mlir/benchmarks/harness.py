@@ -54,6 +54,11 @@ def run_benchmark(setup_func, name, batch_size=32):
         default="none",
         help="Docc compilation target (only used when --device docc)",
     )
+    parser.add_argument(
+        "--remote-tuning",
+        action="store_true",
+        help="Enable remote tuning for the Docc backend (only used when --device docc)",
+    )
     parser.add_argument("--n_runs", type=int, default=10)
     args = parser.parse_args()
 
@@ -82,7 +87,7 @@ def run_benchmark(setup_func, name, batch_size=32):
         compile_kwargs["options"] = {
             "target": args.target,
             "category": "server",
-            # "remote_tuning": True,
+            "remote_tuning": args.remote_tuning,
         }
 
         backend_label = f"docc_{args.target}"
