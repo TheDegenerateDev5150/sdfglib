@@ -333,38 +333,11 @@ void register_transformations(py::module& m) {
                PyStructuredSDFGBuilder& builder,
                PyAnalysisManager& analysis_manager,
                bool skip_if_not_applicable) {
-                if (!transformation.can_be_applied(builder.builder(), analysis_manager.manager())) {
-                    if (!skip_if_not_applicable) {
-                        throw InvalidTransformationException(
-                            "Transformation " + transformation.name() + " cannot be applied."
-                        );
-                    }
-                    return false;
-                }
-
-                // Record the transformation
-                nlohmann::json desc;
-                transformation.to_json(desc);
-
-                // Enrich each subgraph loop entry with loop_level and map_stack_depth
-                if (desc.contains("subgraph")) {
-                    auto& loop_analysis = analysis_manager.manager().get<sdfg::analysis::LoopAnalysis>();
-                    for (auto& [key, value] : desc["subgraph"].items()) {
-                        if (!value.contains("element_id")) continue;
-                        auto element_id = value["element_id"].get<size_t>();
-                        auto* elem = builder.builder().find_element_by_id(element_id);
-                        if (sdfg::dyn_cast<sdfg::structured_control_flow::StructuredLoop*>(elem) == nullptr) continue;
-                        auto* loop = static_cast<sdfg::structured_control_flow::ControlFlowNode*>(elem);
-                        auto loop_info = loop_analysis.loop_info(loop);
-                        value["loop_info"] = loop_info_to_json(loop_info);
-                    }
-                }
-
-                self.history().push_back(desc);
-
-                // Apply the transformation
-                transformation.apply(builder.builder(), analysis_manager.manager());
-                return true;
+                // Delegate to the C++ ``record`` so the virtual ``enrich`` hook
+                // runs: the base Recorder attaches ``loop_info`` and subclasses
+                // such as EmbeddingRecorder additionally attach node embeddings.
+                return self
+                    .record(transformation, builder.builder(), analysis_manager.manager(), skip_if_not_applicable);
             },
             py::arg("transformation"),
             py::arg("builder"),
