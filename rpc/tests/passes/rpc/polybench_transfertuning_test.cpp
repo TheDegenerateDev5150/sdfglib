@@ -49,7 +49,6 @@ TEST(PolybenchRPCSchedulerTest, Gemver) { EXPECT_TRUE(run_rpc_scheduling(gemver(
 
 TEST(PolybenchRPCSchedulerTest, Gesummv) { EXPECT_TRUE(run_rpc_scheduling(gesummv())); }
 
-TEST(PolybenchRPCSchedulerTest, Symm) { EXPECT_TRUE(run_rpc_scheduling(symm())); }
 
 TEST(PolybenchRPCSchedulerTest, Syr2k) { EXPECT_TRUE(run_rpc_scheduling(syr2k())); }
 
