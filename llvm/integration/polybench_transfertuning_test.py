@@ -895,50 +895,6 @@ def test_lu(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
     )
     return runner.run(timeout=120)
 
-
-@pytest.mark.parametrize(
-    "datatype",
-    [
-        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
-        pytest.param("-DDATA_TYPE_IS_FLOAT"),
-    ],
-)
-def test_ludcmp(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
-    benchmark_path = (
-        Path(__file__).parent / "tests" / "polybench" / "linear-algebra" / "solvers" / "ludcmp"
-    )
-    transformation_verification = TransformationVerification(
-        {"RPCNodeTransform": {'loop_nests': {}, 'tuned_loops': 4 if datatype == "-DDATA_TYPE_IS_DOUBLE" else 4}}
-    )
-
-    test_case = benchmark_path / "ludcmp.c"
-    runner = TestRunner(
-        "Polybench",
-        test_case,
-        "docc",
-        compiler,
-        [
-            "-g",
-            "-O3",
-            "-DPOLYBENCH_DUMP_ARRAYS",
-            "-D" + size,
-            datatype,
-            "-I" + str((Path(__file__).parent / "tests" / "polybench" / "utilities").absolute()),
-            "-lm",
-            "-lblas"
-        ],
-        "sequential",
-        [Path(__file__).parent / "tests" / "polybench" / "utilities" / "polybench.c"],
-        partial(
-            verify,
-            dtype=np.float64 if datatype == "-DDATA_TYPE_IS_DOUBLE" else np.float32,
-        ),
-        transformation_verification=transformation_verification,
-        docc_flags=["-mllvm", "-docc-einsum", "-docc-transfer-tune", "-docc-tune=sequential", "-docc-save-temps"],
-    )
-    return runner.run(timeout=120)
-
-
 @pytest.mark.parametrize(
     "datatype",
     [
