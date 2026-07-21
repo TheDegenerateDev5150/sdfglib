@@ -612,6 +612,7 @@ std::string PyStructuredSDFG::compile(
         .add_common_option("-fno-strict-aliasing")
         .add_common_option("-march=native")
         .add_common_option("-mtune=native")
+        .add_common_option("-ffp-contract=fast")
         .add_compile_option("-funroll-loops")
         .add_compile_option("-std=c++20")
         .add_link_option("-shared")
