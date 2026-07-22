@@ -33,13 +33,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     atax:
@@ -50,13 +50,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     gemm:
@@ -67,13 +67,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     gesummv:
@@ -84,13 +84,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     gemver:
@@ -101,13 +101,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     k2mm:
@@ -118,13 +118,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     k3mm:
@@ -135,13 +135,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     mvt:
@@ -152,13 +152,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     symm:
@@ -169,13 +169,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        # docc-cuda:
+        # cuda:
         #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --target=cuda
         #   tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     syr2k:
@@ -186,13 +186,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     syrk:
@@ -203,13 +203,13 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        docc-cuda:
+        cuda:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
     trmm:
@@ -220,12 +220,12 @@ steps:
         numpy:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --numpy --size=M
           tags: { framework: numpy, device: cpu, model: openmp, precision: double, baseline: true }
-        docc-omp:
+        omp:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: double }
-        # docc-cuda:
+        # cuda:
         #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --target=cuda
         #   tags: { framework: docc, device: gpu, model: cuda, precision: double }
-        docc-transfer-tuning:
+        tt-seq:
           command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --target=sequential --remote-tuning
           tags: { framework: docc, device: cpu, model: sequential, precision: double }
