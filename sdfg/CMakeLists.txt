@@ -30,7 +30,6 @@ set(SOURCE_FILES
     src/analysis/control_flow_analysis.cpp
     src/analysis/data_dependency_analysis.cpp
     src/analysis/dominance_analysis.cpp
-    src/analysis/escape_analysis.cpp
     src/analysis/flop_analysis.cpp
     src/analysis/loop_analysis.cpp
     src/analysis/loop_carried_dependency_analysis.cpp
@@ -208,6 +207,7 @@ set(SOURCE_FILES
     src/types/utils.cpp
     src/visitor/immutable_structured_sdfg_visitor.cpp
     src/visitor/structured_sdfg_visitor.cpp
+    src/visitor/structured_sdfg_walker.cpp
     src/visualizer/dot_visualizer.cpp
     src/visualizer/visualizer.cpp
 )

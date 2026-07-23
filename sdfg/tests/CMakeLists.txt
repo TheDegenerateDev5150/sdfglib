@@ -13,7 +13,6 @@ set(TEST_FILES
     analysis/assumptions_analysis_test.cpp
     analysis/control_flow_analysis_test.cpp
     analysis/data_dependency_analysis_test.cpp
-    analysis/escape_analysis_test.cpp
     analysis/flop_analysis_test.cpp
     analysis/loop_analysis_info_test.cpp
     analysis/loop_analysis_test.cpp
@@ -86,6 +85,7 @@ set(TEST_FILES
     passes/memory/allocation_management_test.cpp
     passes/pipeline_test.cpp
     passes/structured_control_flow/block_fusion_test.cpp
+    passes/structured_control_flow/common_assignment_elimination_test.cpp
     passes/structured_control_flow/condition_elimination_test.cpp
     passes/structured_control_flow/dead_cfg_elimination_test.cpp
     passes/structured_control_flow/for_classification_test.cpp
@@ -124,6 +124,7 @@ set(TEST_FILES
     types/tensor_test.cpp
     types/utils_test.cpp
     visitor/structured_sdfg_visitor_test.cpp
+    visitor/structured_sdfg_walker_test.cpp
     visualizer/dot_visualizer_test.cpp
 )
 
