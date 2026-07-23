@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import pytest
 
 from tests import check
 
@@ -56,6 +57,18 @@ def test_cat_many(target: str) -> None:
 
     x = torch.randn(2, 3)
     check(CatManyNet(), (x, x, x, x, x, x, x, x, x, x), target=target)
+
+
+# --- fill ---
+
+
+@pytest.mark.minimum_pytorch_version((2, 13, 0))
+def test_fill_simple(target: str) -> None:
+    class FillSimpleNet(nn.Module):
+        def forward(self, input: torch.Tensor) -> torch.Tensor:
+            return torch.fill(input, 3.141592)
+
+    check(FillSimpleNet(), torch.ones(2, 3), target=target)
 
 
 # --- permute ---
