@@ -56,22 +56,22 @@ steps:
         DOCC_REUSE_BINARIES: 1
       variants:
         torch:
-          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device cpu
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device cpu
           tags: { framework: torch, device: cpu, model: openmp, precision: float, baseline: true }
         torch-cuda:
-          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device cuda
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device cuda
           tags: { framework: torch, device: gpu, model: cuda, precision: float, baseline: true }
         docc-openmp:
-          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=openmp
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: float }
         docc-omp-prof:
-          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=openmp
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: float, profiling: true }
         docc-cuda:
-          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=cuda
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: float }
         docc-cuda-prof:
-          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=cuda
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: float, profiling: true }
     # segformer:
     #   energy: true
