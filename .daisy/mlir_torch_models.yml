@@ -28,9 +28,9 @@ steps:
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 
     # Warm start
-    export DOCC_CI=
     export DOCC_DEBUG=dump
 
+    # Compile and cache binaries
     venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device cpu
     venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device cuda
     venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=openmp
@@ -41,11 +41,17 @@ steps:
     venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --n_runs=1 --device docc --target=openmp --variant segformer --batch-size 16
     venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --n_runs=1 --device docc --target=cuda --variant segformer --batch-size 16
 
+    # Compile and cache instrumented binaries
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=openmp
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=cuda
+
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --n_runs=1 --device docc --target=openmp --variant segformer --batch-size 16
+    DOCC_CI=regions venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --n_runs=1 --device docc --target=cuda --variant segformer --batch-size 16
+
   run:
     resnet18:
       energy: true
       env:
-        DOCC_CI: ""
         DOCC_REUSE_BINARIES: 1
       variants:
         torch:
@@ -54,16 +60,21 @@ steps:
         torch-cuda:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device cuda
           tags: { framework: torch, device: gpu, model: cuda, precision: float, baseline: true }
-        openmp:
+        docc-openmp:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: float }
-        cuda:
+        docc-omp-prof:
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=openmp
+          tags: { framework: docc, device: cpu, model: openmp, precision: float, profiling: true }
+        docc-cuda:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=cuda
           tags: { framework: docc, device: gpu, model: cuda, precision: float }
+        docc-cuda-prof:
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --device docc --target=cuda
+          tags: { framework: docc, device: gpu, model: cuda, precision: float, profiling: true }
     segformer:
       energy: true
       env:
-        DOCC_CI: ""
         DOCC_REUSE_BINARIES: 1
       variants:
         torch:
@@ -72,9 +83,15 @@ steps:
         torch-cuda:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --device cuda --n_runs=1 --variant segformer --batch-size 16
           tags: { framework: torch, device: gpu, model: cuda, precision: float, baseline: true }
-        openmp:
+        docc-openmp:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --device docc --target=openmp --n_runs=1 --variant segformer --batch-size 16
           tags: { framework: docc, device: cpu, model: openmp, precision: float }
-        cuda:
+        docc-omp-prof:
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --device docc --target=openmp --n_runs=1 --variant segformer --batch-size 16
+          tags: { framework: docc, device: cpu, model: openmp, precision: float, profiling: true }
+        docc-cuda:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --device docc --target=cuda --n_runs=1 --variant segformer --batch-size 16
           tags: { framework: docc, device: gpu, model: cuda, precision: float }
+        docc-cuda-prof:
+          command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --device docc --target=cuda --n_runs=1 --variant segformer --batch-size 16
+          tags: { framework: docc, device: gpu, model: cuda, precision: float, profiling: true }
