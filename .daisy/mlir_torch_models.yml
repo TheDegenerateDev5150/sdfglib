@@ -61,7 +61,7 @@ steps:
         torch-cuda:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device cuda
           tags: { framework: torch, device: gpu, model: cuda, precision: float, baseline: true }
-        docc-openmp:
+        docc-omp:
           command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/resnet18.py --n_runs=1 --device docc --target=openmp
           tags: { framework: docc, device: cpu, model: openmp, precision: float }
         docc-omp-prof:
@@ -86,7 +86,7 @@ steps:
     #     torch-cuda:
     #       command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --device cuda --n_runs=1 --variant segformer --batch-size 16
     #       tags: { framework: torch, device: gpu, model: cuda, precision: float, baseline: true }
-    #     docc-openmp:
+    #     docc-omp:
     #       command: venv/bin/python3 mlir/benchmarks/torch/model_zoo/segformer.py --device docc --target=openmp --n_runs=1 --variant segformer --batch-size 16
     #       tags: { framework: docc, device: cpu, model: openmp, precision: float }
         # docc-omp-prof:
