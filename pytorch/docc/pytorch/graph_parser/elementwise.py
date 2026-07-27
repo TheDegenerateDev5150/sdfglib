@@ -170,6 +170,8 @@ class ElementwiseTensorOpParser(GraphParserModule):
 
 register_module("aten.div.Tensor", ElementwiseTensorOpParser("div"))
 register_module("aten.mul.Tensor", ElementwiseTensorOpParser("mul"))
+register_module("aten.eq.Tensor", ElementwiseTensorOpParser("eq"))
+register_module("aten.eq.Scalar", ElementwiseTensorOpParser("eq"))
 
 
 class ElementwiseTensorOpParserWithAlpha(GraphParserModule):

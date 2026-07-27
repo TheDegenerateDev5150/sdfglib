@@ -18,6 +18,7 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/einsum_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/cast_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/cmath_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/tasklet_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/tensor_node.h"
 #include "sdfg/data_flow/library_nodes/stdlib/free.h"
 #include "sdfg/data_flow/library_nodes/stdlib/malloc.h"
@@ -703,6 +704,7 @@ void PyStructuredSDFGBuilder::add_reference_memlet(
     builder_.add_reference_memlet(block, src, dst, indices, *type, debug_info);
 }
 
+
 void PyStructuredSDFGBuilder::add_dereference_memlet(
     Block& block,
     sdfg::data_flow::AccessNode& src,
@@ -1090,6 +1092,9 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
         {{"min", SignedInteger}, sdfg::data_flow::TaskletCode::int_smin},
         {{"max", UnsignedInteger}, sdfg::data_flow::TaskletCode::int_umax},
         {{"max", SignedInteger}, sdfg::data_flow::TaskletCode::int_smax},
+        {{"eq", UnsignedInteger}, sdfg::data_flow::TaskletCode::int_eq},
+        {{"eq", SignedInteger}, sdfg::data_flow::TaskletCode::int_eq},
+        {{"eq", FloatingPoint}, sdfg::data_flow::TaskletCode::fp_oeq},
     };
 
     auto& parent = current_sequence();
@@ -1156,6 +1161,20 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
             }
         } else {
             node = &builder_.add_library_node<sdfg::math::tensor::MaximumNode>(block, debug_info, C_type.shape());
+        }
+    } else if (op_type == "eq") {
+        if (is_scalar_op) {
+            node =
+                &builder_.add_tasklet(block, tasklet_codes.at({"eq", code_type}), C_conn, {A_conn, B_conn}, debug_info);
+        } else {
+            node = &builder_.add_library_node<sdfg::math::tensor::TaskletTensorNode>(
+                block,
+                debug_info,
+                tasklet_codes.at({"eq", code_type}),
+                C_conn,
+                std::vector<std::string>{A_conn, B_conn},
+                C_type.shape()
+            );
         }
     } else {
         throw std::runtime_error("Unsupported elementwise op: " + op_type);
