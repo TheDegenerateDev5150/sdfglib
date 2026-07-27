@@ -1028,35 +1028,34 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
         (A_type.is_scalar() && sdfg::symbolic::eq(A_type.offset(), sdfg::symbolic::zero()) && B_type.is_scalar() &&
          sdfg::symbolic::eq(B_type.offset(), sdfg::symbolic::zero()) && C_type.is_scalar() &&
          sdfg::symbolic::eq(C_type.offset(), sdfg::symbolic::zero()));
-    enum { FloatingPoint = 0, UnsignedInteger = 1, SignedInteger = 2 } code_type;
-    sdfg::types::PrimitiveType prim_type;
-    if (is_scalar_op) {
-        bool is_A_float = sdfg::types::is_floating_point(A_type.primitive_type());
-        bool is_A_int = sdfg::types::is_integer(A_type.primitive_type());
-        bool is_A_unsigned_int = sdfg::types::is_unsigned(A_type.primitive_type());
-        bool is_A_signed_int = sdfg::types::is_signed(A_type.primitive_type());
-        bool is_B_float = sdfg::types::is_floating_point(B_type.primitive_type());
-        bool is_B_int = sdfg::types::is_integer(B_type.primitive_type());
-        bool is_B_unsigned_int = sdfg::types::is_unsigned(B_type.primitive_type());
-        bool is_B_signed_int = sdfg::types::is_signed(B_type.primitive_type());
-        if ((is_A_float && is_B_float) || (is_A_float && is_B_int)) {
-            code_type = FloatingPoint;
-            prim_type = A_type.primitive_type();
-        } else if (is_A_int && is_B_float) {
-            code_type = FloatingPoint;
-            prim_type = B_type.primitive_type();
-        } else if ((is_A_unsigned_int && is_B_unsigned_int) || (is_A_unsigned_int && is_B_signed_int)) {
-            code_type = UnsignedInteger;
-            prim_type = A_type.primitive_type();
-        } else if (is_A_signed_int && is_B_unsigned_int) {
-            code_type = UnsignedInteger;
-            prim_type = B_type.primitive_type();
-        } else if (is_A_signed_int && is_B_signed_int) {
-            code_type = SignedInteger;
-            prim_type = A_type.primitive_type();
-        } else {
-            is_scalar_op = false;
-        }
+    enum { FloatingPoint = 0, UnsignedInteger = 1, SignedInteger = 2 } code_type = SignedInteger;
+    sdfg::types::PrimitiveType prim_type = A_type.primitive_type();
+
+    bool is_A_float = sdfg::types::is_floating_point(A_type.primitive_type());
+    bool is_A_int = sdfg::types::is_integer(A_type.primitive_type());
+    bool is_A_unsigned_int = sdfg::types::is_unsigned(A_type.primitive_type());
+    bool is_A_signed_int = sdfg::types::is_signed(A_type.primitive_type());
+    bool is_B_float = sdfg::types::is_floating_point(B_type.primitive_type());
+    bool is_B_int = sdfg::types::is_integer(B_type.primitive_type());
+    bool is_B_unsigned_int = sdfg::types::is_unsigned(B_type.primitive_type());
+    bool is_B_signed_int = sdfg::types::is_signed(B_type.primitive_type());
+    if ((is_A_float && is_B_float) || (is_A_float && is_B_int)) {
+        code_type = FloatingPoint;
+        prim_type = A_type.primitive_type();
+    } else if (is_A_int && is_B_float) {
+        code_type = FloatingPoint;
+        prim_type = B_type.primitive_type();
+    } else if ((is_A_unsigned_int && is_B_unsigned_int) || (is_A_unsigned_int && is_B_signed_int)) {
+        code_type = UnsignedInteger;
+        prim_type = A_type.primitive_type();
+    } else if (is_A_signed_int && is_B_unsigned_int) {
+        code_type = UnsignedInteger;
+        prim_type = B_type.primitive_type();
+    } else if (is_A_signed_int && is_B_signed_int) {
+        code_type = SignedInteger;
+        prim_type = A_type.primitive_type();
+    } else {
+        is_scalar_op = false;
     }
     std::string A_conn, B_conn, C_conn;
     std::unique_ptr<sdfg::types::IType> A_memlet_type, B_memlet_type, C_memlet_type;

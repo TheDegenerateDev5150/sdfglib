@@ -61,7 +61,9 @@ TaskletTensorNode::TaskletTensorNode(
 
 void TaskletTensorNode::validate(const Function& function) const {
     auto& graph = this->get_parent();
-    ElementWiseDataflowTensorNode::validate(function);
+    this->validate_target_tensor(graph);
+    this->validate_all_input_tensors(graph);
+    this->validate_non_tensor_inputs(graph);
 
     // Validate: inputs match arity
     auto actual_inputs = this->inputs_.size() - 1;
