@@ -25,11 +25,12 @@ Example::
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
 
 __all__ = [
     "Trace",
@@ -409,6 +410,11 @@ class Trace:
             data = json.load(f)
         return cls.from_dict(data, validate_schema=validate_schema)
 
+    def save(self, path: Union[str, Path], indent: Optional[int] = None) -> None:
+        """Write this trace back to a JSON file (the daisy-trace format)."""
+        with open(path, "w") as f:
+            json.dump(self._raw, f, indent=indent)
+
     # -- Container protocol ------------------------------------------------
     @property
     def regions(self) -> List[TraceRegion]:
@@ -477,3 +483,63 @@ class Trace:
     def total_runtime_us(self) -> float:
         """Sum of mean runtimes across all regions (microseconds)."""
         return sum((r.runtime_mean_us or 0.0) for r in self._regions)
+
+    # -- Combining ---------------------------------------------------------
+    @staticmethod
+    def _region_key(region: "TraceRegion") -> tuple:
+        """Stable identity of a region across separate runs of the same workload.
+
+        Matches on source/docc identity and excludes pid/tid/timestamps, which
+        differ between runs.
+        """
+        return (
+            region.name,
+            region.function,
+            region.module,
+            region.sdfg_name,
+            region.element_id,
+        )
+
+    @classmethod
+    def combine(
+        cls, traces: Sequence["Trace"], validate_schema: bool = False
+    ) -> "Trace":
+        """Combine multiple traces of the same workload into one.
+
+        Intended for counter multiplexing: when the hardware can only measure a
+        subset of counters at once, the workload is run once per counter group,
+        producing several traces that each carry a slice of the ``metrics``. This
+        takes the first trace as the reference for regions and timesteps (name,
+        ts, dur, source/docc metadata, runtime) and unions the per-region
+        ``metrics`` maps from the remaining traces into it.
+
+        Regions are matched across traces by :meth:`_region_key` (source/docc
+        identity, ignoring pid/tid/timestamps). On a metric-key collision the
+        reference wins, so its ``runtime`` and any ``static:::`` values are kept.
+        Returns a new :class:`Trace`; the inputs are not mutated.
+        """
+        traces = list(traces)
+        if not traces:
+            raise ValueError("Trace.combine() requires at least one trace")
+        if len(traces) == 1:
+            return cls.from_dict(
+                copy.deepcopy(traces[0].raw), validate_schema=validate_schema
+            )
+
+        # Index each additional trace's per-region metrics by region key.
+        extra_metrics: Dict[tuple, List[dict]] = {}
+        for other in traces[1:]:
+            for region in other.regions:
+                metrics = region.raw.get("args", {}).get("metrics", {})
+                extra_metrics.setdefault(cls._region_key(region), []).append(metrics)
+
+        # Deep-copy the reference and union in the other traces' metrics.
+        combined_raw = copy.deepcopy(traces[0].raw)
+        for event in combined_raw.get("traceEvents", []):
+            key = cls._region_key(TraceRegion(event))
+            metrics = event.setdefault("args", {}).setdefault("metrics", {})
+            for other_metrics in extra_metrics.get(key, []):
+                for name, value in other_metrics.items():
+                    metrics.setdefault(name, value)
+
+        return cls.from_dict(combined_raw, validate_schema=validate_schema)

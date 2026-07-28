@@ -169,3 +169,90 @@ def test_validation_can_be_skipped():
     # Structurally-invalid trace loads when validation is disabled.
     trace = Trace.from_dict({"traceEvents": []}, validate_schema=False)
     assert len(trace) == 0
+
+
+def _stat(value):
+    return {"mean": value, "variance": 0.0, "count": 10, "min": value, "max": value}
+
+
+def _agg_trace(metrics, pid=1):
+    return {
+        "traceEvents": [
+            {
+                "ph": "X",
+                "cat": "aggregated_region,daisy",
+                "name": "main [L1-9]",
+                "pid": pid,
+                "tid": pid,
+                "ts": 100,
+                "dur": 2500,
+                "args": _args(metrics),
+            }
+        ]
+    }
+
+
+def test_combine_unions_metric_groups():
+    # Two runs of the same workload with disjoint counter groups (counter multiplexing),
+    # captured as separate processes (different pid/tid).
+    t1 = Trace.from_dict(
+        _agg_trace(
+            {"fadd": _stat(2), "fmul": _stat(3), "runtime": _stat(50.0)}, pid=111
+        )
+    )
+    t2 = Trace.from_dict(
+        _agg_trace(
+            {"ffma": _stat(4), "dram": _stat(9), "runtime": _stat(999.0)}, pid=222
+        )
+    )
+
+    combined = Trace.combine([t1, t2])
+    region = combined[0]
+
+    # Metrics are unioned across the two groups.
+    assert set(region.counter_stats) == {"fadd", "fmul", "ffma", "dram"}
+    assert region.metric("dram") == 9
+
+    # Reference (first trace) wins for timesteps and runtime, despite differing pid/tid.
+    assert region.pid == 111
+    assert region.dur_us == 2500
+    assert region.runtime.mean == 50.0
+
+    # Inputs are not mutated.
+    assert set(t1[0].counter_stats) == {"fadd", "fmul"}
+    assert set(t2[0].counter_stats) == {"ffma", "dram"}
+
+
+def test_combine_reference_wins_on_collision():
+    t1 = Trace.from_dict(
+        _agg_trace({"shared": _stat(1), "runtime": _stat(50.0)}, pid=1)
+    )
+    t2 = Trace.from_dict(
+        _agg_trace({"shared": _stat(999), "runtime": _stat(60.0)}, pid=2)
+    )
+
+    region = Trace.combine([t1, t2])[0]
+    assert region.metric("shared") == 1  # reference value kept
+    assert region.runtime.mean == 50.0
+
+
+def test_combine_single_trace_returns_copy():
+    t1 = Trace.from_dict(_agg_trace({"fadd": _stat(2), "runtime": _stat(50.0)}))
+    combined = Trace.combine([t1])
+    assert combined is not t1
+    assert combined.raw is not t1.raw
+    assert len(combined) == 1
+    assert set(combined[0].counter_stats) == {"fadd"}
+
+
+def test_combine_empty_raises():
+    with pytest.raises(ValueError):
+        Trace.combine([])
+
+
+def test_combine_result_validates():
+    # The unioned trace still conforms to the schema.
+    t1 = Trace.from_dict(_agg_trace({"fadd": _stat(2), "runtime": _stat(50.0)}, pid=1))
+    t2 = Trace.from_dict(_agg_trace({"dram": _stat(9), "runtime": _stat(60.0)}, pid=2))
+    combined = Trace.combine([t1, t2], validate_schema=True)
+    assert set(combined[0].counter_stats) == {"fadd", "dram"}
