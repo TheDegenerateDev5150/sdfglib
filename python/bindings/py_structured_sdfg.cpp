@@ -31,6 +31,7 @@
 #include <sdfg/passes/offloading/device_resident_arg_promotion_pass.h>
 #include <sdfg/passes/opt_pipeline.h>
 #include <sdfg/passes/pipeline.h>
+#include <sdfg/passes/rpc/rpc_scheduling_pass.h>
 #include <sdfg/passes/scheduler/cuda_scheduler.h>
 #include <sdfg/passes/scheduler/loop_scheduling_pass.h>
 #include <sdfg/passes/scheduler/omp_scheduler.h>
@@ -66,7 +67,6 @@
 #include "sdfg/passes/redundant_load_elimination_pass.h"
 #include "sdfg/passes/rpc/daisytuner_rpc_context.h"
 #include "sdfg/passes/rpc/rpc_context.h"
-#include "sdfg/passes/rpc/rpc_scheduler.h"
 #include "sdfg/passes/scheduler/vectorize_scheduler.h"
 #include "sdfg/passes/schedules/expansion_pass.h"
 #include "sdfg/passes/targets/target_mapping_pass.h"
@@ -470,13 +470,6 @@ void PyStructuredSDFG::schedule(const docc::target::TargetOptions& options) {
 
     std::vector<std::shared_ptr<sdfg::passes::scheduler::LoopScheduler>> schedulers;
 
-    if (options.remote_tuning) {
-        std::shared_ptr<sdfg::passes::rpc::RpcContext> context =
-            sdfg::passes::rpc::DaisytunerRpcContext::from_docc_config();
-        schedulers.push_back(std::make_shared<sdfg::passes::rpc::RPCScheduler>(context, options.target, options.category)
-        );
-    }
-
     auto* handler = docc_context_.get_target_handler(options.target);
     if (handler) {
         auto target_schedulers = handler->safe_get_target_loop_schedulers(options);
@@ -493,6 +486,14 @@ void PyStructuredSDFG::schedule(const docc::target::TargetOptions& options) {
         symbol_propagation_pass.run(builder, analysis_manager);
         dde.run(builder, analysis_manager);
         dce.run(builder, analysis_manager);
+    }
+
+    if (options.remote_tuning) {
+        std::shared_ptr<sdfg::passes::rpc::RpcContext> context =
+            sdfg::passes::rpc::DaisytunerRpcContext::from_docc_config();
+        sdfg::passes::scheduler::RPCSchedulingPass
+            rpc_scheduling_pass(context, options.target, options.category, nullptr);
+        rpc_scheduling_pass.run(builder, analysis_manager);
     }
 
     auto mapped = schedulers | std::views::transform([&](auto& n) { return n.get(); });
