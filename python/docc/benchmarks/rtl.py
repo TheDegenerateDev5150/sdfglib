@@ -361,6 +361,16 @@ class TraceRegion:
             return self.runtime.mean if self.runtime is not None else None
         return self.dur_us
 
+    @property
+    def runtime_min_us(self) -> Optional[float]:
+        """Best (minimum) runtime in microseconds.
+
+        The min over the aggregated samples is the steady-state estimate.
+        """
+        if self.is_aggregated:
+            return self.runtime.min if self.runtime is not None else None
+        return self.dur_us
+
     def metric(self, name: str) -> Optional[Union[int, float]]:
         """Return a representative value for ``name``.
 
