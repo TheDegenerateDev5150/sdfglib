@@ -14,6 +14,7 @@ from docc.sdfg import (
     Tensor,
     Scalar,
     CMathFunction,
+    TaskletCode,
 )
 
 from docc.pytorch.graph_parser.utils import (
@@ -175,10 +176,12 @@ register_module("aten.mul.Tensor", ElementwiseTensorOpParser("mul"))
 
 
 class ElementwiseTaskletOpParser(GraphParserModule):
-    op_type: str
+    fp_code: TaskletCode
+    int_code: TaskletCode
 
-    def __init__(self, op_type: str) -> None:
-        self.op_type: str = op_type
+    def __init__(self, fp_code: TaskletCode, int_code: TaskletCode) -> None:
+        self.fp_code: TaskletCode = fp_code
+        self.int_code: TaskletCode = int_code
 
     def parse(
         self,
@@ -217,8 +220,21 @@ class ElementwiseTaskletOpParser(GraphParserModule):
         )
         debug_info: DebugInfo = self.get_debug_info(node)
 
+        is_float = primitive_type_is_floating_point(
+            self_tensor.element_type.primitive_type
+        )
+        is_integer = primitive_type_is_integer(self_tensor.element_type.primitive_type)
+        if is_float:
+            tasklet_code = self.fp_code
+        elif is_integer:
+            tasklet_code = self.int_code
+        else:
+            raise GraphParserError(
+                self, node, "Unsupported primitive type for elementwise tasklet"
+            )
+
         builder.add_elementwise_tasklet_op(
-            self.op_type,
+            tasklet_code,
             [self_container, other_container],
             [self_tensor, other_tensor],
             result_container,
@@ -227,8 +243,12 @@ class ElementwiseTaskletOpParser(GraphParserModule):
         )
 
 
-register_module("aten.eq.Tensor", ElementwiseTaskletOpParser("eq"))
-register_module("aten.eq.Scalar", ElementwiseTaskletOpParser("eq"))
+register_module(
+    "aten.eq.Tensor", ElementwiseTaskletOpParser(TaskletCode.fp_oeq, TaskletCode.int_eq)
+)
+register_module(
+    "aten.eq.Scalar", ElementwiseTaskletOpParser(TaskletCode.fp_oeq, TaskletCode.int_eq)
+)
 
 
 class ElementwiseTensorOpParserWithAlpha(GraphParserModule):

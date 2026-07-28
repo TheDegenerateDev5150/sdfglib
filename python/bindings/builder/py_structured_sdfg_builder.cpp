@@ -1194,7 +1194,7 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
 }
 
 void PyStructuredSDFGBuilder::add_elementwise_tasklet_op(
-    const std::string& op_type,
+    sdfg::data_flow::TaskletCode tasklet_code,
     const std::vector<std::string>& inputs,
     const std::vector<const sdfg::types::Tensor*>& input_types,
     const std::string& output,
@@ -1210,16 +1210,6 @@ void PyStructuredSDFGBuilder::add_elementwise_tasklet_op(
                 break;
             }
         }
-    }
-
-    auto prim_type = input_types[0]->primitive_type();
-    bool is_float = sdfg::types::is_floating_point(prim_type);
-    sdfg::data_flow::TaskletCode tasklet_code;
-
-    if (op_type == "eq") {
-        tasklet_code = is_float ? sdfg::data_flow::TaskletCode::fp_oeq : sdfg::data_flow::TaskletCode::int_eq;
-    } else {
-        throw std::runtime_error("Unsupported elementwise tasklet op_type: " + op_type);
     }
 
     std::string out_conn = "_out";

@@ -503,7 +503,7 @@ PYBIND11_MODULE(_sdfg, m) {
         .def(
             "add_elementwise_tasklet_op",
             &PyStructuredSDFGBuilder::add_elementwise_tasklet_op,
-            py::arg("op_type"),
+            py::arg("tasklet_code"),
             py::arg("inputs"),
             py::arg("input_types"),
             py::arg("output"),

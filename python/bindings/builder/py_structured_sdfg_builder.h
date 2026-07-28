@@ -283,7 +283,7 @@ public:
     );
 
     void add_elementwise_tasklet_op(
-        const std::string& op_type,
+        sdfg::data_flow::TaskletCode tasklet_code,
         const std::vector<std::string>& inputs,
         const std::vector<const sdfg::types::Tensor*>& input_types,
         const std::string& output,
