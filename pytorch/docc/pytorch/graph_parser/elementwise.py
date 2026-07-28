@@ -21,6 +21,8 @@ from docc.pytorch.graph_parser.utils import (
     GraphParserModule,
     ContainerInfos,
     register_module,
+    primitive_type_is_floating_point,
+    primitive_type_is_integer,
 )
 
 
@@ -170,8 +172,63 @@ class ElementwiseTensorOpParser(GraphParserModule):
 
 register_module("aten.div.Tensor", ElementwiseTensorOpParser("div"))
 register_module("aten.mul.Tensor", ElementwiseTensorOpParser("mul"))
-register_module("aten.eq.Tensor", ElementwiseTensorOpParser("eq"))
-register_module("aten.eq.Scalar", ElementwiseTensorOpParser("eq"))
+
+
+class ElementwiseTaskletOpParser(GraphParserModule):
+    op_type: str
+
+    def __init__(self, op_type: str) -> None:
+        self.op_type: str = op_type
+
+    def parse(
+        self,
+        node: torch.fx.Node,
+        builder: StructuredSDFGBuilder,
+        container_info: ContainerInfos,
+    ) -> None:
+        if len(node.args) != 2:
+            raise GraphParserError(
+                self,
+                node,
+                "Expected exactly 2 arguments but got " + str(len(node.args)),
+            )
+        if len(node.kwargs) != 0:
+            raise GraphParserError(
+                self, node, "Unsupported kwargs: " + str(node.kwargs)
+            )
+        self_container: str = self.get_arg_container(node, container_info, 0)
+        self_tensor: Tensor = self.get_tensor_type(node, container_info, self_container)
+        other: str | tuple[str, Scalar] = self.get_arg_sdfg_value(
+            node, container_info, 1
+        )
+        if isinstance(other, str):
+            other_container: str = other
+            other_tensor: Tensor = self.get_tensor_type(
+                node, container_info, other_container
+            )
+        else:
+            other_container: str = other[0]
+            other_tensor: Tensor = Tensor(
+                self.align_constant_type(node, other, self_tensor.element_type), []
+            )
+        result_container: str = self.get_result_container(node, builder, container_info)
+        result_tensor: Tensor = self.get_tensor_type(
+            node, container_info, result_container
+        )
+        debug_info: DebugInfo = self.get_debug_info(node)
+
+        builder.add_elementwise_tasklet_op(
+            self.op_type,
+            [self_container, other_container],
+            [self_tensor, other_tensor],
+            result_container,
+            result_tensor,
+            debug_info,
+        )
+
+
+register_module("aten.eq.Tensor", ElementwiseTaskletOpParser("eq"))
+register_module("aten.eq.Scalar", ElementwiseTaskletOpParser("eq"))
 
 
 class ElementwiseTensorOpParserWithAlpha(GraphParserModule):

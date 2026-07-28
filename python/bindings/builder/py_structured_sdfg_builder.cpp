@@ -1028,34 +1028,35 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
         (A_type.is_scalar() && sdfg::symbolic::eq(A_type.offset(), sdfg::symbolic::zero()) && B_type.is_scalar() &&
          sdfg::symbolic::eq(B_type.offset(), sdfg::symbolic::zero()) && C_type.is_scalar() &&
          sdfg::symbolic::eq(C_type.offset(), sdfg::symbolic::zero()));
-    enum { FloatingPoint = 0, UnsignedInteger = 1, SignedInteger = 2 } code_type = SignedInteger;
-    sdfg::types::PrimitiveType prim_type = A_type.primitive_type();
-
-    bool is_A_float = sdfg::types::is_floating_point(A_type.primitive_type());
-    bool is_A_int = sdfg::types::is_integer(A_type.primitive_type());
-    bool is_A_unsigned_int = sdfg::types::is_unsigned(A_type.primitive_type());
-    bool is_A_signed_int = sdfg::types::is_signed(A_type.primitive_type());
-    bool is_B_float = sdfg::types::is_floating_point(B_type.primitive_type());
-    bool is_B_int = sdfg::types::is_integer(B_type.primitive_type());
-    bool is_B_unsigned_int = sdfg::types::is_unsigned(B_type.primitive_type());
-    bool is_B_signed_int = sdfg::types::is_signed(B_type.primitive_type());
-    if ((is_A_float && is_B_float) || (is_A_float && is_B_int)) {
-        code_type = FloatingPoint;
-        prim_type = A_type.primitive_type();
-    } else if (is_A_int && is_B_float) {
-        code_type = FloatingPoint;
-        prim_type = B_type.primitive_type();
-    } else if ((is_A_unsigned_int && is_B_unsigned_int) || (is_A_unsigned_int && is_B_signed_int)) {
-        code_type = UnsignedInteger;
-        prim_type = A_type.primitive_type();
-    } else if (is_A_signed_int && is_B_unsigned_int) {
-        code_type = UnsignedInteger;
-        prim_type = B_type.primitive_type();
-    } else if (is_A_signed_int && is_B_signed_int) {
-        code_type = SignedInteger;
-        prim_type = A_type.primitive_type();
-    } else {
-        is_scalar_op = false;
+    enum { FloatingPoint = 0, UnsignedInteger = 1, SignedInteger = 2 } code_type;
+    sdfg::types::PrimitiveType prim_type;
+    if (is_scalar_op) {
+        bool is_A_float = sdfg::types::is_floating_point(A_type.primitive_type());
+        bool is_A_int = sdfg::types::is_integer(A_type.primitive_type());
+        bool is_A_unsigned_int = sdfg::types::is_unsigned(A_type.primitive_type());
+        bool is_A_signed_int = sdfg::types::is_signed(A_type.primitive_type());
+        bool is_B_float = sdfg::types::is_floating_point(B_type.primitive_type());
+        bool is_B_int = sdfg::types::is_integer(B_type.primitive_type());
+        bool is_B_unsigned_int = sdfg::types::is_unsigned(B_type.primitive_type());
+        bool is_B_signed_int = sdfg::types::is_signed(B_type.primitive_type());
+        if ((is_A_float && is_B_float) || (is_A_float && is_B_int)) {
+            code_type = FloatingPoint;
+            prim_type = A_type.primitive_type();
+        } else if (is_A_int && is_B_float) {
+            code_type = FloatingPoint;
+            prim_type = B_type.primitive_type();
+        } else if ((is_A_unsigned_int && is_B_unsigned_int) || (is_A_unsigned_int && is_B_signed_int)) {
+            code_type = UnsignedInteger;
+            prim_type = A_type.primitive_type();
+        } else if (is_A_signed_int && is_B_unsigned_int) {
+            code_type = UnsignedInteger;
+            prim_type = B_type.primitive_type();
+        } else if (is_A_signed_int && is_B_signed_int) {
+            code_type = SignedInteger;
+            prim_type = A_type.primitive_type();
+        } else {
+            is_scalar_op = false;
+        }
     }
     std::string A_conn, B_conn, C_conn;
     std::unique_ptr<sdfg::types::IType> A_memlet_type, B_memlet_type, C_memlet_type;
@@ -1091,9 +1092,6 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
         {{"min", SignedInteger}, sdfg::data_flow::TaskletCode::int_smin},
         {{"max", UnsignedInteger}, sdfg::data_flow::TaskletCode::int_umax},
         {{"max", SignedInteger}, sdfg::data_flow::TaskletCode::int_smax},
-        {{"eq", UnsignedInteger}, sdfg::data_flow::TaskletCode::int_eq},
-        {{"eq", SignedInteger}, sdfg::data_flow::TaskletCode::int_eq},
-        {{"eq", FloatingPoint}, sdfg::data_flow::TaskletCode::fp_oeq},
     };
 
     auto& parent = current_sequence();
@@ -1161,20 +1159,6 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
         } else {
             node = &builder_.add_library_node<sdfg::math::tensor::MaximumNode>(block, debug_info, C_type.shape());
         }
-    } else if (op_type == "eq") {
-        if (is_scalar_op) {
-            node =
-                &builder_.add_tasklet(block, tasklet_codes.at({"eq", code_type}), C_conn, {A_conn, B_conn}, debug_info);
-        } else {
-            node = &builder_.add_library_node<sdfg::math::tensor::TaskletTensorNode>(
-                block,
-                debug_info,
-                tasklet_codes.at({"eq", code_type}),
-                C_conn,
-                std::vector<std::string>{A_conn, B_conn},
-                C_type.shape()
-            );
-        }
     } else {
         throw std::runtime_error("Unsupported elementwise op: " + op_type);
     }
@@ -1206,6 +1190,84 @@ void PyStructuredSDFGBuilder::add_elementwise_op(
     } else {
         auto& node_in = builder_.add_constant(block, B, B_type.element_type(), debug_info);
         builder_.add_memlet(block, node_in, "void", *node, B_conn, {}, *B_memlet_type, debug_info);
+    }
+}
+
+void PyStructuredSDFGBuilder::add_elementwise_tasklet_op(
+    const std::string& op_type,
+    const std::vector<std::string>& inputs,
+    const std::vector<const sdfg::types::Tensor*>& input_types,
+    const std::string& output,
+    const sdfg::types::Tensor& output_type,
+    const sdfg::DebugInfo& debug_info
+) {
+    // check if all inputs, outputs are scalar
+    bool is_scalar_op = output_type.is_scalar() && sdfg::symbolic::eq(output_type.offset(), sdfg::symbolic::zero());
+    if (is_scalar_op) {
+        for (size_t i = 0; i < input_types.size(); ++i) {
+            if (!input_types[i]->is_scalar() || !sdfg::symbolic::eq(input_types[i]->offset(), sdfg::symbolic::zero())) {
+                is_scalar_op = false;
+                break;
+            }
+        }
+    }
+
+    auto prim_type = input_types[0]->primitive_type();
+    bool is_float = sdfg::types::is_floating_point(prim_type);
+    sdfg::data_flow::TaskletCode tasklet_code;
+
+    if (op_type == "eq") {
+        tasklet_code = is_float ? sdfg::data_flow::TaskletCode::fp_oeq : sdfg::data_flow::TaskletCode::int_eq;
+    } else {
+        throw std::runtime_error("Unsupported elementwise tasklet op_type: " + op_type);
+    }
+
+    std::string out_conn = "_out";
+    std::vector<std::string> in_conns;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        in_conns.push_back("_in" + std::to_string(i + 1));
+    }
+
+    auto& parent = current_sequence();
+    auto& block = builder_.add_block(parent, {}, debug_info);
+    sdfg::data_flow::CodeNode* node = nullptr;
+    if (is_scalar_op) {
+        node = &builder_.add_tasklet(block, tasklet_code, out_conn, in_conns, debug_info);
+    } else {
+        node = &builder_.add_library_node<sdfg::math::tensor::TaskletTensorNode>(
+            block, debug_info, tasklet_code, out_conn, in_conns, output_type.shape()
+        );
+    }
+
+    // Output memlet
+    auto& out_access = builder_.add_access(block, output, debug_info);
+    if (is_scalar_op) {
+        auto out_memlet_type = output_type.element_type().clone();
+        builder_.add_computational_memlet(block, *node, out_conn, out_access, {}, *out_memlet_type, debug_info);
+    } else {
+        auto out_memlet_type = output_type.clone();
+        builder_.add_computational_memlet(block, out_access, *node, out_conn, {}, *out_memlet_type, debug_info);
+    }
+
+    // Input memlets
+    std::unordered_map<std::string, sdfg::data_flow::AccessNode*> access_nodes;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        auto in_memlet_type = is_scalar_op ? input_types[i]->element_type().clone() : input_types[i]->clone();
+
+        if (builder_.subject().exists(inputs[i])) {
+            sdfg::data_flow::AccessNode* in_access = nullptr;
+            auto it = access_nodes.find(inputs[i]);
+            if (it != access_nodes.end()) {
+                in_access = it->second;
+            } else {
+                in_access = &builder_.add_access(block, inputs[i], debug_info);
+                access_nodes[inputs[i]] = in_access;
+            }
+            builder_.add_computational_memlet(block, *in_access, *node, in_conns[i], {}, *in_memlet_type, debug_info);
+        } else {
+            auto& const_node = builder_.add_constant(block, inputs[i], input_types[i]->element_type(), debug_info);
+            builder_.add_memlet(block, const_node, "void", *node, in_conns[i], {}, *in_memlet_type, debug_info);
+        }
     }
 }
 
