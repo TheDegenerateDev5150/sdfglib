@@ -65,6 +65,7 @@ class UnaryTensorOpParser(GraphParserModule):
 
 register_module("aten.abs.default", UnaryTensorOpParser("abs"))
 register_module("aten.logical_not.default", UnaryTensorOpParser("logical_not"))
+register_module("aten.neg.default", UnaryTensorOpParser("neg"))
 
 
 class UnaryCMathTensorOpParser(GraphParserModule):

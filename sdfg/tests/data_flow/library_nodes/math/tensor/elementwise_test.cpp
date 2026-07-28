@@ -15,6 +15,7 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/leaky_relu_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/logical_not_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/mul_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/neg_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/pow_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/relu_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/sigmoid_node.h"
@@ -263,6 +264,11 @@ REGISTER_UNARY_TEST(SigmoidNode, 1)
 REGISTER_UNARY_TEST(SigmoidNode, 2)
 REGISTER_UNARY_TEST(SigmoidNode, 3)
 REGISTER_UNARY_TEST(SigmoidNode, 4)
+
+REGISTER_UNARY_TEST(NegNode, 1)
+REGISTER_UNARY_TEST(NegNode, 2)
+REGISTER_UNARY_TEST(NegNode, 3)
+REGISTER_UNARY_TEST(NegNode, 4)
 
 // REGISTER_UNARY_TEST(EluNode, 1)
 // REGISTER_UNARY_TEST(EluNode, 2)
@@ -548,3 +554,127 @@ REGISTER_LOGICAL_NOT_TEST(Double, 1)
 REGISTER_LOGICAL_NOT_TEST(Double, 2)
 REGISTER_LOGICAL_NOT_TEST(Double, 3)
 REGISTER_LOGICAL_NOT_TEST(Double, 4)
+
+// Neg tests - output preserves the input type. Floating-point types expand into a
+// unary fp_neg tasklet, while integer types expand into an int_mul with a -1 constant.
+template<types::PrimitiveType SourceType>
+void TestNeg(std::vector<size_t> shape_dims) {
+    builder::StructuredSDFGBuilder builder("sdfg", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+
+    types::Scalar source_desc(SourceType);
+    types::Pointer source_ptr(source_desc);
+
+    builder.add_container("a", source_ptr);
+    builder.add_container("b", source_ptr);
+
+    auto& block = builder.add_block(sdfg.root());
+
+    auto& a_node = builder.add_access(block, "a");
+    auto& b_node = builder.add_access(block, "b");
+
+    std::vector<symbolic::Expression> shape;
+    for (auto d : shape_dims) {
+        shape.push_back(symbolic::integer(d));
+    }
+    types::Tensor tensor_type(SourceType, shape);
+
+    auto& node =
+        static_cast<math::tensor::NegNode&>(builder.add_library_node<math::tensor::NegNode>(block, DebugInfo(), shape));
+
+    builder.add_computational_memlet(block, a_node, node, "X", {}, tensor_type, block.debug_info());
+    builder.add_computational_memlet(block, b_node, node, "Y", {}, tensor_type, block.debug_info());
+
+    sdfg.validate();
+    auto outcome = passes::expansion::expand_single_math_node(builder, block, node);
+    EXPECT_TRUE(outcome.expanded);
+    EXPECT_TRUE(outcome.block_removed);
+
+    auto& new_sequence = dyn_cast<structured_control_flow::Sequence&>(sdfg.root().at(0));
+
+    // Navigate to the innermost map
+    structured_control_flow::Sequence* current_scope = &new_sequence;
+    for (size_t i = 0; i < shape_dims.size(); ++i) {
+        auto map_loop = dyn_cast<structured_control_flow::Map*>(&current_scope->at(0));
+        ASSERT_NE(map_loop, nullptr);
+        current_scope = &map_loop->root();
+    }
+
+    auto code_block = dyn_cast<structured_control_flow::Block*>(&current_scope->at(0));
+    ASSERT_NE(code_block, nullptr);
+
+    // Neg always expands into a plain tasklet (fp_neg or int_mul), never a library node.
+    EXPECT_TRUE(code_block->dataflow().library_nodes().empty()) << "NegNode should expand into a tasklet";
+    ASSERT_FALSE(code_block->dataflow().tasklets().empty()) << "Inner block is empty for NegNode";
+
+    auto* tasklet = *code_block->dataflow().tasklets().begin();
+
+    bool is_integer = types::is_integer(SourceType);
+    if (is_integer) {
+        EXPECT_EQ(tasklet->code(), data_flow::TaskletCode::int_mul)
+            << "Integer NegNode should expand into an int_mul tasklet";
+    } else {
+        EXPECT_EQ(tasklet->code(), data_flow::TaskletCode::fp_neg)
+            << "Floating-point NegNode should expand into an fp_neg tasklet";
+    }
+
+    auto& dataflow = tasklet->get_parent();
+
+    // For integers, a -1 constant must feed the multiplication.
+    bool found_neg_one_constant = false;
+    for (auto& edge : dataflow.in_edges(*tasklet)) {
+        if (auto* constant = dynamic_cast<data_flow::ConstantNode*>(&edge.src())) {
+            if (constant->data() == "-1") {
+                found_neg_one_constant = true;
+            }
+            continue;
+        }
+        if (auto* src_access = dynamic_cast<data_flow::AccessNode*>(&edge.src())) {
+            if (src_access->data() == "a") {
+                EXPECT_EQ(edge.subset().size(), shape_dims.size())
+                    << "Input subset size is not " << shape_dims.size() << " for NegNode";
+                EXPECT_EQ(edge.result_type(sdfg)->primitive_type(), SourceType);
+            }
+        }
+    }
+    EXPECT_EQ(found_neg_one_constant, is_integer)
+        << "Integer NegNode must multiply by a -1 constant; floating-point NegNode must not";
+
+    // Output preserves the input type.
+    for (auto& edge : dataflow.out_edges(*tasklet)) {
+        if (auto* dst_access = dynamic_cast<data_flow::AccessNode*>(&edge.dst())) {
+            if (dst_access->data() == "b") {
+                EXPECT_EQ(edge.subset().size(), shape_dims.size())
+                    << "Output subset size is not " << shape_dims.size() << " for NegNode";
+                EXPECT_EQ(edge.result_type(sdfg)->primitive_type(), SourceType);
+            }
+        }
+    }
+}
+
+#define REGISTER_NEG_TEST(SourceType, Dim)                   \
+    TEST(ElementWiseTest, NegNode_##SourceType##_##Dim##D) { \
+        std::vector<size_t> dims;                            \
+        for (int i = 0; i < Dim; ++i) dims.push_back(32);    \
+        TestNeg<types::PrimitiveType::SourceType>(dims);     \
+    }
+
+REGISTER_NEG_TEST(Float, 1)
+REGISTER_NEG_TEST(Float, 2)
+REGISTER_NEG_TEST(Float, 3)
+REGISTER_NEG_TEST(Float, 4)
+
+REGISTER_NEG_TEST(Double, 1)
+REGISTER_NEG_TEST(Double, 2)
+REGISTER_NEG_TEST(Double, 3)
+REGISTER_NEG_TEST(Double, 4)
+
+REGISTER_NEG_TEST(Int32, 1)
+REGISTER_NEG_TEST(Int32, 2)
+REGISTER_NEG_TEST(Int32, 3)
+REGISTER_NEG_TEST(Int32, 4)
+
+REGISTER_NEG_TEST(Int64, 1)
+REGISTER_NEG_TEST(Int64, 2)
+REGISTER_NEG_TEST(Int64, 3)
+REGISTER_NEG_TEST(Int64, 4)
