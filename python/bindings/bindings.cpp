@@ -501,6 +501,16 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("debug_info") = sdfg::DebugInfo()
         )
         .def(
+            "add_elementwise_tasklet_op",
+            &PyStructuredSDFGBuilder::add_elementwise_tasklet_op,
+            py::arg("tasklet_code"),
+            py::arg("inputs"),
+            py::arg("input_types"),
+            py::arg("output"),
+            py::arg("output_type"),
+            py::arg("debug_info") = sdfg::DebugInfo()
+        )
+        .def(
             "add_elementwise_cmath_op",
             &PyStructuredSDFGBuilder::add_elementwise_cmath_op,
             py::arg("func"),

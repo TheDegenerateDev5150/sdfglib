@@ -282,6 +282,15 @@ public:
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
+    void add_elementwise_tasklet_op(
+        sdfg::data_flow::TaskletCode tasklet_code,
+        const std::vector<std::string>& inputs,
+        const std::vector<const sdfg::types::Tensor*>& input_types,
+        const std::string& output,
+        const sdfg::types::Tensor& output_type,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
+
     void add_elementwise_cmath_op(
         sdfg::math::cmath::CMathFunction func,
         const std::string& A,
