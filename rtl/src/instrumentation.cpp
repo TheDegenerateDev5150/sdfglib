@@ -247,12 +247,14 @@ private:
             entry << "\"features_file\":\"\",";
         }
         if (md.opt_report_file) {
-            entry << "\"opt_report_file\":\"" << md.opt_report_file << "\",";
+            entry << "\"opt_report_file\":\"" << md.opt_report_file << "\"";
         } else {
-            entry << "\"opt_report_file\":\"\",";
+            entry << "\"opt_report_file\":\"\"";
         }
 
         if (md.sdfg_name && md.sdfg_file) {
+            entry << ",";
+
             // Element metadata
             entry << "\"element_id\":" << md.element_id << ",";
             entry << "\"element_type\":\"" << md.element_type << "\",";
