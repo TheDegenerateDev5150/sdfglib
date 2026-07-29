@@ -1,6 +1,6 @@
 #include "docc/passes/scheduling/normalization_pass.h"
 
-#include <sdfg/passes/normalization/normalize_sdfg.h>
+#include <sdfg/passes/normalization/normalize.h>
 
 namespace docc {
 namespace passes {
@@ -13,7 +13,7 @@ llvm::PreservedAnalyses NormalizationPass::
     }
 
     registry.for_each_sdfg_modifiable(Module, [&](sdfg::StructuredSDFG &sdfg) {
-        sdfg::passes::normalization::normalize_sdfg(sdfg, false);
+        sdfg::passes::normalization::normalize(sdfg, false);
     });
 
     return llvm::PreservedAnalyses::all();

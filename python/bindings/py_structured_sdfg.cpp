@@ -26,7 +26,7 @@
 #include <sdfg/passes/gemm_expansion_pass.h>
 #include <sdfg/passes/normalization/loop_normal_form.h>
 #include <sdfg/passes/normalization/normalization.h>
-#include <sdfg/passes/normalization/normalize_sdfg.h>
+#include <sdfg/passes/normalization/normalize.h>
 #include <sdfg/passes/offloading/cuda_library_node_rewriter_pass.h>
 #include <sdfg/passes/offloading/device_buffer_reuse_pass.h>
 #include <sdfg/passes/offloading/device_resident_arg_promotion_pass.h>
@@ -95,7 +95,7 @@ using json = nlohmann::json;
 
 PyStructuredSDFG::PyStructuredSDFG(sdfg::plugins::Context& ctx, std::unique_ptr<sdfg::StructuredSDFG>& sdfg)
     : docc_context_(ctx), sdfg_(std::move(sdfg)), use_new_fusion_in_simplify_(true),
-      optimize_kernel_size_in_normalize_(false) {}
+      enable_fusion_in_normalize_(false) {}
 
 PyStructuredSDFG PyStructuredSDFG::parse(sdfg::plugins::Context& ctx, const std::string& sdfg_text) {
     json j = json::parse(sdfg_text);
@@ -418,7 +418,7 @@ void PyStructuredSDFG::dump(
 }
 
 void PyStructuredSDFG::normalize() {
-    sdfg::passes::normalization::normalize_sdfg(*sdfg_, optimize_kernel_size_in_normalize_);
+    sdfg::passes::normalization::normalize(*sdfg_, enable_fusion_in_normalize_);
 }
 
 void PyStructuredSDFG::schedule(const std::string& target, const std::string& category, bool remote_tuning) {

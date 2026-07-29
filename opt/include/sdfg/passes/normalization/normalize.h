@@ -9,15 +9,15 @@ namespace normalization {
 /**
  * Normalize a StructuredSDFG in place.
  *
- * Runs the loop-normalization pipeline. When `optimize_kernel_size` is set, also performs
- * map fusion before and after loop normalization to optimize kernel dimensions.
+ * Runs the loop-normalization pipeline. When `enable_fusion` is set, also performs
+ * map fusion before and after loop normalization.
  *
  * This function performs:
  * 1. (Optional) Initial map fusion without init-into-reduction hoisting
  * 2. Loop distribution and stride minimization
  * 3. (Optional) Final map fusion with init-into-reduction hoisting
  */
-void normalize_sdfg(sdfg::StructuredSDFG& sdfg, bool optimize_kernel_size = true);
+void normalize(sdfg::StructuredSDFG& sdfg, bool enable_fusion = true);
 
 } // namespace normalization
 } // namespace passes

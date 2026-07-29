@@ -1,4 +1,4 @@
-#include "sdfg/passes/normalization/normalize_sdfg.h"
+#include "sdfg/passes/normalization/normalize.h"
 
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
@@ -13,11 +13,11 @@ namespace sdfg {
 namespace passes {
 namespace normalization {
 
-void normalize_sdfg(sdfg::StructuredSDFG& sdfg, bool optimize_kernel_size) {
+void normalize(sdfg::StructuredSDFG& sdfg, bool enable_fusion) {
     builder::StructuredSDFGBuilder builder(sdfg);
     analysis::AnalysisManager analysis_manager(sdfg);
 
-    if (optimize_kernel_size) {
+    if (enable_fusion) {
         // Fuse maps (no init-into-reduction hoisting yet; this run precedes loop distribution)
         auto map_fusion_no_hoist = map_fusion(false);
         map_fusion_no_hoist.run(builder, analysis_manager);
@@ -27,7 +27,7 @@ void normalize_sdfg(sdfg::StructuredSDFG& sdfg, bool optimize_kernel_size) {
     auto pipeline = loop_normalization();
     pipeline.run(builder, analysis_manager);
 
-    if (optimize_kernel_size) {
+    if (enable_fusion) {
         // Fuse maps (final run: allow init-into-reduction hoisting now that distribution is done)
         auto map_fusion_hoist = map_fusion(true);
         map_fusion_hoist.run(builder, analysis_manager);
