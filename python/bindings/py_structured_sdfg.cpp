@@ -417,9 +417,7 @@ void PyStructuredSDFG::dump(
     }
 }
 
-void PyStructuredSDFG::normalize() {
-    sdfg::passes::normalization::normalize(*sdfg_, enable_fusion_in_normalize_);
-}
+void PyStructuredSDFG::normalize() { sdfg::passes::normalization::normalize(*sdfg_, enable_fusion_in_normalize_); }
 
 void PyStructuredSDFG::schedule(const std::string& target, const std::string& category, bool remote_tuning) {
     docc::target::TargetOptions topts = {.target = target, .category = category, .remote_tuning = remote_tuning};
