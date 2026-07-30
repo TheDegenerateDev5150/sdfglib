@@ -282,6 +282,15 @@ public:
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
+    void add_elementwise_tasklet_op(
+        sdfg::data_flow::TaskletCode tasklet_code,
+        const std::vector<std::string>& inputs,
+        const std::vector<const sdfg::types::Tensor*>& input_types,
+        const std::string& output,
+        const sdfg::types::Tensor& output_type,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
+
     void add_elementwise_cmath_op(
         sdfg::math::cmath::CMathFunction func,
         const std::string& A,
@@ -336,6 +345,18 @@ public:
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
+    void add_slice_op(
+        const std::string& X,
+        const sdfg::types::Tensor& X_type,
+        const std::string& Y,
+        const sdfg::types::Tensor& Y_type,
+        long long dim,
+        long long start,
+        long long end,
+        long long step,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
+
     void add_reduce_op(
         const std::string& op_type,
         const std::string& input,
@@ -344,6 +365,17 @@ public:
         const sdfg::types::Tensor& output_type,
         const std::vector<int64_t>& axes,
         bool keepdims,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
+
+    void add_index_op(
+        const std::string& X,
+        const sdfg::types::Tensor& X_type,
+        const std::vector<std::string>& indices,
+        const std::vector<const sdfg::types::Tensor*>& index_types,
+        const std::string& Y,
+        const sdfg::types::Tensor& Y_type,
+        long long dim_offset,
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 
@@ -453,6 +485,21 @@ public:
         const sdfg::types::Scalar& epsilon_type,
         const std::string& B_out,
         const sdfg::types::Tensor& B_out_type,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
+
+    void add_layernorm_with_bias(
+        const std::string& X,
+        const sdfg::types::Tensor& X_type,
+        const std::string& Gamma,
+        const sdfg::types::Tensor& Gamma_type,
+        const std::string& Beta,
+        const sdfg::types::Tensor& Beta_type,
+        const std::string& epsilon,
+        const sdfg::types::Scalar& epsilon_type,
+        const std::string& Y_out,
+        const sdfg::types::Tensor& Y_out_type,
+        int64_t num_normalized_dims,
         const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
     );
 

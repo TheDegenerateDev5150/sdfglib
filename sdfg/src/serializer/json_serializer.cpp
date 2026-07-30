@@ -20,6 +20,7 @@
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/library_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/batchnorm_node.h"
+#include "sdfg/data_flow/library_nodes/math/tensor/layernorm_node.h"
 #include "sdfg/element.h"
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/for.h"
@@ -1507,6 +1508,10 @@ void register_default_serializers() {
             return std::make_unique<math::tensor::BroadcastNodeSerializer>();
         });
     LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Slice.value(), []() {
+            return std::make_unique<math::tensor::SliceNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_Conv.value(), []() {
             return std::make_unique<math::tensor::ConvNodeSerializer>();
         });
@@ -1525,6 +1530,10 @@ void register_default_serializers() {
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_TensorConcat.value(), []() {
             return std::make_unique<math::tensor::ConcatNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Index.value(), []() {
+            return std::make_unique<math::tensor::IndexNodeSerializer>();
         });
 
     // Elementwise
@@ -1593,6 +1602,10 @@ void register_default_serializers() {
             return std::make_unique<math::tensor::SqrtNodeSerializer>();
         });
     LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_Rsqrt.value(), []() {
+            return std::make_unique<math::tensor::RsqrtNodeSerializer>();
+        });
+    LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_Sub.value(), []() {
             return std::make_unique<math::tensor::SubNodeSerializer>();
         });
@@ -1628,6 +1641,11 @@ void register_default_serializers() {
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_BatchNorm.value(), [] {
             return std::make_unique<math::tensor::BatchNormNodeSerializer>();
+        });
+
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(math::tensor::LibraryNodeType_LayerNorm.value(), [] {
+            return std::make_unique<math::tensor::LayerNormNodeSerializer>();
         });
 
     // Reduce
