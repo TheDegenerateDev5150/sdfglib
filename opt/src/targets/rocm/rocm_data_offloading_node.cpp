@@ -176,6 +176,7 @@ codegen::InstrumentationInfo ROCMDataOffloadingNodeDispatcher::instrumentation_i
             node_.element_id(),
             "d2h_transfer",
             TargetType_ROCM,
+            codegen::InstrumentationEventType::CUDA,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(rocm_node.size())}}
         );
@@ -184,6 +185,7 @@ codegen::InstrumentationInfo ROCMDataOffloadingNodeDispatcher::instrumentation_i
             node_.element_id(),
             "h2d_transfer",
             TargetType_ROCM,
+            codegen::InstrumentationEventType::CUDA,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(rocm_node.size())}}
         );
