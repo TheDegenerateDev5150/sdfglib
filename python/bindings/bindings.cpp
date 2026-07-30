@@ -48,7 +48,6 @@
 #include <sdfg/passes/statistics.h>
 
 #include "docc/target/docc_target.h"
-#include "sdfg/passes/rpc/rpc_scheduler.h"
 #include "sdfg/passes/scheduler/cuda_scheduler.h"
 
 #ifdef DOCC_HAS_TARGET_ET
