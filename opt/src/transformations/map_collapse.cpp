@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "sdfg/analysis/arguments_analysis.h"
 #include "sdfg/analysis/users.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/structured_control_flow/if_else.h"
@@ -186,42 +187,31 @@ bool MapCollapse::check_imperfect(builder::StructuredSDFGBuilder& /*builder*/, a
     //     container: ordering across threads is no longer guaranteed.
     auto& users = analysis_manager.get<analysis::Users>();
 
-    // Loop-control accesses (a for/map loop's init, condition and update on its own
-    // induction variable) are not data hazards: the induction variable is loop-local
-    // and privatized, so every replicated inner thread runs the loop over its own copy.
-    // Counting the indvar's init/update as a "write" and the condition/update as a
-    // "read" would otherwise make every skipped loop look like a read-modify-write and
-    // reject an otherwise safe collapse. Skip these ForUser bookkeeping accesses.
-    auto is_loop_control = [](analysis::User* u) { return dynamic_cast<analysis::ForUser*>(u) != nullptr; };
+    // Containers whose entire lifetime is confined to the outer map are locals: they
+    // are not function arguments/externals and are not used outside this region, so
+    // codegen privatizes them per thread when the collapsed map is parallelized. A
+    // loop induction variable is the canonical example, which is why the indvar's
+    // loop-control accesses need no special handling here - they are simply locals.
+    auto& arguments_analysis = analysis_manager.get<analysis::ArgumentsAnalysis>();
+    const auto& locals = arguments_analysis.locals(analysis_manager, loop_);
+    auto is_local = [&locals](const std::string& container) { return locals.count(container) != 0; };
 
     std::vector<std::unordered_set<std::string>> writes(n);
     std::vector<std::unordered_set<std::string>> reads(n);
     for (size_t idx = 0; idx < n; ++idx) {
         analysis::UsersView view(users, body.at(idx));
         for (auto* u : view.writes()) {
-            if (is_loop_control(u)) {
-                continue;
-            }
             writes[idx].insert(u->container());
         }
         for (auto* u : view.moves()) {
-            if (is_loop_control(u)) {
-                continue;
-            }
             writes[idx].insert(u->container());
         }
         // Views alias memory; treat conservatively as both a read and a write.
         for (auto* u : view.views()) {
-            if (is_loop_control(u)) {
-                continue;
-            }
             writes[idx].insert(u->container());
             reads[idx].insert(u->container());
         }
         for (auto* u : view.reads()) {
-            if (is_loop_control(u)) {
-                continue;
-            }
             reads[idx].insert(u->container());
         }
     }
@@ -239,18 +229,20 @@ bool MapCollapse::check_imperfect(builder::StructuredSDFGBuilder& /*builder*/, a
     // skipped element (e.g. an argument that is not read in the nest) is safe and
     // must be allowed.
     //
-    // The one update replication cannot reproduce is a *read-modify-write*: if a
-    // skipped element reads a container it also writes (e.g. a reduction
-    // accumulator), every replicated inner thread re-runs the update on the shared
-    // buffer, racing and folding the contribution in multiple times. That is only
-    // safe if the container's lifetime were restricted to a single (privatizable)
-    // iteration, so it is rejected here.
+    // The one update replication cannot reproduce is a *read-modify-write* on a
+    // *shared* container: if a skipped element reads a container it also writes (e.g. a
+    // reduction accumulator), every replicated inner thread re-runs the update on the
+    // same buffer, racing and folding the contribution in multiple times. This only
+    // matters for containers that escape the loop (function arguments/externals or
+    // transients live outside the region): a local is privatized per thread, so its
+    // read-modify-write happens on a private copy and does not violate parallel access
+    // or interleaving. Reject only a read-modify-write on a non-local container.
     for (size_t idx = 0; idx < n; ++idx) {
         if (is_collapsible[idx]) {
             continue;
         }
         for (const auto& container : writes[idx]) {
-            if (reads[idx].count(container) != 0) {
+            if (reads[idx].count(container) != 0 && !is_local(container)) {
                 return false;
             }
         }

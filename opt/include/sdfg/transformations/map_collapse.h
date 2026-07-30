@@ -51,10 +51,11 @@ class MapCollapse : public Transformation {
     /// body element (its writes vary across the inner index), a write-write
     /// conflict between two different body elements on the same container, or a
     /// skipped element that performs a read-modify-write (e.g. a reduction
-    /// accumulator) that cannot be safely recomputed by every replicated inner
-    /// thread. A skipped element that merely stores a value - even to a function
-    /// argument, and even if the value is read again in the nest - is idempotent
-    /// under replication and remains allowed.
+    /// accumulator) on a container that escapes the loop. A read-modify-write on a
+    /// local (a container whose lifetime is confined to the loop, as reported by
+    /// ArgumentsAnalysis) is privatized per thread and does not violate parallel
+    /// access, so it - like a plain store, even to a function argument - remains
+    /// allowed.
     bool check_imperfect(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
 
     /// @brief Whether a direct-child map can participate in the flattened

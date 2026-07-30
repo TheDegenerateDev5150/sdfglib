@@ -2191,10 +2191,13 @@ TEST(MapCollapseTest, CannotApply_Imperfect_WriteWriteConflict) {
 TEST(MapCollapseTest, CannotApply_Imperfect_SkippedReductionRecomputed) {
     // Softmax-style hazard. A skipped sequential reduction accumulates sum[i] (a
     // read-modify-write into a shared transient buffer), and the collapsible inner
-    // map divides by sum[i]. Flattening replicates the reduction on every inner
-    // thread, re-running the accumulation on the shared buffer and recomputing the
-    // reduction multiple times -> wrong results. Must be rejected. It would only be
-    // safe if sum's lifetime were restricted to a single (privatizable) iteration.
+    // map divides by sum[i]. The buffer escapes the loop (it is consumed by a node
+    // after the collapsed region, exactly like the softmax normaliser _tmp_17), so
+    // ArgumentsAnalysis classifies it as an argument and codegen cannot privatize
+    // it. Flattening then replicates the reduction on every inner thread, re-running
+    // the accumulation on the shared buffer and folding the reduction in multiple
+    // times -> wrong results. Must be rejected. It would only be safe if sum's
+    // lifetime were confined to the loop (a privatizable local).
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
     auto& root = builder.subject().root();
 
@@ -2205,7 +2208,7 @@ TEST(MapCollapseTest, CannotApply_Imperfect_SkippedReductionRecomputed) {
 
     builder.add_container("A", opaque_desc, true); // argument (input)
     builder.add_container("out", opaque_desc, true); // argument (result)
-    builder.add_container("sum", opaque_desc); // transient accumulator (shared buffer)
+    builder.add_container("sum", opaque_desc); // transient accumulator (escapes the loop -> shared)
     builder.add_container("N", sym_desc, true);
     builder.add_container("M", sym_desc, true);
     builder.add_container("i", sym_desc);
@@ -2264,9 +2267,106 @@ TEST(MapCollapseTest, CannotApply_Imperfect_SkippedReductionRecomputed) {
         builder.add_computational_memlet(block, tk, "_out", out_node, {idx}, ptr_desc);
     }
 
+    // Consumer after the collapsed region: reads sum, so its lifetime is not
+    // confined to the outer map. ArgumentsAnalysis therefore reports sum as an
+    // (escaping) argument rather than a privatizable local, which is what makes the
+    // replicated reduction a genuine cross-thread race.
+    {
+        auto& block = builder.add_block(root);
+        auto& sum_in = builder.add_access(block, "sum");
+        auto& out_node = builder.add_access(block, "out");
+        auto& tk = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, sum_in, tk, "_in", {symbolic::integer(0)}, ptr_desc);
+        builder.add_computational_memlet(block, tk, "_out", out_node, {symbolic::integer(0)}, ptr_desc);
+    }
+
     analysis::AnalysisManager am(builder.subject());
     transformations::MapCollapse t(outer, 2);
     EXPECT_FALSE(t.can_be_applied(builder, am));
+}
+
+TEST(MapCollapseTest, CanBeApplied_Imperfect_SkippedReductionOnLocalPrivatized) {
+    // Same softmax-style shape as CannotApply_Imperfect_SkippedReductionRecomputed,
+    // but the accumulator sum is a transient whose entire lifetime is confined to
+    // the outer map (it is never used outside the region). ArgumentsAnalysis reports
+    // it as a local, so codegen privatizes it per thread: every replicated inner
+    // thread re-runs the full k-reduction into its own private sum and the division
+    // reads that same private (fully accumulated) value. The read-modify-write is on
+    // a privatized copy and does not violate parallel access, so the collapse must
+    // be allowed - this is exactly the relaxation over escaping accumulators.
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto& root = builder.subject().root();
+
+    types::Scalar float_desc(types::PrimitiveType::Float);
+    types::Pointer ptr_desc(float_desc);
+    types::Pointer opaque_desc;
+    types::Scalar sym_desc(types::PrimitiveType::UInt64);
+
+    builder.add_container("A", opaque_desc, true); // argument (input)
+    builder.add_container("out", opaque_desc, true); // argument (result)
+    builder.add_container("sum", opaque_desc); // transient accumulator (lifetime confined to the loop)
+    builder.add_container("N", sym_desc, true);
+    builder.add_container("M", sym_desc, true);
+    builder.add_container("i", sym_desc);
+    builder.add_container("j", sym_desc);
+    builder.add_container("k", sym_desc);
+
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+
+    auto& outer = builder.add_map(
+        root,
+        i,
+        symbolic::Lt(i, N),
+        symbolic::integer(0),
+        symbolic::add(i, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+
+    // Skipped sequential reduction: for k in [0, M): sum[i] = sum[i] + A[i*M + k]
+    auto& loop_k =
+        builder
+            .add_for(outer.root(), k, symbolic::Lt(k, M), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+    {
+        auto idx = symbolic::add(symbolic::mul(i, M), k);
+        auto& block = builder.add_block(loop_k.root());
+        auto& sum_in = builder.add_access(block, "sum");
+        auto& a_in = builder.add_access(block, "A");
+        auto& sum_out = builder.add_access(block, "sum");
+        auto& tk = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+        builder.add_computational_memlet(block, sum_in, tk, "_in1", {i}, ptr_desc);
+        builder.add_computational_memlet(block, a_in, tk, "_in2", {idx}, ptr_desc);
+        builder.add_computational_memlet(block, tk, "_out", sum_out, {i}, ptr_desc);
+    }
+
+    // Collapsible inner map j in [0, M): out[i*M + j] = A[i*M + j] / sum[i]. sum is
+    // read here but never used outside the outer map, so it stays a local.
+    auto& map_j = builder.add_map(
+        outer.root(),
+        j,
+        symbolic::Lt(j, M),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    {
+        auto idx = symbolic::add(symbolic::mul(i, M), j);
+        auto& block = builder.add_block(map_j.root());
+        auto& a_in = builder.add_access(block, "A");
+        auto& sum_in = builder.add_access(block, "sum");
+        auto& out_node = builder.add_access(block, "out");
+        auto& tk = builder.add_tasklet(block, data_flow::TaskletCode::fp_div, "_out", {"_in1", "_in2"});
+        builder.add_computational_memlet(block, a_in, tk, "_in1", {idx}, ptr_desc);
+        builder.add_computational_memlet(block, sum_in, tk, "_in2", {i}, ptr_desc);
+        builder.add_computational_memlet(block, tk, "_out", out_node, {idx}, ptr_desc);
+    }
+
+    analysis::AnalysisManager am(builder.subject());
+    transformations::MapCollapse t(outer, 2);
+    EXPECT_TRUE(t.can_be_applied(builder, am));
 }
 
 TEST(MapCollapseTest, CanBeApplied_Imperfect_SkippedWriteToArgument) {

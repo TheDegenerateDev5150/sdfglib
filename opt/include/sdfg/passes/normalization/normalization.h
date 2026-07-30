@@ -17,8 +17,8 @@ inline passes::Pipeline loop_normalization() {
     passes::Pipeline pipeline("Loop Normalization");
 
     // Register passes for loop normalization
-    pipeline.register_pass<normalization::PerfectLoopDistributionPass>();
-    pipeline.register_pass<normalization::StrideMinimization>();
+    // pipeline.register_pass<normalization::PerfectLoopDistributionPass>();
+    // pipeline.register_pass<normalization::StrideMinimization>();
 
     return pipeline;
 }
