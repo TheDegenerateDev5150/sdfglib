@@ -15,7 +15,7 @@ using namespace sdfg;
 
 // Runs the RPC scheduling pass on a polybench SDFG after normalizing loops
 // (data parallelism + loop normalization), matching the real compiler pipeline.
-// RPCSchedulingPass sends the whole SDFG to the transfer server in one request,
+// RpcOptimizationPass sends the whole SDFG to the transfer server in one request,
 // exercising the multi-nest handling path.
 static bool run_rpc_scheduling(std::unique_ptr<StructuredSDFG> init_sdfg) {
     builder::StructuredSDFGBuilder builder(init_sdfg);
@@ -30,8 +30,9 @@ static bool run_rpc_scheduling(std::unique_ptr<StructuredSDFG> init_sdfg) {
     analysis_manager.invalidate_all();
 
     auto rpc_context = passes::rpc::DaisytunerRpcContext::from_docc_config();
-    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(rpc_context, "sequential", "server");
-    return rpc_scheduling_pass.run(builder, analysis_manager);
+    passes::scheduler::RpcOptimizationPass
+        rpc_optimization_pass(rpc_context, docc::target::TargetOptions{"sequential", "server", false});
+    return rpc_optimization_pass.run(builder, analysis_manager);
 }
 
 // Tests with multiple loop nests where the scheduler must descend (CHILDREN)

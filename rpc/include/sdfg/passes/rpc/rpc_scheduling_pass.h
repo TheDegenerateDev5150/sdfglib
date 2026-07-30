@@ -1,6 +1,7 @@
 #pragma once
 
 #include <sdfg/passes/pass.h>
+#include <sdfg/plugins/targets.h>
 #include <string>
 #include "sdfg/optimization_report/pass_report_consumer.h"
 #include "sdfg/passes/rpc/rpc_context.h"
@@ -12,28 +13,26 @@ class Recorder;
 namespace passes {
 namespace scheduler {
 
-class RPCSchedulingPass : public Pass {
+class RpcOptimizationPass : public Pass {
 private:
     std::shared_ptr<rpc::RpcContext> rpc_context_;
-    std::string target_, category_;
+    docc::target::TargetOptions options_;
     sdfg::PassReportConsumer* report_ = nullptr;
     bool enable_fusion_ = true;
 
 public:
-    RPCSchedulingPass(
+    RpcOptimizationPass(
         std::shared_ptr<rpc::RpcContext> rpc_context,
-        std::string target,
-        std::string category,
+        docc::target::TargetOptions options,
         bool enable_fusion = true,
         sdfg::PassReportConsumer* report = nullptr
     )
-        : rpc_context_(rpc_context), target_(target), category_(category), report_(report),
-          enable_fusion_(enable_fusion) {}
-    ~RPCSchedulingPass() override = default;
+        : rpc_context_(rpc_context), options_(std::move(options)), report_(report), enable_fusion_(enable_fusion) {}
+    ~RpcOptimizationPass() override = default;
 
     bool run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
 
-    std::string name() override { return "RPCSchedulingPass"; }
+    std::string name() override { return "RpcOptimizationPass"; }
 };
 
 

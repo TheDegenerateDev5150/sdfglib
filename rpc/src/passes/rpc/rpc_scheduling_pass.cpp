@@ -8,10 +8,11 @@ namespace sdfg {
 namespace passes {
 namespace scheduler {
 
-bool RPCSchedulingPass::run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+bool RpcOptimizationPass::run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     auto& root = builder.subject().root();
 
-    transformations::RPCNodeTransform rpc_transform(root, target_, category_, *rpc_context_, enable_fusion_);
+    transformations::RPCNodeTransform
+        rpc_transform(root, options_.target, options_.category, *rpc_context_, enable_fusion_);
 
     rpc_transform.set_report(report_);
     if (rpc_transform.can_be_applied(builder, analysis_manager)) {

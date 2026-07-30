@@ -47,17 +47,10 @@ bool RPCNodeTransform::
     bool applicable = false;
     auto outermost_loops = loop_analysis.outermost_loops();
 
-    std::cerr << "Found " << outermost_loops.size() << " outermost loops in node " << get_node_id_str() << std::endl;
-
     for (auto outermost : outermost_loops) {
-        std::cerr << "[RPC] Checking applicability for node " << get_node_id_str()
-                  << " (loopnest_index=" << loop_analysis.loop_info(outermost).loopnest_index << ")" << std::endl;
-
-
         auto loop_info = loop_analysis.loop_info(outermost);
 
         if (!loop_info.has_side_effects) {
-            std::cerr << "Loop has no side effects, marking as applicable" << std::endl;
             applicable = true;
             break;
         }
@@ -332,14 +325,18 @@ void RPCNodeTransform::
     if (opt.local_replay.has_value()) {
         auto recipe = opt.local_replay.value();
         for (const auto& region_result : opt.results) {
-            std::cout << "Applied RPC optimization sequence with speedup " << region_result.metadata.speedup
-                      << " and vector distance " << region_result.metadata.vector_distance << " to loopnest "
-                      << element_id << ":\n";
+            DEBUG_PRINTLN(
+                "[RPC] Applied RPC optimization sequence with speedup "
+                << region_result.metadata.speedup << " and vector distance " << region_result.metadata.vector_distance
+                << " to loopnest " << element_id
+            );
         }
     } else {
         for (const auto& region_result : opt.results) {
-            std::cout << "RPC: Applied plain SDFG with speedup " << region_result.metadata.speedup
-                      << " and vector distance " << region_result.metadata.vector_distance << "\n";
+            DEBUG_PRINTLN(
+                "[RPC] Applied plain SDFG with speedup " << region_result.metadata.speedup << " and vector distance "
+                                                         << region_result.metadata.vector_distance
+            );
         }
     }
 }
