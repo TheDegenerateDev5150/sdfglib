@@ -1574,10 +1574,6 @@ void register_default_serializers() {
             return std::make_unique<math::tensor::LogicalNotNodeSerializer>();
         });
     LibraryNodeSerializerRegistry::instance()
-        .register_library_node_serializer(math::tensor::LibraryNodeType_Neg.value(), []() {
-            return std::make_unique<math::tensor::NegNodeSerializer>();
-        });
-    LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(math::tensor::LibraryNodeType_Mul.value(), []() {
             return std::make_unique<math::tensor::MulNodeSerializer>();
         });

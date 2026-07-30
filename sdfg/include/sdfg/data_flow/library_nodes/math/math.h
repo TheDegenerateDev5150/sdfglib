@@ -32,7 +32,6 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/maximum_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/minimum_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/mul_node.h"
-#include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/neg_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/pow_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/relu_node.h"
 #include "sdfg/data_flow/library_nodes/math/tensor/elementwise_ops/rsqrt_node.h"
