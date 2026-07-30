@@ -31,7 +31,7 @@ bool MapCollapse::can_be_applied(builder::StructuredSDFGBuilder& builder, analys
     }
 
     // Imperfect (CUDA-style) collapse is performed one level at a time.
-    if (count_ == 2 && this->check_imperfect(analysis_manager)) {
+    if (count_ == 2 && this->check_imperfect(builder, analysis_manager)) {
         return true;
     }
 
@@ -125,7 +125,7 @@ bool MapCollapse::is_collapsible_inner_map(structured_control_flow::Map& map, co
     return true;
 }
 
-bool MapCollapse::check_imperfect(analysis::AnalysisManager& analysis_manager) {
+bool MapCollapse::check_imperfect(builder::StructuredSDFGBuilder& /*builder*/, analysis::AnalysisManager& analysis_manager) {
     // The outer map must itself be collapsible (contiguous, closed-form bound
     // that does not depend on its own induction variable).
     auto outer_indvar = loop_.indvar();
@@ -186,23 +186,73 @@ bool MapCollapse::check_imperfect(analysis::AnalysisManager& analysis_manager) {
     //     container: ordering across threads is no longer guaranteed.
     auto& users = analysis_manager.get<analysis::Users>();
 
+    // Loop-control accesses (a for/map loop's init, condition and update on its own
+    // induction variable) are not data hazards: the induction variable is loop-local
+    // and privatized, so every replicated inner thread runs the loop over its own copy.
+    // Counting the indvar's init/update as a "write" and the condition/update as a
+    // "read" would otherwise make every skipped loop look like a read-modify-write and
+    // reject an otherwise safe collapse. Skip these ForUser bookkeeping accesses.
+    auto is_loop_control = [](analysis::User* u) { return dynamic_cast<analysis::ForUser*>(u) != nullptr; };
+
     std::vector<std::unordered_set<std::string>> writes(n);
     std::vector<std::unordered_set<std::string>> reads(n);
     for (size_t idx = 0; idx < n; ++idx) {
         analysis::UsersView view(users, body.at(idx));
         for (auto* u : view.writes()) {
+            if (is_loop_control(u)) {
+                continue;
+            }
             writes[idx].insert(u->container());
         }
         for (auto* u : view.moves()) {
+            if (is_loop_control(u)) {
+                continue;
+            }
             writes[idx].insert(u->container());
         }
         // Views alias memory; treat conservatively as both a read and a write.
         for (auto* u : view.views()) {
+            if (is_loop_control(u)) {
+                continue;
+            }
             writes[idx].insert(u->container());
             reads[idx].insert(u->container());
         }
         for (auto* u : view.reads()) {
+            if (is_loop_control(u)) {
+                continue;
+            }
             reads[idx].insert(u->container());
+        }
+    }
+
+    // Replication safety gate (read-modify-write model).
+    //
+    // A skipped element is replicated on every inner thread of an outer iteration.
+    // Being a sibling of the inner maps it cannot reference the inner index, so it
+    // is a pure function of the outer index and every inner thread executes it
+    // identically. A skipped element that only *stores* to a container is therefore
+    // idempotent under replication: every thread writes the same value, leaving the
+    // same result as a single execution. This holds regardless of whether the
+    // target is a loop-local transient or a function argument, and regardless of
+    // whether the value is read again later in the nest - so a plain store from a
+    // skipped element (e.g. an argument that is not read in the nest) is safe and
+    // must be allowed.
+    //
+    // The one update replication cannot reproduce is a *read-modify-write*: if a
+    // skipped element reads a container it also writes (e.g. a reduction
+    // accumulator), every replicated inner thread re-runs the update on the shared
+    // buffer, racing and folding the contribution in multiple times. That is only
+    // safe if the container's lifetime were restricted to a single (privatizable)
+    // iteration, so it is rejected here.
+    for (size_t idx = 0; idx < n; ++idx) {
+        if (is_collapsible[idx]) {
+            continue;
+        }
+        for (const auto& container : writes[idx]) {
+            if (reads[idx].count(container) != 0) {
+                return false;
+            }
         }
     }
 

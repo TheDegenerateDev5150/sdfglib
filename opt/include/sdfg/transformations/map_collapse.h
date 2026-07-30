@@ -48,9 +48,14 @@ class MapCollapse : public Transformation {
     ///
     /// The collapse is therefore rejected only for hazards replication cannot
     /// resolve: a container written by a collapsible map and accessed by any other
-    /// body element (its writes vary across the inner index), or a write-write
-    /// conflict between two different body elements on the same container.
-    bool check_imperfect(analysis::AnalysisManager& analysis_manager);
+    /// body element (its writes vary across the inner index), a write-write
+    /// conflict between two different body elements on the same container, or a
+    /// skipped element that performs a read-modify-write (e.g. a reduction
+    /// accumulator) that cannot be safely recomputed by every replicated inner
+    /// thread. A skipped element that merely stores a value - even to a function
+    /// argument, and even if the value is read again in the nest - is idempotent
+    /// under replication and remains allowed.
+    bool check_imperfect(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
 
     /// @brief Whether a direct-child map can participate in the flattened
     /// iteration space (contiguous, closed-form bound independent of the outer
