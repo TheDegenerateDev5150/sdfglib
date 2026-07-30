@@ -30,9 +30,11 @@ RPCNodeTransform::RPCNodeTransform(
     const std::string& target,
     const std::string& category,
     sdfg::passes::rpc::RpcContext& rpc_context,
+    bool enable_fusion,
     bool dump_steps
 )
-    : node_(node), target_(target), category_(category), rpc_context_(rpc_context), dump_steps_(dump_steps) {}
+    : node_(node), target_(target), category_(category), rpc_context_(rpc_context), dump_steps_(dump_steps),
+      enable_fusion_(enable_fusion) {}
 
 std::string RPCNodeTransform::name() const { return "RPCNodeTransform"; }
 
@@ -76,8 +78,13 @@ bool RPCNodeTransform::
         "[RPC] can_be_applied for node " << get_node_id_str() << ": querying " << rpc_context_.get_remote_address()
     );
 
-    auto opt_resp =
-        query_rpc_server({.sdfg = builder.subject(), .category = this->category_, .target = this->target_}, rpc_context_);
+    auto opt_resp = query_rpc_server(
+        {.sdfg = builder.subject(),
+         .category = this->category_,
+         .target = this->target_,
+         .enable_fusion = this->enable_fusion_},
+        rpc_context_
+    );
 
     // In case query was successful, store response
     if (std::holds_alternative<std::unique_ptr<passes::rpc::RpcOptResponse>>(opt_resp)) {
@@ -120,7 +127,12 @@ std::variant<std::unique_ptr<passes::rpc::RpcOptResponse>, std::string> RPCNodeT
     nlohmann::json sdfg_json = serializer.serialize(request.sdfg);
 
     // Construct query payload
-    nlohmann::json payload = {{"sdfg", sdfg_json}, {"category", request.category}, {"target", request.target}};
+    nlohmann::json payload = {
+        {"sdfg", sdfg_json},
+        {"category", request.category},
+        {"target", request.target},
+        {"enable_fusion", request.enable_fusion}
+    };
     std::string payload_str = payload.dump();
 
     // Log where the request is going and what it carries. Header values (which may contain auth

@@ -45,7 +45,7 @@ llvm::PreservedAnalyses SchedulingPass::
             auto category = docc::DOCC_TRANSFERTUNE_CATEGORY.getValue();
             std::shared_ptr<sdfg::passes::rpc::RpcContext> context =
                 sdfg::passes::rpc::DaisytunerRpcContext::from_docc_config();
-            sdfg::passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(context, target, category, nullptr);
+            sdfg::passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(context, target, category, false);
             rpc_scheduling_pass.run_pass(builder, analysis_manager);
         }
 

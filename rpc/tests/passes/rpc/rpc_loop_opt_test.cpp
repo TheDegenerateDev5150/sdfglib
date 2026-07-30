@@ -126,7 +126,7 @@ TEST_F(RPCLoopOptTest, Matmul_FMA) {
     passes::rpc::SimpleRpcContextBuilder ctx_builder;
     auto rpc_context = ctx_builder.initialize_local_default().from_env().from_header_env().build();
 
-    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(rpc_context, "sequential", "server", nullptr);
+    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(rpc_context, "sequential", "server");
     rpc_scheduling_pass.run(*builder_, analysis_manager);
 
     sdfg::analysis::AnalysisManager test_analysis_manager(builder_->subject());
@@ -175,7 +175,7 @@ TEST_F(RPCLoopOptTest, Double_Matmul) {
     passes::rpc::SimpleRpcContextBuilder ctx_builder;
     auto rpc_context = ctx_builder.initialize_local_default().from_env().from_header_env().build();
 
-    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(rpc_context, "sequential", "server", nullptr);
+    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(rpc_context, "sequential", "server");
     rpc_scheduling_pass.run(*builder_, analysis_manager);
 
     sdfg::analysis::AnalysisManager test_analysis_manager(builder_->subject());
@@ -370,7 +370,7 @@ TEST_F(RPCLoopOptMoveChildrenTest, MoveAllChildrenFromRPCResult) {
 
     // Run the scheduling pass through the full pipeline
     analysis::AnalysisManager analysis_manager(builder_->subject());
-    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(test_ctx_, "sequential", "server", nullptr);
+    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(test_ctx_, "sequential", "server");
     rpc_scheduling_pass.run(*builder_, analysis_manager);
 
     // After the pass: the single map should be replaced by all 3 children from the response

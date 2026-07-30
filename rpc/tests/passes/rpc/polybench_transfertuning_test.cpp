@@ -30,7 +30,7 @@ static bool run_rpc_scheduling(std::unique_ptr<StructuredSDFG> init_sdfg) {
     analysis_manager.invalidate_all();
 
     auto rpc_context = passes::rpc::DaisytunerRpcContext::from_docc_config();
-    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(rpc_context, "sequential", "server", nullptr);
+    passes::scheduler::RPCSchedulingPass rpc_scheduling_pass(rpc_context, "sequential", "server");
     return rpc_scheduling_pass.run(builder, analysis_manager);
 }
 

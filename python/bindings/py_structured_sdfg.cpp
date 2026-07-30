@@ -458,7 +458,7 @@ void PyStructuredSDFG::schedule(const docc::target::TargetOptions& options) {
         std::shared_ptr<sdfg::passes::rpc::RpcContext> context =
             sdfg::passes::rpc::DaisytunerRpcContext::from_docc_config();
         sdfg::passes::scheduler::RPCSchedulingPass
-            rpc_scheduling_pass(context, options.target, options.category, nullptr);
+            rpc_scheduling_pass(context, options.target, options.category, enable_fusion_in_normalize_);
         rpc_scheduling_pass.run(builder, analysis_manager);
     }
 

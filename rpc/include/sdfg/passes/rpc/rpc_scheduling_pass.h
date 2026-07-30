@@ -17,15 +17,18 @@ private:
     std::shared_ptr<rpc::RpcContext> rpc_context_;
     std::string target_, category_;
     sdfg::PassReportConsumer* report_ = nullptr;
+    bool enable_fusion_ = true;
 
 public:
     RPCSchedulingPass(
         std::shared_ptr<rpc::RpcContext> rpc_context,
         std::string target,
         std::string category,
-        sdfg::PassReportConsumer* report
+        bool enable_fusion = true,
+        sdfg::PassReportConsumer* report = nullptr
     )
-        : rpc_context_(rpc_context), target_(target), category_(category), report_(report) {}
+        : rpc_context_(rpc_context), target_(target), category_(category), report_(report),
+          enable_fusion_(enable_fusion) {}
     ~RPCSchedulingPass() override = default;
 
     bool run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;

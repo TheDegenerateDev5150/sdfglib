@@ -46,6 +46,7 @@ struct RpcOptRequest {
     std::string category;
     std::string target;
     analysis::LoopInfo loop_info;
+    bool enable_fusion = true;
 };
 
 } // namespace sdfg::passes::rpc
