@@ -667,6 +667,19 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("debug_info") = sdfg::DebugInfo()
         )
         .def(
+            "add_conditional_copy_op",
+            &PyStructuredSDFGBuilder::add_conditional_copy_op,
+            py::arg("Mask"),
+            py::arg("Mask_type"),
+            py::arg("X1"),
+            py::arg("X1_type"),
+            py::arg("X2"),
+            py::arg("X2_type"),
+            py::arg("Y"),
+            py::arg("Y_type"),
+            py::arg("debug_info") = sdfg::DebugInfo()
+        )
+        .def(
             "add_concat_op",
             &PyStructuredSDFGBuilder::add_concat_op,
             py::arg("tensors"),
