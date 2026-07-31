@@ -32,6 +32,8 @@ private:
 
     bool enable_fusion_;
 
+    std::optional<std::string> session_id_;
+
     std::string get_node_id_str() const;
 
     std::variant<std::unique_ptr<passes::rpc::RpcOptResponse>, std::string>
