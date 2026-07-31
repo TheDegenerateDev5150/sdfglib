@@ -85,6 +85,8 @@ class PyTorchProgram(DoccProgram):
         # pass tensors straight through. CompiledSDFG runs CUDA tensors zero-copy
         # and copies CPU tensors to the device (with a one-time warning).
         if compiled_sdfg.device_resident:
+            if self.compiled is None:
+                raise ValueError("Compiled SDFG is None, cannot execute.")
             result = self._compiled(*args)
             if is_torch_input:
                 result: Any = self._convert_outputs(result, args)
@@ -102,6 +104,8 @@ class PyTorchProgram(DoccProgram):
 
         # Host execution: convert CPU tensors to numpy, run, convert back.
         numpy_args: Any = self._convert_inputs(args)
+        if self._compiled is None:
+            raise ValueError("Compiled SDFG is None, cannot execute.")
         result = self._compiled(*numpy_args)
         if is_torch_input:
             result = self._convert_outputs(result, args)
@@ -300,6 +304,8 @@ class PyTorchProgram(DoccProgram):
                     shape_sources.append((i, dim_idx))
 
         # Extract output_args metadata for multi-output support
+        if sdfg is None:
+            raise ValueError("SDFG is None, cannot extract output_args metadata")
         output_args_str = sdfg.metadata("output_args")
         output_args = output_args_str.split(",") if output_args_str else []
 
