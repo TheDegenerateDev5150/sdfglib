@@ -295,7 +295,12 @@ bool LoopFusionPass::run_pass(builder::StructuredSDFGBuilder& builder, analysis:
     auto loop_ana = std::make_unique<analysis::LoopAnalysis>(builder.subject());
     loop_ana->run(analysis_manager);
 
+    static uint32_t run = 0;
+    DEBUG_PRINTLN("LoopFusion pass #" << run);
+
     State state(builder, analysis_manager, std::move(loop_ana));
+    state.run = run;
+    run++;
 
     auto& assumption_analysis = analysis_manager.get<analysis::AssumptionsAnalysis>();
     auto& arguments_analysis = analysis_manager.get<analysis::ArgumentsAnalysis>();
@@ -432,7 +437,8 @@ PatternHandler::MatchResult LoopFusionHandler::fuse_contents(
             std::filesystem::path pdir = *dir;
             visualizer::DotVisualizer::writeToFile(
                 state_.builder.subject(),
-                pdir / ("map_fusion_by_domain_pass_dump_" + std::to_string(state_.fused_by_domain_count) + "_" +
+                pdir / ("map_fusion_by_domain_pass_" + std::to_string(state_.run) + "_dump_" +
+                        std::to_string(state_.fused_by_domain_count) + "_" +
                         std::to_string(second_innermost->loop->element_id()) + ".dot")
             );
         }
@@ -635,6 +641,19 @@ PatternHandler::MatchResult LoopFusionHandler::try_complex_fuse_producer_into_co
     auto outcome = try_fuse_by_access(first, second, domains_match);
 
     if (outcome.fused) {
+        if constexpr (DUMP_GRAPHS) {
+            auto dir = state_.builder.subject().metadata_if_exists("output_dir");
+            if (dir) {
+                std::filesystem::path pdir = *dir;
+                visualizer::DotVisualizer::writeToFile(
+                    state_.builder.subject(),
+                    pdir / ("map_fusion_by_domain_pass_" + std::to_string(state_.run) + "_dump_" +
+                            std::to_string(state_.fused_by_domain_count) + "_" +
+                            std::to_string(second.loop->element_id()) + ".dot")
+                );
+            }
+        }
+
         state_.fused_by_access_count++;
     }
 
