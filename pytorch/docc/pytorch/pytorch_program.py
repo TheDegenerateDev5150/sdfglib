@@ -85,7 +85,7 @@ class PyTorchProgram(DoccProgram):
         # pass tensors straight through. CompiledSDFG runs CUDA tensors zero-copy
         # and copies CPU tensors to the device (with a one-time warning).
         if compiled_sdfg.device_resident:
-            if self.compiled is None:
+            if self._compiled is None:
                 raise ValueError("Compiled SDFG is None, cannot execute.")
             result = self._compiled(*args)
             if is_torch_input:
