@@ -161,7 +161,7 @@ bool BlockFusion::can_be_applied(data_flow::DataFlowGraph& first_graph, data_flo
                     ++excused_connections;
                 }
             }
-            if (first_state.exposed_access_nodes.size() == 1 && second_state.exposed_access_nodes.size() == 1) {
+            if (first_state.exposed_access_nodes.size() == 1) {
                 if (connections == 0 && excused_connections == 0) {
                     return false;
                 }

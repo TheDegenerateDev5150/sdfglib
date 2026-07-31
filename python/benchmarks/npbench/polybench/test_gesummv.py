@@ -57,7 +57,7 @@ def test_gesummv(target):
         verifier = SDFGVerification(
             verification={
                 "CUDA": 2,
-                "SEQUENTIAL": 2,
+                "SEQUENTIAL": 4,
                 "REDUCE": 2,
                 "MAP": 4,
                 "CUDAOffloading": 6,
@@ -67,7 +67,7 @@ def test_gesummv(target):
         verifier = SDFGVerification(
             verification={
                 "ROCM": 2,
-                "SEQUENTIAL": 2,
+                "SEQUENTIAL": 4,
                 "REDUCE": 2,
                 "MAP": 4,
                 "ROCMOffloading": 6,

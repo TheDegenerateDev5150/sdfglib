@@ -44,6 +44,7 @@ TEST(BlockFusionTest, Computational_Chain) {
     builder.add_computational_memlet(block2, tasklet_2, "_out", node2_2, {symbolic::integer(0)});
 
     auto sdfg = builder.move();
+    dump_sdfg(*sdfg, "0.init");
 
     EXPECT_EQ(sdfg->name(), "sdfg_1");
     EXPECT_EQ(sdfg->root().size(), 2);
@@ -55,6 +56,7 @@ TEST(BlockFusionTest, Computational_Chain) {
     fusion_pass.run(builder_opt, analysis_manager);
 
     sdfg = builder_opt.move();
+    dump_sdfg(*sdfg, "1.fused");
     EXPECT_EQ(sdfg->root().size(), 1);
 
     auto first_block = dynamic_cast<const structured_control_flow::Block*>(&sdfg->root().at(0));
