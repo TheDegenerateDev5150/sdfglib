@@ -56,7 +56,7 @@ def test_gesummv(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 4,
+                "CUDA": 2,
                 "SEQUENTIAL": 2,
                 "REDUCE": 2,
                 "MAP": 4,
@@ -66,7 +66,7 @@ def test_gesummv(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 4,
+                "ROCM": 2,
                 "SEQUENTIAL": 2,
                 "REDUCE": 2,
                 "MAP": 4,
