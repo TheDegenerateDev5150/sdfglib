@@ -315,6 +315,12 @@ class ElementwiseTensorOpParser(GraphParserModule):
                 self.align_constant_type(node, other, self_tensor.element_type),
                 [],
             )
+
+        if len(self_tensor.shape) != len(other_tensor.shape):
+            self_tensor, other_tensor = self.align_elementwise_tensors(
+                node, self_tensor, other_tensor
+            )
+
         result_container: str = self.get_result_container(node, builder, container_info)
         result_tensor: Tensor = self.get_tensor_type(
             node, container_info, result_container
@@ -531,6 +537,12 @@ class ElementwiseTensorOpParserWithAlpha(GraphParserModule):
             raise GraphParserError(
                 self, node, "Unsupported number of kwargs: " + str(len(node.kwargs))
             )
+
+        if len(self_tensor.shape) != len(intermediate_tensor.shape):
+            self_tensor, intermediate_tensor = self.align_elementwise_tensors(
+                node, self_tensor, intermediate_tensor
+            )
+
         result_container: str = self.get_result_container(node, builder, container_info)
         result_tensor: Tensor = self.get_tensor_type(
             node, container_info, result_container
