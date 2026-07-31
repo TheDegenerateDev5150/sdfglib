@@ -202,6 +202,10 @@ class UnaryTaskletFloatIntOpParser(GraphParserModule):
                 node,
                 "Expected exactly one argument but got " + str(len(node.args)),
             )
+        if len(node.kwargs) != 0:
+            raise GraphParserError(
+                self, node, "Unsupported kwargs: " + str(node.kwargs)
+            )
         self_container: str = self.get_arg_container(node, container_info, 0)
         self_tensor: Tensor = self.get_tensor_type(node, container_info, self_container)
         primitive_type = self_tensor.element_type.primitive_type
