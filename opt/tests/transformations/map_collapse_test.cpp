@@ -2192,8 +2192,7 @@ TEST(MapCollapseTest, CannotApply_Imperfect_SkippedReductionRecomputed) {
     // Softmax-style hazard. A skipped sequential reduction accumulates sum[i] (a
     // read-modify-write into a shared transient buffer), and the collapsible inner
     // map divides by sum[i]. The buffer escapes the loop (it is consumed by a node
-    // after the collapsed region, exactly like the softmax normaliser _tmp_17), so
-    // ArgumentsAnalysis classifies it as an argument and codegen cannot privatize
+    // after the collapsed region, so ArgumentsAnalysis classifies it as an argument and codegen cannot privatize
     // it. Flattening then replicates the reduction on every inner thread, re-running
     // the accumulation on the shared buffer and folding the reduction in multiple
     // times -> wrong results. Must be rejected. It would only be safe if sum's

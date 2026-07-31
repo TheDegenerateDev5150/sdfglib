@@ -32,7 +32,7 @@ bool MapCollapse::can_be_applied(builder::StructuredSDFGBuilder& builder, analys
     }
 
     // Imperfect (CUDA-style) collapse is performed one level at a time.
-    if (count_ == 2 && this->check_imperfect(builder, analysis_manager)) {
+    if (count_ == 2 && this->check_imperfect(analysis_manager)) {
         return true;
     }
 
@@ -126,7 +126,7 @@ bool MapCollapse::is_collapsible_inner_map(structured_control_flow::Map& map, co
     return true;
 }
 
-bool MapCollapse::check_imperfect(builder::StructuredSDFGBuilder& /*builder*/, analysis::AnalysisManager& analysis_manager) {
+bool MapCollapse::check_imperfect(analysis::AnalysisManager& analysis_manager) {
     // The outer map must itself be collapsible (contiguous, closed-form bound
     // that does not depend on its own induction variable).
     auto outer_indvar = loop_.indvar();

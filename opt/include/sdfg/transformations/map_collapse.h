@@ -56,7 +56,7 @@ class MapCollapse : public Transformation {
     /// ArgumentsAnalysis) is privatized per thread and does not violate parallel
     /// access, so it - like a plain store, even to a function argument - remains
     /// allowed.
-    bool check_imperfect(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
+    bool check_imperfect(analysis::AnalysisManager& analysis_manager);
 
     /// @brief Whether a direct-child map can participate in the flattened
     /// iteration space (contiguous, closed-form bound independent of the outer
