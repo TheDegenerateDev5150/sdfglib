@@ -630,8 +630,8 @@ jobs:
           python -m venv .venv-pytorch
           .venv-pytorch/bin/python -m pip install --upgrade pip
           .venv-pytorch/bin/pip install -r pytorch/requirements-cuda.txt
-          pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
-          pip install numpy scipy ml_dtypes jsonschema cupy-cuda12x transformers
+          .venv-pytorch/bin/pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
+          .venv-pytorch/bin/pip install numpy scipy ml_dtypes jsonschema cupy-cuda12x transformers
           export PYTHONPATH=$PWD/python:$PWD/pytorch
 
           .venv-pytorch/bin/pytest -v pytorch/tests --target=cuda
@@ -730,8 +730,8 @@ jobs:
           python -m venv .venv-pytorch
           .venv-pytorch/bin/python -m pip install --upgrade pip
           .venv-pytorch/bin/pip install -r pytorch/requirements-rocm.txt
-          pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
-          pip install numpy scipy ml_dtypes jsonschema transformers
+          .venv-pytorch/bin/pip install pybind11 pytest coverage black==25.9.0 build scikit-build-core
+          .venv-pytorch/bin/pip install numpy scipy ml_dtypes jsonschema transformers
 
           export PYTHONPATH=$PWD/python:$PWD/pytorch
 
