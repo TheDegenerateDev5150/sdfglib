@@ -49,6 +49,13 @@ void InstrumentationPlan::begin_instrumentation(
         opt_report_file = "";
     }
 
+    std::string transfer_tuning_session_id;
+    if (auto it = metadata.find("transfer_tuning_session_id"); it != metadata.end()) {
+        transfer_tuning_session_id = it->second;
+    } else {
+        transfer_tuning_session_id = "";
+    }
+
 
     std::string region_uuid = sdfg_name + "_" + std::to_string(node.element_id());
 
@@ -96,6 +103,8 @@ void InstrumentationPlan::begin_instrumentation(
            << std::endl;
 
     stream << metadata_var << ".region_uuid = \"" << region_uuid << "\";" << std::endl;
+
+    stream << metadata_var << ".transfer_tuning_session_id = \"" << transfer_tuning_session_id << "\";" << std::endl;
 
     // Initialize region
     switch (info.event_type()) {

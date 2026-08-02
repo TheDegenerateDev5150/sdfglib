@@ -38,6 +38,7 @@ struct RpcOptResponse {
     std::optional<RpcSdfgResult> sdfg_result;
     std::optional<RpcLocalReplayRecipe> local_replay;
     std::vector<RpcRegionResult> results;
+    std::optional<std::string> session_id;
     std::optional<std::string> error;
 };
 
@@ -47,6 +48,7 @@ struct RpcOptRequest {
     std::string target;
     analysis::LoopInfo loop_info;
     bool enable_fusion = true;
+    std::optional<std::string> session_id;
 };
 
 } // namespace sdfg::passes::rpc
