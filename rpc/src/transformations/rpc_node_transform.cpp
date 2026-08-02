@@ -75,6 +75,9 @@ bool RPCNodeTransform::
     if (!this->session_id_.has_value()) {
         this->session_id_ = rpc_context_.start_session();
     }
+    if (this->session_id_.has_value()) {
+        builder.subject().add_metadata("transfer_tuning_session_id", this->session_id_.value());
+    }
 
     auto opt_resp = query_rpc_server(
         {.sdfg = builder.subject(),
