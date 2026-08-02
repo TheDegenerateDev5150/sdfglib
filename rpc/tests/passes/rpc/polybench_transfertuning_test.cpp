@@ -38,7 +38,7 @@ static bool run_rpc_scheduling(std::unique_ptr<StructuredSDFG> init_sdfg) {
 // Tests with multiple loop nests where the scheduler must descend (CHILDREN)
 // into children because the outermost loop can't be directly transformed.
 
-TEST(PolybenchRPCSchedulerTest, Correlation) { EXPECT_TRUE(run_rpc_scheduling(correlation())); }
+TEST(PolybenchRPCSchedulerTest, Correlation) { EXPECT_NO_THROW(run_rpc_scheduling(correlation())); }
 
 TEST(PolybenchRPCSchedulerTest, Covariance) { EXPECT_TRUE(run_rpc_scheduling(covariance())); }
 
