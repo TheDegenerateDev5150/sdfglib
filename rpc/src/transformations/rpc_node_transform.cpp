@@ -71,11 +71,20 @@ bool RPCNodeTransform::
         "[RPC] can_be_applied for node " << get_node_id_str() << ": querying " << rpc_context_.get_remote_address()
     );
 
+    // Open a session once per SDFG.
+    // if (!this->session_id_.has_value()) {
+    //     this->session_id_ = rpc_context_.start_session();
+    // }
+    if (this->session_id_.has_value()) {
+        builder.subject().add_metadata("transfer_tuning_session_id", this->session_id_.value());
+    }
+
     auto opt_resp = query_rpc_server(
         {.sdfg = builder.subject(),
          .category = this->category_,
          .target = this->target_,
-         .enable_fusion = this->enable_fusion_},
+         .enable_fusion = this->enable_fusion_,
+         .session_id = this->session_id_},
         rpc_context_
     );
 
@@ -126,6 +135,9 @@ std::variant<std::unique_ptr<passes::rpc::RpcOptResponse>, std::string> RPCNodeT
         {"target", request.target},
         {"enable_fusion", request.enable_fusion}
     };
+    if (request.session_id.has_value()) {
+        payload["session_id"] = request.session_id.value();
+    }
     std::string payload_str = payload.dump();
 
     // Log where the request is going and what it carries. Header values (which may contain auth
@@ -196,6 +208,11 @@ std::variant<std::unique_ptr<passes::rpc::RpcOptResponse>, std::string> RPCNodeT
             passes::rpc::RpcLocalReplayRecipe recipe;
             recipe.sequence = json_local_replay->at("sequence");
             rpc_response->local_replay = std::move(recipe);
+        }
+
+        auto json_session_id = parsed.find("session_id");
+        if (json_session_id != parsed.end() && json_session_id->is_string()) {
+            rpc_response->session_id = json_session_id->get<std::string>();
         }
 
         auto parse_metadata = [](const nlohmann::json& json_metadata) {
@@ -271,6 +288,13 @@ void RPCNodeTransform::
     }
 
     int element_id = this->node_.element_id();
+
+    // Record the transfer-tuning session on the SDFG. Prefer the client-owned id from start_session
+    // (authoritative, independent of whether the server echoes it), falling back to the response.
+    const auto& session_id = this->session_id_.has_value() ? this->session_id_ : opt.session_id;
+    if (session_id.has_value()) {
+        builder.subject().add_metadata("transfer_tuning_session_id", session_id.value());
+    }
 
     if (opt.sdfg_result.has_value()) {
         auto& sdfg_response = opt.sdfg_result->sdfg;
