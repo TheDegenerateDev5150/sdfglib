@@ -174,6 +174,29 @@ def test_permute_simple(target: str) -> None:
     check(PermuteSimpleNet(), torch.randn(2, 3, 5), target=target)
 
 
+def test_view_permute(target: str) -> None:
+    class ViewPermuteNet(nn.Module):
+        def forward(self, input: torch.Tensor) -> torch.Tensor:
+            input = input.view(2, 3, 5)
+            return torch.permute(input, (2, 0, 1))
+
+    check(ViewPermuteNet(), torch.randn(2, 3, 5), target=target)
+
+
+def test_view_permute_layernorm(target: str) -> None:
+    class ViewPermuteLayerNormNet(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.layernorm = nn.LayerNorm(3)
+
+        def forward(self, input: torch.Tensor) -> torch.Tensor:
+            input = input.view(2, 3, 5)
+            input = torch.permute(input, (2, 0, 1))
+            return self.layernorm(input)
+
+    check(ViewPermuteLayerNormNet(), torch.randn(2, 3, 5), target=target)
+
+
 # --- slice ---
 
 
