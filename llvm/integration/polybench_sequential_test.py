@@ -731,7 +731,7 @@ def test_bicg(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
     )
 
     verifier = SDFGVerification(
-        verification={"sdfgs": 8, "MAP": 6, "SEQUENTIAL": 12, "FOR": 3, "REDUCE": 3},
+        verification={"sdfgs": 8, "MAP": 6, "SEQUENTIAL": 12, "FOR": 2, "REDUCE": 4},
     )
     test_case = benchmark_path / "bicg.c"
     runner = TestRunner(
