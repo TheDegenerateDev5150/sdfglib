@@ -165,21 +165,24 @@ passes::LibNodeExpander::ExpandOutcome BroadcastNode::
     auto& in_acc = standalone->add_indirect_read_access(tasklet_block, X_INPUT_IDX);
     auto& out_acc = standalone->add_indirect_write_access(tasklet_block, RESULT_PTR_IDX);
 
+    // Broadcasting aligns the input shape to the output shape from the trailing
+    // (innermost) dimensions, following NumPy/PyTorch semantics. Input dimension j
+    // therefore corresponds to output dimension (offset + j), where the leading
+    // `offset` output dimensions have no matching input dimension and are broadcast.
     symbolic::MultiExpression input_subset = {};
-    size_t j = 0;
-    for (size_t i = 0; i < output_shape_.size(); ++i) {
-        if (j >= input_shape_.size()) {
-            break;
-        } else if (symbolic::eq(output_shape_[i], input_shape_[j])) {
+    if (output_shape_.size() < input_shape_.size()) {
+        throw InvalidSDFGException("BroadcastNode: Could not resolve indvars for inputs");
+    }
+    size_t offset = output_shape_.size() - input_shape_.size();
+    for (size_t j = 0; j < input_shape_.size(); ++j) {
+        size_t i = offset + j;
+        if (symbolic::eq(output_shape_[i], input_shape_[j])) {
             input_subset.push_back(loop_vars[i]);
-            j++;
         } else if (symbolic::eq(input_shape_[j], symbolic::one())) {
             input_subset.push_back(symbolic::zero());
-            j++;
+        } else {
+            throw InvalidSDFGException("BroadcastNode: Could not resolve indvars for inputs");
         }
-    }
-    if (j < input_shape_.size()) {
-        throw InvalidSDFGException("BroadcastNode: Could not resolve indvars for inputs");
     }
     auto& iedge_tensor = static_cast<const types::Tensor&>(in_edge.base_type());
     if (iedge_tensor.is_scalar()) {
