@@ -915,9 +915,9 @@ def test_segformer_encoder_patch_embeddings_3(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
+)
 def test_segformer_encoder_block_0_0_attention_self(target, batch_size) -> None:
     class SegformerEncoderBlock00AttentionSelf(SegformerEfficientSelfAttention):
         def __init__(self) -> None:
@@ -942,9 +942,9 @@ def test_segformer_encoder_block_0_0_attention_self(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
+)
 def test_segformer_encoder_block_1_0_attention_self(target, batch_size) -> None:
     class SegformerEncoderBlock10AttentionSelf(SegformerEfficientSelfAttention):
         def __init__(self) -> None:
@@ -969,9 +969,9 @@ def test_segformer_encoder_block_1_0_attention_self(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
+)
 def test_segformer_encoder_block_2_0_attention_self(target, batch_size) -> None:
     class SegformerEncoderBlock20AttentionSelf(SegformerEfficientSelfAttention):
         def __init__(self) -> None:
@@ -996,9 +996,9 @@ def test_segformer_encoder_block_2_0_attention_self(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-## @pytest.mark.skip(
-##    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
-## )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
+)
 def test_segformer_encoder_block_3_0_attention_self(target, batch_size) -> None:
     class SegformerEncoderBlock30AttentionSelf(SegformerEfficientSelfAttention):
         def __init__(self) -> None:
@@ -1023,9 +1023,9 @@ def test_segformer_encoder_block_3_0_attention_self(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
+)
 def test_segformer_encoder_block_0_0_attention_output(target, batch_size) -> None:
     class SegformerEncoderBlock00AttentionOutput(SegformerSelfOutput):
         def __init__(self) -> None:
@@ -1044,9 +1044,9 @@ def test_segformer_encoder_block_0_0_attention_output(target, batch_size) -> Non
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
+)
 def test_segformer_encoder_block_1_0_attention_output(target, batch_size) -> None:
     class SegformerEncoderBlock10AttentionOutput(SegformerSelfOutput):
         def __init__(self) -> None:
@@ -1065,9 +1065,9 @@ def test_segformer_encoder_block_1_0_attention_output(target, batch_size) -> Non
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
+)
 def test_segformer_encoder_block_2_0_attention_output(target, batch_size) -> None:
     class SegformerEncoderBlock20AttentionOutput(SegformerSelfOutput):
         def __init__(self) -> None:
@@ -1086,9 +1086,9 @@ def test_segformer_encoder_block_2_0_attention_output(target, batch_size) -> Non
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
+)
 def test_segformer_encoder_block_3_0_attention_output(target, batch_size) -> None:
     class SegformerEncoderBlock30AttentionOutput(SegformerSelfOutput):
         def __init__(self) -> None:
@@ -1107,9 +1107,9 @@ def test_segformer_encoder_block_3_0_attention_output(target, batch_size) -> Non
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-## @pytest.mark.skip(
-##    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
-## )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
+)
 def test_segformer_encoder_block_0_0_attention(target, batch_size) -> None:
     class SegformerEncoderBlock00Attention(SegformerAttention):
         def __init__(self) -> None:
@@ -1134,9 +1134,9 @@ def test_segformer_encoder_block_0_0_attention(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-## @pytest.mark.skip(
-##    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
-## )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
+)
 def test_segformer_encoder_block_1_0_attention(target, batch_size) -> None:
     class SegformerEncoderBlock10Attention(SegformerAttention):
         def __init__(self) -> None:
@@ -1161,9 +1161,9 @@ def test_segformer_encoder_block_1_0_attention(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-## @pytest.mark.skip(
-##    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
-## )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
+)
 def test_segformer_encoder_block_2_0_attention(target, batch_size) -> None:
     class SegformerEncoderBlock20Attention(SegformerAttention):
         def __init__(self) -> None:
@@ -1188,9 +1188,9 @@ def test_segformer_encoder_block_2_0_attention(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
+)
 def test_segformer_encoder_block_3_0_attention(target, batch_size) -> None:
     class SegformerEncoderBlock30Attention(SegformerAttention):
         def __init__(self) -> None:
@@ -1215,9 +1215,9 @@ def test_segformer_encoder_block_3_0_attention(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
+)
 def test_segformer_encoder_block_0_0_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock00DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1234,9 +1234,9 @@ def test_segformer_encoder_block_0_0_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
+)
 def test_segformer_encoder_block_0_1_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock01DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1253,9 +1253,9 @@ def test_segformer_encoder_block_0_1_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
+)
 def test_segformer_encoder_block_1_0_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock10DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1272,9 +1272,9 @@ def test_segformer_encoder_block_1_0_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-## @pytest.mark.skip(
-##    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
-## )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
+)
 def test_segformer_encoder_block_1_1_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock11DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1291,9 +1291,9 @@ def test_segformer_encoder_block_1_1_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
+)
 def test_segformer_encoder_block_2_0_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock20DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1310,9 +1310,9 @@ def test_segformer_encoder_block_2_0_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
+)
 def test_segformer_encoder_block_2_1_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock21DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1329,9 +1329,9 @@ def test_segformer_encoder_block_2_1_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
+)
 def test_segformer_encoder_block_3_0_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock30DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1348,9 +1348,9 @@ def test_segformer_encoder_block_3_0_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
+)
 def test_segformer_encoder_block_3_1_drop_path(target, batch_size) -> None:
     class SegformerEncoderBlock31DropPath(SegformerDropPath):
         def __init__(self) -> None:
@@ -1367,9 +1367,9 @@ def test_segformer_encoder_block_3_1_drop_path(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
+)
 def test_segformer_encoder_block_0_0_mlp_dwconv(target, batch_size) -> None:
     class SegformerEncoderBlock00MlpDwconv(SegformerDWConv):
         def __init__(self) -> None:
@@ -1388,9 +1388,9 @@ def test_segformer_encoder_block_0_0_mlp_dwconv(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
+)
 def test_segformer_encoder_block_1_0_mlp_dwconv(target, batch_size) -> None:
     class SegformerEncoderBlock10MlpDwconv(SegformerDWConv):
         def __init__(self) -> None:
@@ -1409,9 +1409,9 @@ def test_segformer_encoder_block_1_0_mlp_dwconv(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
+)
 def test_segformer_encoder_block_2_0_mlp_dwconv(target, batch_size) -> None:
     class SegformerEncoderBlock20MlpDwconv(SegformerDWConv):
         def __init__(self) -> None:
@@ -1430,9 +1430,9 @@ def test_segformer_encoder_block_2_0_mlp_dwconv(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
+)
 def test_segformer_encoder_block_3_0_mlp_dwconv(target, batch_size) -> None:
     class SegformerEncoderBlock30MlpDwconv(SegformerDWConv):
         def __init__(self) -> None:
@@ -1451,9 +1451,9 @@ def test_segformer_encoder_block_3_0_mlp_dwconv(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
+)
 def test_segformer_encoder_block_0_0_mlp(target, batch_size) -> None:
     class SegformerEncoderBlock00Mlp(SegformerMixFFN):
         def __init__(self) -> None:
@@ -1472,9 +1472,9 @@ def test_segformer_encoder_block_0_0_mlp(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
+)
 def test_segformer_encoder_block_1_0_mlp(target, batch_size) -> None:
     class SegformerEncoderBlock10Mlp(SegformerMixFFN):
         def __init__(self) -> None:
@@ -1493,9 +1493,9 @@ def test_segformer_encoder_block_1_0_mlp(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
+)
 def test_segformer_encoder_block_2_0_mlp(target, batch_size) -> None:
     class SegformerEncoderBlock20Mlp(SegformerMixFFN):
         def __init__(self) -> None:
@@ -1514,9 +1514,9 @@ def test_segformer_encoder_block_2_0_mlp(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(
-#     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
-# )
+@pytest.mark.skip(
+    reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
+)
 def test_segformer_encoder_block_3_0_mlp(target, batch_size) -> None:
     class SegformerEncoderBlock30Mlp(SegformerMixFFN):
         def __init__(self) -> None:
@@ -1741,7 +1741,7 @@ def test_segformer(target) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
+@pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_0(target, batch_size) -> None:
     class DecodeHeadLinearC0(SegformerMLP):
         def __init__(self) -> None:
@@ -1758,7 +1758,7 @@ def test_decode_head_linear_c_0(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
+@pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_1(target, batch_size) -> None:
     class DecodeHeadLinearC1(SegformerMLP):
         def __init__(self) -> None:
@@ -1775,7 +1775,7 @@ def test_decode_head_linear_c_1(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
+@pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_2(target, batch_size) -> None:
     class DecodeHeadLinearC2(SegformerMLP):
         def __init__(self) -> None:
@@ -1792,7 +1792,7 @@ def test_decode_head_linear_c_2(target, batch_size) -> None:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
-# @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
+@pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_3(target, batch_size) -> None:
     class DecodeHeadLinearC3(SegformerMLP):
         def __init__(self) -> None:
