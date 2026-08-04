@@ -10,35 +10,35 @@ namespace sdfg {
 namespace passes {
 
 GPUNestedParallelizationPass::GPUNestedParallelizationPass(
-    const std::vector<structured_control_flow::Map*>& maps, GPUTarget target, size_t block_size
+    const std::vector<structured_control_flow::StructuredLoop*>& loops, GPUTarget target, size_t block_size
 )
-    : maps_(maps), target_(target), block_size_(block_size) {}
+    : loops_(loops), target_(target), block_size_(block_size) {}
 
 bool GPUNestedParallelizationPass::
     run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    if (maps_.empty()) {
+    if (loops_.empty()) {
         return false;
     }
 
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
 
-    // Phase 1: Collect all applicable nested loops (maps or reduces)
+    // Phase 1: Collect all applicable nested loops (loops or reduces)
     std::vector<structured_control_flow::StructuredLoop*> candidates;
 
-    for (auto* map : maps_) {
-        auto descendants = loop_analysis.descendants(map);
+    for (auto* loop : loops_) {
+        auto descendants = loop_analysis.descendants(loop);
         for (auto* descendant : descendants) {
-            if (auto* nested_map = dyn_cast<structured_control_flow::Map*>(descendant)) {
+            if (auto* nested_loop = dyn_cast<structured_control_flow::StructuredLoop*>(descendant)) {
                 bool applicable = false;
                 if (target_ == GPUTarget::CUDA) {
-                    transformations::CUDAParallelizeNestedMap transform(*nested_map, block_size_);
+                    transformations::CUDAParallelizeNestedMap transform(*nested_loop, block_size_);
                     applicable = transform.can_be_applied(builder, analysis_manager);
                 } else {
-                    transformations::ROCMParallelizeNestedMap transform(*nested_map, block_size_);
+                    transformations::ROCMParallelizeNestedMap transform(*nested_loop, block_size_);
                     applicable = transform.can_be_applied(builder, analysis_manager);
                 }
                 if (applicable) {
-                    candidates.push_back(nested_map);
+                    candidates.push_back(nested_loop);
                 }
             }
         }

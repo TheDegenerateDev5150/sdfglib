@@ -120,27 +120,33 @@ void ROCMScheduler::post_schedule(
     std::vector<structured_control_flow::StructuredLoop*>& scheduled_loops
 ) {
     std::vector<structured_control_flow::Map*> gpu_maps;
+    std::vector<structured_control_flow::StructuredLoop*> gpu_loops;
     for (auto* loop : scheduled_loops) {
-        if (auto* map = dyn_cast<structured_control_flow::Map*>(loop)) {
-            gpu_maps.push_back(map);
+        if (auto* sloop = dyn_cast<structured_control_flow::StructuredLoop*>(loop)) {
+            gpu_loops.push_back(sloop);
+            if (auto* map = dyn_cast<structured_control_flow::Map*>(loop)) {
+                gpu_maps.push_back(map);
+            }
         }
     }
 
-    if (gpu_maps.empty()) {
-        return;
+    if (!gpu_maps.empty()) {
+        GPULoopReorderingPass reordering_pass(gpu_maps);
+        reordering_pass.run(builder, analysis_manager);
+        analysis_manager.invalidate_all();
     }
 
-    GPULoopReorderingPass reordering_pass(gpu_maps);
-    reordering_pass.run(builder, analysis_manager);
-    analysis_manager.invalidate_all();
+    if (!gpu_loops.empty()) {
+        GPUNestedParallelizationPass nested_pass(gpu_loops, GPUTarget::ROCM, 8);
+        nested_pass.run(builder, analysis_manager);
+        analysis_manager.invalidate_all();
+    }
 
-    GPUNestedParallelizationPass nested_pass(gpu_maps, GPUTarget::ROCM, 8);
-    nested_pass.run(builder, analysis_manager);
-    analysis_manager.invalidate_all();
-
-    GPUTilingPass tiling_pass(gpu_maps, 8);
-    tiling_pass.run(builder, analysis_manager);
-    analysis_manager.invalidate_all();
+    if (!gpu_maps.empty()) {
+        GPUTilingPass tiling_pass(gpu_maps, 8);
+        tiling_pass.run(builder, analysis_manager);
+        analysis_manager.invalidate_all();
+    }
 
     rocm::RocmLibraryNodeTransferExtractionPass transfer_extraction_pass;
     transfer_extraction_pass.run(builder, analysis_manager);
