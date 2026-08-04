@@ -224,6 +224,7 @@ void PyStructuredSDFG::simplify() {
     sdfg::passes::Pipeline symbolic_simplification = sdfg::passes::Pipeline::symbolic_simplification();
     sdfg::passes::Pipeline dce = sdfg::passes::Pipeline::dead_code_elimination();
     sdfg::passes::Pipeline memlet_combine = sdfg::passes::Pipeline::memlet_combine();
+    sdfg::passes::Pipeline ce = sdfg::passes::Pipeline::constant_elimination();
     sdfg::passes::DeadDataElimination dde;
     sdfg::passes::SymbolPropagation symbol_propagation_pass;
 
@@ -235,11 +236,13 @@ void PyStructuredSDFG::simplify() {
     dataflow_simplification.run(builder_opt, analysis_manager);
     dde.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
+    ce.run(builder_opt, analysis_manager);
 
     // Minimize SDFG by fusing symbolic expressions
     symbolic_simplification.run(builder_opt, analysis_manager);
     dde.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
+    ce.run(builder_opt, analysis_manager);
 
     /***** Structured Loops *****/
 
@@ -253,6 +256,7 @@ void PyStructuredSDFG::simplify() {
         } while (applies);
         dde.run(builder_opt, analysis_manager);
         dce.run(builder_opt, analysis_manager);
+        ce.run(builder_opt, analysis_manager);
         symbolic_simplification.run(builder_opt, analysis_manager);
     }
 
@@ -281,6 +285,7 @@ void PyStructuredSDFG::simplify() {
     symbol_propagation_pass.run(builder_opt, analysis_manager);
     dde.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
+    ce.run(builder_opt, analysis_manager);
 
     // Eliminate symbols correlated to loop iterators
     // sdfg::passes::SymbolEvolution symbol_evolution_pass;
@@ -314,6 +319,7 @@ void PyStructuredSDFG::simplify() {
     symbol_propagation_pass.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
     dde.run(builder_opt, analysis_manager);
+    ce.run(builder_opt, analysis_manager);
 
     // Convert for loops into maps and reductions
     sdfg::passes::ForClassificationPass map_conversion_pass;
@@ -326,6 +332,7 @@ void PyStructuredSDFG::simplify() {
     // Dead code elimination
     dde.run(builder_opt, analysis_manager);
     dce.run(builder_opt, analysis_manager);
+    ce.run(builder_opt, analysis_manager);
     dataflow_simplification.run(builder_opt, analysis_manager);
 
     if (use_new_fusion_in_simplify_) {
@@ -340,6 +347,7 @@ void PyStructuredSDFG::simplify() {
         // Cleanup of artifacts of MapFusion
         dde.run(builder_opt, analysis_manager);
         dce.run(builder_opt, analysis_manager);
+        ce.run(builder_opt, analysis_manager);
         sdfg::passes::Pipeline block_fusion("BlockFusion");
         block_fusion.register_pass<sdfg::passes::BlockFusionPass>();
         block_fusion.run(builder_opt, analysis_manager);
@@ -347,6 +355,7 @@ void PyStructuredSDFG::simplify() {
         sdfg::passes::RedundantLoadEliminationPass rle;
         rle.run(builder_opt, analysis_manager);
         dde.run(builder_opt, analysis_manager);
+        ce.run(builder_opt, analysis_manager);
         sdfg::passes::TaskletFusionPass task_fuse_pass;
         task_fuse_pass.run(builder_opt, analysis_manager);
     }

@@ -59,45 +59,48 @@ def test_mlp(target):
     verifier = None
     if target == "none":
         verifier = SDFGVerification(
-            verification={"REDUCE": 2, "SEQUENTIAL": 18, "MAP": 16, "GEMM": 3}
+            verification={"REDUCE": 2, "SEQUENTIAL": 14, "MAP": 12, "GEMM": 3}
         )
     elif target == "sequential":
         verifier = SDFGVerification(
             verification={
                 "REDUCE": 2,
-                "VECTORIZE": 9,
-                "SEQUENTIAL": 9,
-                "MAP": 16,
+                "VECTORIZE": 7,
+                "SEQUENTIAL": 7,
+                "MAP": 12,
                 "GEMM": 3,
             }
         )
     elif target == "openmp":
         verifier = SDFGVerification(
             verification={
-                "CPU_PARALLEL": 9,
-                "MAP": 9,
+                "VECTORIZE": 2,
                 "REDUCE": 2,
+                "CPU_PARALLEL": 7,
+                "MAP": 7,
                 "GEMM": 3,
             }
         )
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 16,
-                "MAP": 16,
+                "SEQUENTIAL": 2,
                 "REDUCE": 2,
-                "CUDAOffloading": 6,
+                "CUDA": 12,
                 "GEMM": 3,
+                "MAP": 12,
+                "CUDAOffloading": 6,
             }
         )
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 16,
-                "MAP": 16,
+                "SEQUENTIAL": 2,
                 "REDUCE": 2,
-                "ROCMOffloading": 6,
+                "ROCM": 12,
                 "GEMM": 3,
+                "MAP": 12,
+                "ROCMOffloading": 6,
             }
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
