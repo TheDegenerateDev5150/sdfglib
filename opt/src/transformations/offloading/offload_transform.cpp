@@ -19,27 +19,6 @@
 namespace sdfg {
 namespace transformations {
 
-class SideEffectFinder : public visitor::ImmutableStructuredSDFGVisitor {
-private:
-    structured_control_flow::StructuredLoop& loop_;
-
-public:
-    SideEffectFinder(
-        StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::StructuredLoop& loop
-    )
-        : visitor::ImmutableStructuredSDFGVisitor(sdfg, analysis_manager), loop_(loop) {}
-
-    bool visit() override { return visit_internal(loop_.root()); }
-
-    bool accept(structured_control_flow::Block& node) override {
-        for (const auto& lib_node : node.dataflow().library_nodes()) {
-            if (lib_node->side_effect()) {
-                return true;
-            }
-        }
-        return false;
-    }
-};
 
 OffloadTransform::OffloadTransform(structured_control_flow::StructuredLoop& loop, bool allow_dynamic_sizes)
     : loop_(loop), allow_dynamic_sizes_(allow_dynamic_sizes) {}
@@ -216,6 +195,24 @@ void OffloadTransform::
         }
     }
 }
+
+bool ::sdfg::transformations::SideEffectFinder::accept(structured_control_flow::Block& node) {
+    for (const auto& lib_node : node.dataflow().library_nodes()) {
+        if (lib_node->side_effect()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ::sdfg::transformations::SideEffectFinder::visit() {
+    return visitor::ImmutableStructuredSDFGVisitor::visit_internal(map_.StructuredLoop::root());
+}
+
+::sdfg::transformations::SideEffectFinder::SideEffectFinder(
+    StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::Map& map
+)
+    : visitor::ImmutableStructuredSDFGVisitor(sdfg, analysis_manager), map_(map) {}
 
 } // namespace transformations
 } // namespace sdfg

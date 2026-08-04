@@ -17,7 +17,7 @@ private:
     sdfg::plugins::Context& docc_context_;
     std::unique_ptr<sdfg::StructuredSDFG> sdfg_;
     bool use_new_fusion_in_simplify_;
-    bool use_new_fusion_in_normalize_;
+    bool enable_fusion_in_normalize_;
 
     PyStructuredSDFG(sdfg::plugins::Context& ctx, std::unique_ptr<sdfg::StructuredSDFG>& sdfg);
 
@@ -69,6 +69,8 @@ public:
 
     void simplify();
 
+    void dump_debug(const std::string& type, bool dump_dot = true, bool dump_json = true);
+
     void dump(
         const std::string& path,
         const std::string& type = "",
@@ -110,7 +112,8 @@ public:
         const std::string& instrumentation_mode = "",
         bool capture_args = false,
         bool debug_build = false,
-        int threads = 0
+        int threads = 0,
+        bool reuse_sources = false
     ) const;
 
     std::string metadata(const std::string& key) const;

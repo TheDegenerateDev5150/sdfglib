@@ -4,6 +4,7 @@
 #include "sdfg/exceptions.h"
 #include "sdfg/structured_control_flow/reduce.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg/targets/gpu/gpu_map_utils.h"
 #include "sdfg/targets/rocm/rocm.h"
 #include "sdfg/types/pointer.h"
 #include "sdfg/types/scalar.h"
@@ -52,7 +53,7 @@ bool ROCMParallelizeNestedMap::
     }
 
     // Condition: Check if parent loop is a ROCM map, and not Z dimension (final dimension)
-    if (auto map = dynamic_cast<structured_control_flow::Map*>(parent)) {
+    if (auto map = dyn_cast<structured_control_flow::Map*>(parent)) {
         if (map->schedule_type().value() != rocm::ScheduleType_ROCM::value()) {
             return false;
         }
@@ -62,7 +63,7 @@ bool ROCMParallelizeNestedMap::
         auto parent_indvar = map->indvar();
         auto ancestor = parent;
         while (ancestor) {
-            if (auto map_ancestor = dynamic_cast<structured_control_flow::Map*>(ancestor)) {
+            if (auto map_ancestor = dyn_cast<structured_control_flow::Map*>(ancestor)) {
                 parent_indvar = map_ancestor->indvar();
                 for (auto& arg : symbolic::atoms(loop_.condition())) {
                     if (symbolic::eq(arg, parent_indvar)) {
@@ -80,6 +81,15 @@ bool ROCMParallelizeNestedMap::
     // emits `<map.indvar> = init + thread_flat_id * stride`, so the body sees
     // the natural strided value; `num_iterations()` accounts for both when
     // computing the grid geometry.
+
+    // Condition: Parallelizing this map must not replicate a sibling accumulation.
+    // Folding a new grid dimension re-runs every unguarded sibling on each thread of
+    // the new dimension; a sibling read-modify-write on a shared (non-privatizable)
+    // container would then race. Such a reduction must either be parallelized itself
+    // or block nested parallelism of its siblings.
+    if (gpu::nested_parallelization_replicates_accumulation(loop_, analysis_manager)) {
+        return false;
+    }
 
     // Condition: Resulting ROCm grid dimension must not exceed hardware limits.
     // Y and Z grid dimensions are limited to 65535.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string_view>
 #include <unordered_map>
 
 #include "sdfg/analysis/loop_analysis.h"
@@ -11,19 +12,7 @@
 namespace sdfg {
 namespace codegen {
 
-
-typedef StringEnum ElementType;
-inline ElementType ElementType_Map{"map"};
-inline ElementType ElementType_Reduce{"reduce"};
-inline ElementType ElementType_For{"for"};
-inline ElementType ElementType_While{"while"};
-inline ElementType ElementType_Block{"block"};
-inline ElementType ElementType_IfElse{"if_else"};
-inline ElementType ElementType_Sequence{"sequence"};
-inline ElementType ElementType_H2DTransfer{"h2d_transfer"};
-inline ElementType ElementType_D2HTransfer{"d2h_transfer"};
-inline ElementType ElementType_Math{"math"};
-inline ElementType ElementType_Unknown{"unknown"};
+enum InstrumentationEventType { CPU = 0, CUDA = 1, NONE = 2 };
 
 typedef StringEnum TargetType;
 inline TargetType TargetType_SEQUENTIAL{structured_control_flow::ScheduleType_Sequential::value()};
@@ -34,26 +23,29 @@ class InstrumentationInfo {
 private:
     // General properties
     size_t element_id_;
-    ElementType element_type_;
+    std::string element_desc_;
     TargetType target_type_;
+    InstrumentationEventType event_type_;
     analysis::LoopInfo loop_info_;
-
     std::unordered_map<std::string, std::string> metrics_;
 
 public:
     InstrumentationInfo(
         size_t element_id,
-        const ElementType& element_type,
+        std::string_view element_desc,
         const TargetType& target_type,
+        InstrumentationEventType event_type,
         const analysis::LoopInfo& loop_info = {},
         const std::unordered_map<std::string, std::string>& metrics = {}
     );
 
     size_t element_id() const;
 
-    const ElementType& element_type() const;
+    const std::string& element_desc() const;
 
     const TargetType& target_type() const;
+
+    InstrumentationEventType event_type() const;
 
     const analysis::LoopInfo& loop_info() const;
 

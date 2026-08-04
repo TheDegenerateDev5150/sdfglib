@@ -1,6 +1,5 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/broadcast_node.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
-#include "sdfg/data_flow/library_nodes/math/tensor/matmul_node.h"
 #include "sdfg/structured_control_flow/for.h"
 
 namespace sdfg {
@@ -154,7 +153,6 @@ passes::LibNodeExpander::ExpandOutcome BroadcastNode::
                 init,
                 update,
                 structured_control_flow::ScheduleType_Sequential::create(),
-                {},
                 this->debug_info()
             );
             inner_scope = &loop.root();
@@ -168,12 +166,20 @@ passes::LibNodeExpander::ExpandOutcome BroadcastNode::
     auto& out_acc = standalone->add_indirect_write_access(tasklet_block, RESULT_PTR_IDX);
 
     symbolic::MultiExpression input_subset = {};
-    for (size_t i = 0; i < input_shape_.size(); ++i) {
-        if (!symbolic::eq(input_shape_[i], symbolic::one())) {
+    size_t j = 0;
+    for (size_t i = 0; i < output_shape_.size(); ++i) {
+        if (j >= input_shape_.size()) {
+            break;
+        } else if (symbolic::eq(output_shape_[i], input_shape_[j])) {
             input_subset.push_back(loop_vars[i]);
-        } else {
+            j++;
+        } else if (symbolic::eq(input_shape_[j], symbolic::one())) {
             input_subset.push_back(symbolic::zero());
+            j++;
         }
+    }
+    if (j < input_shape_.size()) {
+        throw InvalidSDFGException("BroadcastNode: Could not resolve indvars for inputs");
     }
     auto& iedge_tensor = static_cast<const types::Tensor&>(in_edge.base_type());
     if (iedge_tensor.is_scalar()) {

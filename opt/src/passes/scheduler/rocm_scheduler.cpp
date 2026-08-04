@@ -22,7 +22,7 @@ SchedulerAction ROCMScheduler::find(
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    if (dynamic_cast<structured_control_flow::Map*>(&loop)) {
+    if (dyn_cast<structured_control_flow::Map*>(&loop)) {
         return NEXT;
     }
 
@@ -58,7 +58,7 @@ bool ROCMScheduler::can_apply_schedule(
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    auto* map = dynamic_cast<structured_control_flow::Map*>(&loop);
+    auto* map = dyn_cast<structured_control_flow::Map*>(&loop);
     if (!map) {
         return false;
     }
@@ -74,8 +74,12 @@ void ROCMScheduler::apply_schedule(
     bool offload_unknown_sizes
 ) {
     // 64 is ROCM default wavefront size
-    rocm::ROCMTransform rocm_transform(loop, 64, offload_unknown_sizes);
-    rocm_transform.apply(builder, analysis_manager);
+    if (recorder_ != nullptr) {
+        recorder_->apply<rocm::ROCMTransform>(builder, analysis_manager, false, loop, 64, offload_unknown_sizes);
+    } else {
+        rocm::ROCMTransform rocm_transform(loop, 64, offload_unknown_sizes);
+        rocm_transform.apply(builder, analysis_manager);
+    }
 }
 
 void ROCMScheduler::pre_schedule(
@@ -85,7 +89,7 @@ void ROCMScheduler::pre_schedule(
 ) {
     std::vector<structured_control_flow::Map*> applicable_maps;
     for (auto* loop : applicable_loops) {
-        if (auto* map = dynamic_cast<structured_control_flow::Map*>(loop)) {
+        if (auto* map = dyn_cast<structured_control_flow::Map*>(loop)) {
             applicable_maps.push_back(map);
         }
     }
@@ -121,7 +125,7 @@ void ROCMScheduler::post_schedule(
 ) {
     std::vector<structured_control_flow::Map*> gpu_maps;
     for (auto* loop : scheduled_loops) {
-        if (auto* map = dynamic_cast<structured_control_flow::Map*>(loop)) {
+        if (auto* map = dyn_cast<structured_control_flow::Map*>(loop)) {
             gpu_maps.push_back(map);
         }
     }

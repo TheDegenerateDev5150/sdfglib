@@ -388,8 +388,9 @@ void PrintfMapDispatcher::dispatch_printf_body(
 codegen::InstrumentationInfo PrintfMapDispatcher::instrumentation_info() const {
     return codegen::InstrumentationInfo(
         node_.element_id(),
-        codegen::ElementType_Map,
+        node_.element_type(),
         TargetType_Printf,
+        codegen::InstrumentationEventType::NONE,
         analysis::LoopInfo{},
         {}
     );

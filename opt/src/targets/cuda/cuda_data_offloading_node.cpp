@@ -176,21 +176,30 @@ codegen::InstrumentationInfo CUDADataOffloadingNodeDispatcher::instrumentation_i
     if (cuda_node.is_d2h()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            codegen::ElementType_D2HTransfer,
+            std::string(node_.element_type()) + ":::" + node_.code().value(),
             TargetType_CUDA,
+            codegen::InstrumentationEventType::NONE,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(cuda_node.size())}}
         );
     } else if (cuda_node.is_h2d()) {
         return codegen::InstrumentationInfo(
             node_.element_id(),
-            codegen::ElementType_H2DTransfer,
+            std::string(node_.element_type()) + ":::" + node_.code().value(),
             TargetType_CUDA,
+            codegen::InstrumentationEventType::NONE,
             analysis::LoopInfo{},
             {{"pcie_bytes", language_extension_.expression(cuda_node.size())}}
         );
     } else {
-        return codegen::LibraryNodeDispatcher::instrumentation_info();
+        return codegen::InstrumentationInfo(
+            node_.element_id(),
+            std::string(node_.element_type()) + ":::" + node_.code().value(),
+            TargetType_CUDA,
+            codegen::InstrumentationEventType::NONE,
+            analysis::LoopInfo{},
+            {}
+        );
     }
 }
 

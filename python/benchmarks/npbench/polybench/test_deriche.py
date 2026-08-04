@@ -12,9 +12,9 @@ PARAMETERS = {
 
 def initialize(W, H, datatype=np.float64):
     alpha = datatype(0.25)
-    imgIn = np.fromfunction(
-        lambda i, j: ((313 * i + 991 * j) % 65536) / 65535.0, (W, H), dtype=datatype
-    )
+    i = np.arange(W, dtype=datatype).reshape(-1, 1)
+    j = np.arange(H, dtype=datatype)
+    imgIn = ((313 * i + 991 * j) % 65536) / 65535.0
 
     return alpha, imgIn
 
@@ -99,11 +99,11 @@ def test_deriche(target):
         )
     elif target == "sequential":
         verifier = SDFGVerification(
-            verification={"SEQUENTIAL": 8, "FOR": 4, "VECTORIZE": 20, "MAP": 24}
+            verification={"SEQUENTIAL": 8, "FOR": 4, "VECTORIZE": 16, "MAP": 20}
         )
     elif target == "openmp":
         verifier = SDFGVerification(
-            verification={"SEQUENTIAL": 4, "FOR": 4, "MAP": 20, "CPU_PARALLEL": 20}
+            verification={"SEQUENTIAL": 4, "FOR": 4, "MAP": 16, "CPU_PARALLEL": 16}
         )
     elif target == "cuda":
         verifier = SDFGVerification(

@@ -13,9 +13,11 @@ PARAMETERS = {
 def initialize(N, datatype=np.float64):
     alpha = datatype(1.5)
     beta = datatype(1.2)
-    A = np.fromfunction(lambda i, j: ((i * j + 1) % N) / N, (N, N), dtype=datatype)
-    B = np.fromfunction(lambda i, j: ((i * j + 2) % N) / N, (N, N), dtype=datatype)
-    x = np.fromfunction(lambda i: (i % N) / N, (N,), dtype=datatype)
+    i = np.arange(N).reshape(-1, 1)
+    j = np.arange(N)
+    A = ((i * j + 1) % N) / N
+    B = ((i * j + 2) % N) / N
+    x = (np.arange(N) % N) / N
 
     return alpha, beta, A, B, x
 
@@ -54,20 +56,20 @@ def test_gesummv(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 6,
-                "SEQUENTIAL": 2,
+                "CUDA": 2,
+                "SEQUENTIAL": 4,
                 "REDUCE": 2,
-                "MAP": 6,
+                "MAP": 4,
                 "CUDAOffloading": 6,
             },
         )
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 6,
-                "SEQUENTIAL": 2,
+                "ROCM": 2,
+                "SEQUENTIAL": 4,
                 "REDUCE": 2,
-                "MAP": 6,
+                "MAP": 4,
                 "ROCMOffloading": 6,
             },
         )

@@ -54,11 +54,11 @@ def _is_device_array(arg):
     torch tensor reports its location via ``is_cuda``. Host arrays (numpy, CPU
     torch tensors) return False.
     """
-    if getattr(arg, "__cuda_array_interface__", None) is not None:
-        return True
     is_cuda = getattr(arg, "is_cuda", None)
     if is_cuda is not None:
         return bool(is_cuda)
+    if getattr(arg, "__cuda_array_interface__", None) is not None:
+        return True
     return False
 
 
@@ -68,12 +68,12 @@ def _device_array_ptr(arg):
     Both cupy arrays and CUDA torch tensors expose ``__cuda_array_interface__``;
     torch tensors additionally expose ``data_ptr()``. Returns an integer address.
     """
-    cai = getattr(arg, "__cuda_array_interface__", None)
-    if cai is not None:
-        return cai["data"][0]
     data_ptr = getattr(arg, "data_ptr", None)
     if callable(data_ptr):
         return data_ptr()
+    cai = getattr(arg, "__cuda_array_interface__", None)
+    if cai is not None:
+        return cai["data"][0]
     raise TypeError(
         f"Device-resident execution requires a GPU array exposing "
         f"__cuda_array_interface__ or data_ptr(), got {type(arg).__name__}"
@@ -121,30 +121,28 @@ _GPU_CALL_MODES = frozenset({_CALL_MODE_NUMPY_GPU, _CALL_MODE_TORCH_GPU})
 
 
 def _is_torch_tensor(arg):
-    """Return True if ``arg`` is a torch tensor (without importing torch)."""
-    return type(arg).__module__.split(".", 1)[0] == "torch"
+    """Return True if ``arg`` is a torch tensor or Parameter (without importing torch)."""
+    return any(
+        cls.__module__.startswith("torch") and cls.__name__ in ("Tensor", "Parameter")
+        for cls in type(arg).__mro__
+    )
 
 
 def _classify_array_kind(arg):
-    """Classify a single argument into one of the four call modes.
-
-    Returns one of the ``_CALL_MODE_*`` constants for array arguments, or None
-    for mode-agnostic values (Python/numpy scalars, structures, ...). Neither
-    torch nor cupy is imported: classification relies on the defining module and
-    the array's own attributes.
-    """
-    root = type(arg).__module__.split(".", 1)[0]
-    if root == "torch":
+    """Classify a single argument into one of the four call modes."""
+    if _is_torch_tensor(arg):
         return (
             _CALL_MODE_TORCH_GPU
             if getattr(arg, "is_cuda", False)
             else _CALL_MODE_TORCH_CPU
         )
+    root = type(arg).__module__.split(".", 1)[0]
     if root == "cupy":
         return _CALL_MODE_NUMPY_GPU
     if isinstance(arg, np.ndarray):
         return _CALL_MODE_NUMPY_CPU
     # Any other object exposing the CUDA array interface is a device array.
+
     if getattr(arg, "__cuda_array_interface__", None) is not None:
         return _CALL_MODE_NUMPY_GPU
     return None
@@ -223,6 +221,7 @@ class CompiledSDFG:
         device_resident=False,
         device_backend=None,
         target=None,
+        sort_output_args=True,
     ):
         self.lib_path = lib_path
         self.sdfg = sdfg
@@ -258,6 +257,11 @@ class CompiledSDFG:
         # promotion did not apply to this artifact.
         self.target = target
         self._warned_residency_failed = False
+
+        # Whether to sort the output arguments or not. Default is True. This has to be disable for
+        # frontends that do not call there output arguments _docc_ret_[i] where [i] is the index.
+        # Those frontends have to ensure the correct ordering themselves.
+        self._sort_output_args = sort_output_args
 
         # Cache for ctypes structure definitions
         self._ctypes_structures = {}
@@ -350,14 +354,20 @@ class CompiledSDFG:
                             np_dtype,
                         )
                     )
-                    output_order.append((int(arg_name.split("_")[-1]), info_idx))
+                    if self._sort_output_args:
+                        output_order.append((int(arg_name.split("_")[-1]), info_idx))
+                    else:
+                        output_order.append(info_idx)
                 else:
                     # Scalar return
                     info_idx = len(self._arg_info)
                     self._arg_info.append(
                         (_ARG_TYPE_OUTPUT_SCALAR, arg_name, base_type, primitive_type)
                     )
-                    output_order.append((int(arg_name.split("_")[-1]), info_idx))
+                    if self._sort_output_args:
+                        output_order.append((int(arg_name.split("_")[-1]), info_idx))
+                    else:
+                        output_order.append(info_idx)
 
             elif arg_name.startswith("_s") and arg_name[2:].isdigit():
                 # Shape symbol argument - tuple: (arg_type, s_idx, key_str)
@@ -405,9 +415,13 @@ class CompiledSDFG:
 
         self._num_user_args = user_arg_counter
 
-        # Pre-sort output order and build position map
-        output_order.sort(key=lambda x: x[0])
-        self._output_order = tuple(idx for _, idx in output_order)
+        if self._sort_output_args:
+            # Pre-sort output order and build position map
+            output_order.sort(key=lambda x: x[0])
+            self._output_order = tuple(idx for _, idx in output_order)
+        else:
+            self._output_order = output_order
+
         # Map from _arg_info index to result position (for O(1) lookup)
         self._output_pos_map = {idx: pos for pos, idx in enumerate(self._output_order)}
 

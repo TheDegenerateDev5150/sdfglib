@@ -28,21 +28,18 @@ bool GPUNestedParallelizationPass::
     for (auto* map : maps_) {
         auto descendants = loop_analysis.descendants(map);
         for (auto* descendant : descendants) {
-            auto* nested_loop = dynamic_cast<structured_control_flow::Map*>(descendant);
-            if (nested_loop == nullptr) {
-                continue;
-            }
-
-            bool applicable = false;
-            if (target_ == GPUTarget::CUDA) {
-                transformations::CUDAParallelizeNestedMap transform(*nested_loop, block_size_);
-                applicable = transform.can_be_applied(builder, analysis_manager);
-            } else {
-                transformations::ROCMParallelizeNestedMap transform(*nested_loop, block_size_);
-                applicable = transform.can_be_applied(builder, analysis_manager);
-            }
-            if (applicable) {
-                candidates.push_back(nested_loop);
+            if (auto* nested_map = dyn_cast<structured_control_flow::Map*>(descendant)) {
+                bool applicable = false;
+                if (target_ == GPUTarget::CUDA) {
+                    transformations::CUDAParallelizeNestedMap transform(*nested_map, block_size_);
+                    applicable = transform.can_be_applied(builder, analysis_manager);
+                } else {
+                    transformations::ROCMParallelizeNestedMap transform(*nested_map, block_size_);
+                    applicable = transform.can_be_applied(builder, analysis_manager);
+                }
+                if (applicable) {
+                    candidates.push_back(nested_map);
+                }
             }
         }
     }
