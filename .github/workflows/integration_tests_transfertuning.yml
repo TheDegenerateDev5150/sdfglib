@@ -10,7 +10,7 @@ on:
     - cron: "0 5 * * *"
 
 jobs:
-  tests:
+  integration-test-transfertuning:
     runs-on:
       group: dahlia
       labels: openmp
