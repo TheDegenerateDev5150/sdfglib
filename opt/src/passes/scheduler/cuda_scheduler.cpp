@@ -59,11 +59,7 @@ bool CUDAScheduler::can_apply_schedule(
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    auto* map = dyn_cast<structured_control_flow::Map*>(&loop);
-    if (!map) {
-        return false;
-    }
-    cuda::CUDATransform cuda_transform(*map, 32, offload_unknown_sizes);
+    cuda::CUDATransform cuda_transform(loop, 32, offload_unknown_sizes);
     return cuda_transform.can_be_applied(builder, analysis_manager);
 }
 

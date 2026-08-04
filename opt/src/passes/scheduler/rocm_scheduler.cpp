@@ -58,12 +58,8 @@ bool ROCMScheduler::can_apply_schedule(
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    auto* map = dyn_cast<structured_control_flow::Map*>(&loop);
-    if (!map) {
-        return false;
-    }
     // 64 is ROCM default wavefront size
-    rocm::ROCMTransform rocm_transform(*map, 64, offload_unknown_sizes);
+    rocm::ROCMTransform rocm_transform(loop, 64, offload_unknown_sizes);
     return rocm_transform.can_be_applied(builder, analysis_manager);
 }
 

@@ -223,9 +223,14 @@ CUDATransform CUDATransform::from_json(builder::StructuredSDFGBuilder& builder, 
         throw transformations::
             InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
     }
-    auto map = dyn_cast<structured_control_flow::Map*>(element);
+    auto loop = dyn_cast<structured_control_flow::StructuredLoop*>(element);
+    if (!loop) {
+        throw transformations::InvalidTransformationDescriptionException(
+            "Element with ID " + std::to_string(loop_id) + " is not a StructuredLoop."
+        );
+    }
 
-    return CUDATransform(*map, block_size);
+    return CUDATransform(*loop, block_size);
 };
 
 

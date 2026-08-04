@@ -27,7 +27,7 @@ OffloadTransform::OffloadTransform(structured_control_flow::StructuredLoop& loop
 bool OffloadTransform::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     if (dynamic_cast<structured_control_flow::Map*>(&loop_) == nullptr &&
         dynamic_cast<structured_control_flow::Reduce*>(&loop_) == nullptr) {
-        throw InvalidTransformationDescriptionException("OffloadTransform: can only offload Map or Reduce nodes.");
+        return false;
     }
 
     if (dynamic_cast<structured_control_flow::Reduce*>(&loop_)) {
