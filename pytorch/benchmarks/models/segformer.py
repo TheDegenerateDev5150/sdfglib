@@ -849,7 +849,6 @@ if __name__ == "__main__":
     )
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_patch_embeddings_0(target, batch_size) -> None:
     class SegformerEncoderPatchEmbeddings0(SegformerOverlapPatchEmbeddings):
@@ -865,7 +864,6 @@ def test_segformer_encoder_patch_embeddings_0(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_patch_embeddings_1(target, batch_size) -> None:
     class SegformerEncoderPatchEmbeddings1(SegformerOverlapPatchEmbeddings):
@@ -881,7 +879,6 @@ def test_segformer_encoder_patch_embeddings_1(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_patch_embeddings_2(target, batch_size) -> None:
     class SegformerEncoderPatchEmbeddings2(SegformerOverlapPatchEmbeddings):
@@ -897,7 +894,6 @@ def test_segformer_encoder_patch_embeddings_2(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_patch_embeddings_3(target, batch_size) -> None:
     class SegformerEncoderPatchEmbeddings3(SegformerOverlapPatchEmbeddings):
@@ -913,7 +909,6 @@ def test_segformer_encoder_patch_embeddings_3(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
@@ -940,7 +935,6 @@ def test_segformer_encoder_block_0_0_attention_self(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
@@ -967,7 +961,6 @@ def test_segformer_encoder_block_1_0_attention_self(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
@@ -994,7 +987,6 @@ def test_segformer_encoder_block_2_0_attention_self(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
@@ -1021,7 +1013,6 @@ def test_segformer_encoder_block_3_0_attention_self(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
@@ -1042,7 +1033,6 @@ def test_segformer_encoder_block_0_0_attention_output(target, batch_size) -> Non
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
@@ -1063,7 +1053,6 @@ def test_segformer_encoder_block_1_0_attention_output(target, batch_size) -> Non
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
@@ -1084,7 +1073,6 @@ def test_segformer_encoder_block_2_0_attention_output(target, batch_size) -> Non
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
@@ -1105,7 +1093,6 @@ def test_segformer_encoder_block_3_0_attention_output(target, batch_size) -> Non
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
@@ -1132,7 +1119,6 @@ def test_segformer_encoder_block_0_0_attention(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
@@ -1159,7 +1145,6 @@ def test_segformer_encoder_block_1_0_attention(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
@@ -1186,7 +1171,6 @@ def test_segformer_encoder_block_2_0_attention(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
@@ -1213,7 +1197,6 @@ def test_segformer_encoder_block_3_0_attention(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
@@ -1232,7 +1215,6 @@ def test_segformer_encoder_block_0_0_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
@@ -1251,7 +1233,6 @@ def test_segformer_encoder_block_0_1_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
@@ -1270,7 +1251,6 @@ def test_segformer_encoder_block_1_0_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
@@ -1289,7 +1269,6 @@ def test_segformer_encoder_block_1_1_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
@@ -1308,7 +1287,6 @@ def test_segformer_encoder_block_2_0_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
@@ -1327,7 +1305,6 @@ def test_segformer_encoder_block_2_1_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
@@ -1346,7 +1323,6 @@ def test_segformer_encoder_block_3_0_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
@@ -1365,7 +1341,6 @@ def test_segformer_encoder_block_3_1_drop_path(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
@@ -1386,7 +1361,6 @@ def test_segformer_encoder_block_0_0_mlp_dwconv(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
@@ -1407,7 +1381,6 @@ def test_segformer_encoder_block_1_0_mlp_dwconv(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
@@ -1428,7 +1401,6 @@ def test_segformer_encoder_block_2_0_mlp_dwconv(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
@@ -1449,7 +1421,6 @@ def test_segformer_encoder_block_3_0_mlp_dwconv(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_0_0"
@@ -1470,7 +1441,6 @@ def test_segformer_encoder_block_0_0_mlp(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_1_0"
@@ -1491,7 +1461,6 @@ def test_segformer_encoder_block_1_0_mlp(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_2_0"
@@ -1512,7 +1481,6 @@ def test_segformer_encoder_block_2_0_mlp(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(
     reason="Redundant test, already covered by test_segformer_encoder_block_3_0"
@@ -1533,7 +1501,6 @@ def test_segformer_encoder_block_3_0_mlp(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_0_0(target, batch_size) -> None:
     class SegformerEncoderBlock00(SegformerLayer):
@@ -1557,7 +1524,6 @@ def test_segformer_encoder_block_0_0(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_0_1(target, batch_size) -> None:
     class SegformerEncoderBlock01(SegformerLayer):
@@ -1581,7 +1547,6 @@ def test_segformer_encoder_block_0_1(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_1_0(target, batch_size) -> None:
     class SegformerEncoderBlock10(SegformerLayer):
@@ -1605,7 +1570,6 @@ def test_segformer_encoder_block_1_0(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_1_1(target, batch_size) -> None:
     class SegformerEncoderBlock11(SegformerLayer):
@@ -1629,7 +1593,6 @@ def test_segformer_encoder_block_1_1(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_2_0(target, batch_size) -> None:
     class SegformerEncoderBlock20(SegformerLayer):
@@ -1653,7 +1616,6 @@ def test_segformer_encoder_block_2_0(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_2_1(target, batch_size) -> None:
     class SegformerEncoderBlock21(SegformerLayer):
@@ -1677,7 +1639,6 @@ def test_segformer_encoder_block_2_1(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_3_0(target, batch_size) -> None:
     class SegformerEncoderBlock30(SegformerLayer):
@@ -1701,7 +1662,6 @@ def test_segformer_encoder_block_3_0(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_segformer_encoder_block_3_1(target, batch_size) -> None:
     class SegformerEncoderBlock31(SegformerLayer):
@@ -1725,21 +1685,18 @@ def test_segformer_encoder_block_3_1(target, batch_size) -> None:
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.skip(reason="This test is too slow to run in CI")
 def test_segformer_encoder(target) -> None:
     model, x = BENCHMARKS["segformer.encoder"]()
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.skip(reason="This test is too slow to run in CI")
 def test_segformer(target) -> None:
     model, x = BENCHMARKS["segformer"]()
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_0(target, batch_size) -> None:
@@ -1756,7 +1713,6 @@ def test_decode_head_linear_c_0(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_1(target, batch_size) -> None:
@@ -1773,7 +1729,6 @@ def test_decode_head_linear_c_1(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_2(target, batch_size) -> None:
@@ -1790,7 +1745,6 @@ def test_decode_head_linear_c_2(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(reason="Redundant test, already covered by test_decode_head")
 def test_decode_head_linear_c_3(target, batch_size) -> None:
@@ -1807,14 +1761,12 @@ def test_decode_head_linear_c_3(target, batch_size) -> None:
     check(model, x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 def test_decode_head(target, batch_size) -> None:
     model, x = BENCHMARKS["decode_head"](batch_size)
     check(model, *x, target=target)
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("batch_size", BATCH_SIZES)
 @pytest.mark.skip(reason="This test is too slow to run in CI")
 def test_all(target, batch_size) -> None:
