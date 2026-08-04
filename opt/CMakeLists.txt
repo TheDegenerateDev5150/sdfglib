@@ -93,6 +93,7 @@ set(SOURCE_FILES
     src/targets/rocm/rocm_map_dispatcher.cpp
     src/targets/rocm/rocm_reduce_dispatcher.cpp
     src/targets/gpu/gpu_map_utils.cpp
+    src/targets/gpu/gpu_reduce_dispatcher.cpp
     src/targets/offloading/external_offloading_node.cpp
     src/targets/offloading/utils.cpp
     src/targets/omp/codegen/omp_map_dispatcher.cpp

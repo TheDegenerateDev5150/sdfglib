@@ -1,13 +1,15 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "sdfg/analysis/analysis.h"
-#include "sdfg/codegen/dispatchers/node_dispatcher.h"
 #include "sdfg/codegen/instrumentation/instrumentation_info.h"
+#include "sdfg/codegen/language_extension.h"
 #include "sdfg/structured_control_flow/reduce.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg/targets/gpu/gpu_reduce_dispatcher.h"
 #include "sdfg/targets/rocm/rocm.h"
 
 namespace sdfg {
@@ -16,74 +18,27 @@ namespace rocm {
 /**
  * @brief Atomics-based ROCm/HIP code generator for @ref structured_control_flow::Reduce
  *
- * A Reduce loop carries one or more associative/commutative reductions
- * (@ref structured_control_flow::ReductionInfo) into a loop-invariant
- * accumulator. This dispatcher handles a Reduce whose own schedule is
- * @ref ScheduleType_ROCM, i.e. the reduction dimension is parallelized across
- * threads on its configured GPU dimension.
- *
- * Correctness strategy ("atomics baseline"):
- * - The reduction dimension is parallelized with a *grid-stride* loop on the
- *   schedule's dimension: thread `t` starts at `init + t*stride` and advances
- *   by `num_threads*stride`. This is correct for any launch geometry (even a
- *   single thread), so the lowering composes whether the Reduce is top-level or
- *   nested inside a ROCm map.
- * - For every reduction the accumulator is *privatized*: a thread-local partial
- *   is declared and initialized to the operator's identity, and the
- *   accumulator container is shadowed to point at that private storage so the
- *   in-body combine (`acc = acc OP x`) accumulates into the register.
- * - After the loop, each thread merges its private partial into the real
- *   device-resident accumulator with an atomic combine (native `atomicAdd`
- *   where available, otherwise a compare-and-swap loop). Associativity and
- *   commutativity (guaranteed by the Reduce node) make the merge order-free.
+ * Thin ROCm specialization of @ref gpu::GPUReduceDispatcher: the whole lowering
+ * (grid-stride reduce, privatization, atomic merge) lives in the shared base;
+ * this class only supplies the ROCm-specific policy (language extension,
+ * device-pointer storage, kernel launch syntax and includes).
  */
-class ROCMReduceDispatcher : public codegen::NodeDispatcher {
-private:
-    structured_control_flow::Reduce& node_;
-
-    /**
-     * @brief True if this Reduce is nested inside an enclosing ROCm kernel
-     *        (an ancestor Map with @ref ScheduleType_ROCM).
-     */
-    bool is_nested_in_rocm_kernel();
-
-    void dispatch_header(
-        codegen::PrettyPrinter& stream, const std::string& kernel_name, std::vector<std::string>& arguments_declaration
-    );
-
-    void dispatch_kernel_call(
+class ROCMReduceDispatcher : public gpu::GPUReduceDispatcher {
+protected:
+    std::string schedule_value() const override;
+    codegen::TargetType target_type() const override;
+    std::unique_ptr<codegen::LanguageExtension> create_device_language_extension() const override;
+    bool is_device_pointer_storage(const types::StorageType& storage) const override;
+    std::string kernel_file_extension() const override;
+    void emit_kernel_includes(codegen::CodeSnippetFactory& library_snippet_factory) const override;
+    void emit_library_preamble(codegen::PrettyPrinter& library_stream) const override;
+    void emit_kernel_call(
         codegen::PrettyPrinter& main_stream,
         const std::string& kernel_name,
         symbolic::Expression& num_blocks,
         symbolic::Expression& block_size,
         std::vector<std::string>& arguments_device
-    );
-
-    /**
-     * @brief Emit the privatize + grid-stride reduce loop + atomic merge into
-     *        the given (device) stream, parallelized on @p dimension.
-     *
-     * @param declare_scope_variables  When true (top-level kernel), declare the
-     *        loop-local scope variables here. When false (nested), the enclosing
-     *        map already declared them.
-     */
-    void dispatch_reduce_core(
-        codegen::CodeSnippetFactory& library_snippet_factory,
-        codegen::PrettyPrinter& library_stream,
-        ROCMDimension dimension,
-        bool declare_scope_variables,
-        std::vector<std::string>& scope_variables
-    );
-
-    /**
-     * @brief Emit the device-side helper(s) and the atomic merge statement that
-     *        combines a thread's private partial into the global accumulator.
-     */
-    void dispatch_atomic_merge(
-        codegen::PrettyPrinter& library_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory,
-        const structured_control_flow::ReductionInfo& reduction
-    );
+    ) override;
 
 public:
     ROCMReduceDispatcher(
@@ -94,14 +49,6 @@ public:
         codegen::InstrumentationPlan& instrumentation_plan,
         codegen::ArgCapturePlan& arg_capture_plan
     );
-
-    void dispatch_node(
-        codegen::PrettyPrinter& main_stream,
-        codegen::PrettyPrinter& globals_stream,
-        codegen::CodeSnippetFactory& library_snippet_factory
-    ) override;
-
-    codegen::InstrumentationInfo instrumentation_info() const override;
 };
 
 } // namespace rocm
