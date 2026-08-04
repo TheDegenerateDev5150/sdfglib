@@ -691,7 +691,6 @@ def setup(
     return model, x
 
 
-TARGETS = ["sequential", "openmp", "cuda", "rocm"]
 BATCH_SIZES = [1, 4, 16]
 
 
