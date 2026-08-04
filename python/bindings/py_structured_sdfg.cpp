@@ -23,7 +23,6 @@
 #include <sdfg/passes/dataflow/tensor_to_pointer_conversion.h>
 #include <sdfg/passes/dot_expansion_pass.h>
 #include <sdfg/passes/einsum.h>
-#include <sdfg/passes/gemm_expansion_pass.h>
 #include <sdfg/passes/normalization/loop_normal_form.h>
 #include <sdfg/passes/normalization/normalization.h>
 #include <sdfg/passes/normalization/normalize.h>
@@ -213,11 +212,6 @@ void PyStructuredSDFG::expand(const docc::target::TargetOptions& options) {
     // Workaround until built-in targets are supported by the above mechanism
     sdfg::passes::DotExpansionPass dot_expansion_pass;
     dot_expansion_pass.run(builder_opt, analysis_manager);
-    if (options.target == "cuda" || options.target == "rocm") {
-        // Expand GEMV / DOT nodes represented as GEMM
-        sdfg::passes::GemmExpansionPass gemm_expansion_pass;
-        gemm_expansion_pass.run(builder_opt, analysis_manager);
-    }
 }
 
 
