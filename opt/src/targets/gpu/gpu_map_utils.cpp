@@ -166,7 +166,7 @@ get_gpu_maps(structured_control_flow::Map& node, analysis::AnalysisManager& anal
 }
 
 bool nested_parallelization_replicates_accumulation(
-    structured_control_flow::Map& loop, analysis::AnalysisManager& analysis_manager
+    structured_control_flow::StructuredLoop& loop, analysis::AnalysisManager& analysis_manager
 ) {
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
 

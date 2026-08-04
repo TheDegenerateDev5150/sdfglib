@@ -141,7 +141,7 @@ void OffloadTransform::apply(builder::StructuredSDFGBuilder& builder, analysis::
             continue;
         }
         auto argument_device = container_prefix + argument;
-        auto& new_block = builder.add_block_before(*parent_scope, this->loop_, {}, this->loop_.debug_info());
+        auto& new_block = builder.add_block_before(*parent_scope, this->loop_, this->loop_.debug_info());
         auto& size = argument_sizes.at(argument);
         copy_to_device_with_allocation(builder, argument, argument_device, size, SymEngine::null, new_block);
     }
@@ -154,7 +154,7 @@ void OffloadTransform::apply(builder::StructuredSDFGBuilder& builder, analysis::
             continue;
         }
         auto argument_device = container_prefix + argument;
-        auto& new_block = builder.add_block_after(*parent_scope, this->loop_, {}, this->loop_.debug_info());
+        auto& new_block = builder.add_block_after(*parent_scope, this->loop_, this->loop_.debug_info());
         auto& size = argument_sizes.at(argument);
         if (!skip_unneeded_d2h_ || meta.is_output) {
             copy_from_device_with_free(builder, new_block, argument, argument_device, size, SymEngine::null);
@@ -206,13 +206,13 @@ bool ::sdfg::transformations::SideEffectFinder::accept(structured_control_flow::
 }
 
 bool ::sdfg::transformations::SideEffectFinder::visit() {
-    return visitor::ImmutableStructuredSDFGVisitor::visit_internal(map_.StructuredLoop::root());
+    return visitor::ImmutableStructuredSDFGVisitor::visit_internal(loop_.StructuredLoop::root());
 }
 
 ::sdfg::transformations::SideEffectFinder::SideEffectFinder(
-    StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::Map& map
+    StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::StructuredLoop& loop
 )
-    : visitor::ImmutableStructuredSDFGVisitor(sdfg, analysis_manager), map_(map) {}
+    : visitor::ImmutableStructuredSDFGVisitor(sdfg, analysis_manager), loop_(loop) {}
 
 } // namespace transformations
 } // namespace sdfg

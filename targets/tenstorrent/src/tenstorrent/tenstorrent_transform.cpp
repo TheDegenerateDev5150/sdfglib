@@ -313,7 +313,7 @@ void TenstorrentTransform::apply_plan(
                                                                                     // loops type
 
     allocate_locals_on_device_stack(builder, analysis_manager, plan->locals_);
-    auto& outer_map = dyn_cast<structured_control_flow::Map&>(parent_scope.at(outer_map_idx));
+    auto& outer_map = dyn_cast<structured_control_flow::Map&>(parent_scope.at(outer_loop_idx));
 
     builder.subject().type(outer_map.indvar()->get_name()).storage_type() = local_device_storage_type();
     if (report_) report_->transform_applied(this);

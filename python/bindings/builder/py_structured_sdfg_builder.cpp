@@ -378,7 +378,6 @@ sdfg::structured_control_flow::Reduce& PyStructuredSDFGBuilder::begin_reduce(
         update,
         reduction_infos,
         sdfg::structured_control_flow::ScheduleType_Sequential::create(),
-        {},
         debug_info
     );
 

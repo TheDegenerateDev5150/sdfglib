@@ -631,7 +631,7 @@ TEST(CUDASchedulerTest, DISABLED_OuterParallelMapWithInnerReduce) {
     builder.add_computational_memlet(block, tasklet, "_out", acc_out, {symbolic::symbol("i")}, acc_desc);
 
     analysis::AnalysisManager analysis_manager(builder.subject());
-    passes::scheduler::LoopSchedulingPass loop_scheduling_pass({"cuda"}, nullptr);
+    passes::scheduler::LoopSchedulingPass loop_scheduling_pass({get_cuda_sched()}, nullptr);
 
     EXPECT_TRUE(loop_scheduling_pass.run(builder, analysis_manager));
 

@@ -161,7 +161,7 @@ symbolic::Expression accumulator_index(
             }
         } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(current)) {
             for (size_t i = 0; i < seq->size(); ++i) {
-                queue.push_back(&seq->at(i).first);
+                queue.push_back(&seq->at(i));
             }
         } else if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(current)) {
             queue.push_back(&loop->root());
@@ -535,8 +535,14 @@ codegen::InstrumentationInfo ROCMReduceDispatcher::instrumentation_info() const 
         metrics.insert({"flop", language_extension_.expression(flop)});
     }
 
-    return codegen::
-        InstrumentationInfo(node_.element_id(), codegen::ElementType_Reduce, TargetType_ROCM, loop_info, metrics);
+    return codegen::InstrumentationInfo(
+        node_.element_id(),
+        node_.element_type(),
+        TargetType_ROCM,
+        codegen::InstrumentationEventType::CUDA,
+        loop_info,
+        metrics
+    );
 }
 
 } // namespace rocm

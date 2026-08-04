@@ -119,10 +119,12 @@ protected:
 
 class SideEffectFinder : public visitor::ImmutableStructuredSDFGVisitor {
 private:
-    structured_control_flow::Map& map_;
+    structured_control_flow::StructuredLoop& loop_;
 
 public:
-    SideEffectFinder(StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::Map& map);
+    SideEffectFinder(
+        StructuredSDFG& sdfg, analysis::AnalysisManager& analysis_manager, structured_control_flow::StructuredLoop& loop
+    );
 
     bool visit() override;
 
