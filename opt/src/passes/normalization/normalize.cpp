@@ -18,20 +18,21 @@ void normalize(sdfg::StructuredSDFG& sdfg, bool enable_fusion) {
     builder::StructuredSDFGBuilder builder(sdfg);
     analysis::AnalysisManager analysis_manager(sdfg);
 
-    // Distribute and permute
-    auto pipeline = loop_normalization();
-    pipeline.run(builder, analysis_manager);
+    if (!enable_fusion) {
+        // Minimize strides and distribute in the sdfg to get a normal form
+        auto pipeline = loop_normalization();
+        pipeline.run(builder, analysis_manager);
+    } else {
+        // Minimize strides in the sdfg and fuse to get a normal form
+        auto pipeline = stride_minimization();
+        pipeline.run(builder, analysis_manager);
 
-    if (enable_fusion) {
         sdfg::passes::Pipeline dce = sdfg::passes::Pipeline::dead_code_elimination();
         sdfg::passes::DeadDataElimination dde;
-        // DebugDumpPass::dump(sdfg, "py4.1.pre-fusion");
 
         // New Map Fusion, simpler than previous, but what it can do should be cheaper to do
         sdfg::passes::loop_fusion::LoopFusionPass loop_fusion_pass({.allow_init_hoist = true});
         loop_fusion_pass.run(builder, analysis_manager);
-
-        // DebugDumpPass::dump(sdfg, "py4.2.post-fusion");
 
         // Cleanup of artifacts of MapFusion
         dde.run(builder, analysis_manager);
