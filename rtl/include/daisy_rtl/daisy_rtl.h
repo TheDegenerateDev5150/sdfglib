@@ -307,11 +307,17 @@ inline int __daisy_sym_pow(int base, int exp) {
 // e.g. `__daisy_reduce_combine_max_float`, `__daisy_reduce_combine_add_long_long`.
 //
 // Defined for every device translation unit (CUDA `.cu` / HIP `.cpp`), so they
-// are visible to the kernels regardless of which TU references them. Both CUDA
-// and HIP provide `atomicCAS` plus the `__uint_as_float` / `__float_as_uint` /
+// are visible to the kernels regardless of which TU references them. They use
+// `atomicCAS` plus the `__uint_as_float` / `__float_as_uint` /
 // `__longlong_as_double` / `__double_as_longlong` bit-reinterpretation
-// intrinsics used here.
+// intrinsics: CUDA provides them as builtins, while HIP declares them in its
+// runtime header, which may be included after this one; pull it in here so the
+// helpers are self-sufficient regardless of include order.
 #if defined(__CUDACC__) || defined(__HIPCC__)
+
+#if defined(__HIPCC__)
+#include <hip/hip_runtime.h>
+#endif
 
 // Emit one CAS-loop combine function. TO_VAL reinterprets the CAS word as the
 // typed value; FROM_VAL reinterprets the combined typed value back to the CAS
