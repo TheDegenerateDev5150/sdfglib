@@ -1787,8 +1787,9 @@ void PyStructuredSDFGBuilder::add_broadcast_op(
     auto& block = builder_.add_block(current_sequence(), {}, debug_info);
     auto& X_access = builder_.add_access(block, X, debug_info);
     auto& Y_access = builder_.add_access(block, Y, debug_info);
-    auto& libnode =
-        builder_.add_library_node<sdfg::math::tensor::BroadcastNode>(block, debug_info, input_shape, output_shape);
+    // aten uses NumPy/PyTorch trailing-alignment semantics, not the default leading alignment.
+    auto& libnode = builder_.add_library_node<
+        sdfg::math::tensor::BroadcastNode>(block, debug_info, input_shape, output_shape, /*padded=*/false);
     builder_.add_computational_memlet(block, X_access, libnode, "X", {}, X_type, debug_info);
     builder_.add_computational_memlet(block, Y_access, libnode, "Y", {}, Y_type, debug_info);
 }
