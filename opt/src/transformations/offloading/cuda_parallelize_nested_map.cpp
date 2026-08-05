@@ -81,12 +81,13 @@ bool CUDAParallelizeNestedMap::
     // the natural strided value; `num_iterations()` accounts for both when
     // computing the grid geometry.
 
-    // Condition: Parallelizing this map must not replicate a sibling accumulation.
-    // Folding a new grid dimension re-runs every unguarded sibling on each thread of
-    // the new dimension; a sibling read-modify-write on a shared (non-privatizable)
-    // container would then race. Such a reduction must either be parallelized itself
-    // or block nested parallelism of its siblings.
-    if (gpu::nested_parallelization_replicates_accumulation(loop_, analysis_manager)) {
+    // Condition: Parallelizing this loop must not introduce a data race. Folding a new
+    // grid dimension distributes this loop's iterations across the new threads and
+    // re-runs every unguarded sibling on each of them, with no grid-wide barrier. That
+    // races when this loop produces a shared container a sibling consumes (a reduction
+    // accumulator -> consumer, e.g. softmax) or when a sibling read-modify-writes a
+    // shared container. Such a loop must be parallelized differently or left sequential.
+    if (gpu::nested_parallelization_is_unsafe(loop_, analysis_manager)) {
         return false;
     }
 
