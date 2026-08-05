@@ -314,7 +314,6 @@ jobs:
           pytest -v llvm_test_suite.py
 
   mlir-tests-linux:
-    needs: setup
     runs-on:
       group: dahlia
       labels: Linux
@@ -396,7 +395,6 @@ jobs:
       #     python fasterrcnn_resnet50.py
 
   python-tests-linux:
-    needs: setup
     runs-on:
       group: dahlia
       labels: Linux
@@ -477,7 +475,6 @@ jobs:
           file: coverage.xml
 
   pytorch-tests-linux:
-    needs: setup
     runs-on:
       group: dahlia
       labels: Linux
