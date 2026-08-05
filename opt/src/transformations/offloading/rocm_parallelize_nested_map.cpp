@@ -30,15 +30,27 @@ bool ROCMParallelizeNestedMap::
         return false;
     }
 
-    // Condition: a nested Reduce can only be offloaded when every accumulator is
-    // a device-resident pointer to a scalar.
+    // Condition: a nested Reduce can only be offloaded when every accumulator is a
+    // device-resident pointer to a scalar whose type the atomics baseline supports.
+    // Privatize + atomic merge (native atomicAdd or a CAS loop) is only defined for
+    // 32/64-bit numeric types, so bool and 8/16-bit accumulators (e.g. torch.any /
+    // torch.all over bool) must stay sequential.
     if (auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(&loop_)) {
         auto& sdfg = builder.subject();
         for (auto& reduction : reduce->reductions()) {
             auto& type = sdfg.type(reduction.container);
             auto* ptr = dynamic_cast<const types::Pointer*>(&type);
-            if (ptr == nullptr || !ptr->has_pointee_type() ||
-                dynamic_cast<const types::Scalar*>(&ptr->pointee_type()) == nullptr) {
+            if (ptr == nullptr || !ptr->has_pointee_type()) {
+                return false;
+            }
+            auto* scalar = dynamic_cast<const types::Scalar*>(&ptr->pointee_type());
+            if (scalar == nullptr) {
+                return false;
+            }
+            auto prim = scalar->primitive_type();
+            const bool numeric = types::is_floating_point(prim) || types::is_signed(prim) || types::is_unsigned(prim);
+            const size_t width = types::bit_width(prim);
+            if (!numeric || (width != 32 && width != 64)) {
                 return false;
             }
         }
