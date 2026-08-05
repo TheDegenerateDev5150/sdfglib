@@ -81,5 +81,16 @@ void Reduce::replace(const symbolic::ExpressionMapping& replacements) {
 
 const std::vector<ReductionInfo>& Reduce::reductions() const { return this->reductions_; };
 
+void Reduce::replace_reduction_container(const std::string& old_name, const std::string& new_name) {
+    if (old_name == new_name) {
+        return;
+    }
+    for (auto& reduction : this->reductions_) {
+        if (reduction.container == old_name) {
+            reduction.container = new_name;
+        }
+    }
+};
+
 } // namespace structured_control_flow
 } // namespace sdfg

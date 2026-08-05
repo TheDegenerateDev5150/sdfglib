@@ -84,22 +84,22 @@ def test_mlp(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "SEQUENTIAL": 4,
+                "SEQUENTIAL": 2,
                 "REDUCE": 2,
-                "CUDA": 8,
+                "CUDA": 12,
                 "GEMM": 3,
-                "MAP": 10,
+                "MAP": 12,
                 "CUDAOffloading": 6,
             }
         )
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "SEQUENTIAL": 4,
+                "SEQUENTIAL": 2,
                 "REDUCE": 2,
-                "ROCM": 8,
+                "ROCM": 12,
                 "GEMM": 3,
-                "MAP": 10,
+                "MAP": 12,
                 "ROCMOffloading": 6,
             }
         )
