@@ -446,6 +446,18 @@ PYBIND11_MODULE(_sdfg, m) {
         )
         .def("end_map", &PyStructuredSDFGBuilder::end_map)
         .def(
+            "begin_reduce",
+            &PyStructuredSDFGBuilder::begin_reduce,
+            py::arg("var"),
+            py::arg("start"),
+            py::arg("end"),
+            py::arg("step"),
+            py::arg("reductions"),
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference
+        )
+        .def("end_reduce", &PyStructuredSDFGBuilder::end_reduce)
+        .def(
             "add_assignments",
             &PyStructuredSDFGBuilder::add_assignments,
             py::arg("lhs"),
