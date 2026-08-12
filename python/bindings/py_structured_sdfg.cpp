@@ -487,13 +487,16 @@ void PyStructuredSDFG::schedule(const docc::target::TargetOptions& options) {
         device_buffer_reuse_pass.run(builder, analysis_manager);
         sdfg::passes::DeadDataElimination dde(false);
         dde.run(builder, analysis_manager);
+        sdfg::passes::DeadCFGElimination dead_cfg_elimination;
+        dead_cfg_elimination.run(builder, analysis_manager);
+
         sdfg::passes::ReferencePropagation reference_propagation;
         reference_propagation.run(builder, analysis_manager);
         sdfg::passes::DeadReferenceElimination dead_reference_elimination;
         dead_reference_elimination.run(builder, analysis_manager);
         reference_propagation.run(builder, analysis_manager);
         dead_reference_elimination.run(builder, analysis_manager);
-        sdfg::passes::DeadCFGElimination dead_cfg_elimination;
+
         dead_cfg_elimination.run(builder, analysis_manager);
     }
     sdfg::passes::CompileStatistics::exit_stage_if_enabled();
@@ -512,6 +515,7 @@ bool PyStructuredSDFG::promote_device_residency(bool is_rocm) {
         sdfg::passes::DataTransferMinimizationPass data_transfer_minimization;
         sdfg::passes::DeadDataElimination dead_data_elimination;
         sdfg::passes::DeviceBufferReusePass device_buffer_reuse_pass;
+        sdfg::passes::DeadCFGElimination dead_cfg_elimination;
 
         // 1st round
         reference_propagation.run(builder, analysis_manager);
@@ -519,6 +523,7 @@ bool PyStructuredSDFG::promote_device_residency(bool is_rocm) {
         data_transfer_minimization.run(builder, analysis_manager);
         device_buffer_reuse_pass.run(builder, analysis_manager);
         dead_data_elimination.run(builder, analysis_manager);
+        dead_cfg_elimination.run(builder, analysis_manager);
 
         // 2nd round
         reference_propagation.run(builder, analysis_manager);
@@ -526,6 +531,7 @@ bool PyStructuredSDFG::promote_device_residency(bool is_rocm) {
         data_transfer_minimization.run(builder, analysis_manager);
         device_buffer_reuse_pass.run(builder, analysis_manager);
         dead_data_elimination.run(builder, analysis_manager);
+        dead_cfg_elimination.run(builder, analysis_manager);
     }
 
     sdfg::passes::CompileStatistics::exit_stage_if_enabled();
