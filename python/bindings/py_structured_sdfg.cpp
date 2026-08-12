@@ -660,6 +660,10 @@ std::string PyStructuredSDFG::metadata(const std::string& key) const {
     }
 }
 
+void PyStructuredSDFG::add_metadata(const std::string& key, const std::string& value) {
+    sdfg_->add_metadata(key, value);
+}
+
 pybind11::dict PyStructuredSDFG::loop_report() const {
     sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
     sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
