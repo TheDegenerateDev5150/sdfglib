@@ -78,17 +78,6 @@
 #include <docc/target/et/target.h>
 #endif
 
-// Platform-specific compiler selection
-#ifndef DOCC_CXX_COMPILER
-#if defined(__APPLE__)
-#define DOCC_CXX_COMPILER "clang++"
-#elif defined(__linux__)
-#define DOCC_CXX_COMPILER "clang-19"
-#else
-#error "Unsupported platform"
-#endif
-#endif
-
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
@@ -543,6 +532,25 @@ struct SnippetMetadata {
     std::string extension;
 };
 
+std::string docc_backend_compiler() {
+    const char* env_compiler = std::getenv("DOCC_BACKEND_COMPILER");
+    if (env_compiler) {
+        return std::string(env_compiler);
+    } else {
+        // Platform-specific compiler selection
+#ifndef DOCC_CXX_COMPILER
+#if defined(__APPLE__)
+#define DOCC_CXX_COMPILER "clang++"
+#elif defined(__linux__)
+#define DOCC_CXX_COMPILER "clang-19"
+#else
+#error "Unsupported platform"
+#endif
+#endif
+        return DOCC_CXX_COMPILER;
+    }
+}
+
 std::string PyStructuredSDFG::compile(
     const std::string& output_folder,
     const std::string& target,
@@ -586,8 +594,11 @@ std::string PyStructuredSDFG::compile(
     std::shared_ptr<docc::util::DefaultDoccPaths> paths =
         docc::util::DefaultDoccPaths::from_lib_location(docc::util::find_lib_location());
 
+
+    auto backend_compiler_exec = docc_backend_compiler();
+
     docc::compile::SrcFileCompilerBuilder compile_builder;
-    compile_builder.set_compiler(DOCC_CXX_COMPILER)
+    compile_builder.set_compiler(backend_compiler_exec)
         .set_from_paths(paths)
         .set_src_extension("cpp")
         .set_bin_extension("so")
@@ -612,15 +623,10 @@ std::string PyStructuredSDFG::compile(
     }
 
 #if defined(__APPLE__)
-    compile_builder.add_common_option("-Xpreprocessor -fopenmp");
     compile_builder.add_include_path("/opt/homebrew/include");
-    compile_builder.add_library_path("/opt/homebrew/opt/libomp/lib")
-        .add_library_path("/opt/homebrew/opt/libomp/include")
-        .add_library_path("/opt/homebrew/lib");
-    compile_builder.add_link_option("-lomp");
+    compile_builder.add_library_path("/opt/homebrew/lib");
     compile_builder.add_link_option("-framework Accelerate");
 #else
-    compile_builder.add_common_option("-fopenmp");
     compile_builder.add_link_option("-lblas");
 #endif
 
