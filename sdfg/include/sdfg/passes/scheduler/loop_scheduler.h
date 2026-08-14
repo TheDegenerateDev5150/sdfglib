@@ -14,9 +14,9 @@ namespace passes {
 namespace scheduler {
 
 enum SchedulerAction {
+    APPLY,
     NEXT,
     CHILDREN,
-    SKIP,
 };
 
 struct SchedulerLoopInfo {

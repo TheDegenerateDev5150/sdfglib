@@ -17,12 +17,8 @@ SchedulerAction OMPScheduler::find(
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    if (loop.schedule_type().category() != structured_control_flow::ScheduleTypeCategory::None) {
-        return SKIP;
-    }
-
     if (dyn_cast<structured_control_flow::Map*>(&loop)) {
-        return NEXT;
+        return APPLY;
     }
 
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();

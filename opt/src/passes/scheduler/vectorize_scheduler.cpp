@@ -14,10 +14,6 @@ SchedulerAction VectorizeScheduler::find(
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    if (loop.schedule_type().category() != structured_control_flow::ScheduleTypeCategory::None) {
-        return SKIP;
-    }
-
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
 
     bool is_innermost = loop_analysis.children(&loop).empty();
@@ -25,7 +21,7 @@ SchedulerAction VectorizeScheduler::find(
         return CHILDREN;
     }
 
-    return NEXT;
+    return APPLY;
 }
 
 SchedulerAction VectorizeScheduler::find(
@@ -40,7 +36,7 @@ SchedulerAction VectorizeScheduler::find(
     if (!is_innermost) {
         return CHILDREN;
     }
-    return NEXT;
+    return APPLY;
 }
 
 bool VectorizeScheduler::can_apply_schedule(
