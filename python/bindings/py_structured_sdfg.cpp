@@ -594,7 +594,7 @@ std::string PyStructuredSDFG::compile(
     std::shared_ptr<docc::util::DefaultDoccPaths> paths =
         docc::util::DefaultDoccPaths::from_lib_location(docc::util::find_lib_location());
 
-    
+
     auto backend_compiler_exec = docc_backend_compiler();
 
     docc::compile::SrcFileCompilerBuilder compile_builder;
