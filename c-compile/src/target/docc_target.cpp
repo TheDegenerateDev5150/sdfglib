@@ -113,7 +113,7 @@ static DoccTarget openmp_target = {
     .apply_additional_compile_options = [](compile::SrcFileCompilerBuilder& builder) -> bool {
 #if defined(__APPLE__)
         builder.add_common_option("-Xpreprocessor -fopenmp");
-        builder.add_library_path("/opt/homebrew/opt/libomp/lib")
+        builder.add_library_path("/opt/homebrew/opt/libomp/lib");
         builder.add_library_path("/opt/homebrew/opt/libomp/include");
         builder.add_link_option("-lomp");
 #else
