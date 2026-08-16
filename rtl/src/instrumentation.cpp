@@ -1047,6 +1047,22 @@ public:
             region.first_start = 0;
             region.starts.clear();
             region.durations.clear();
+
+            // Hardware-counter aggregates, cleared so all metrics drop the
+            // warmup sample consistently with the runtime stats above.
+            region.counts.clear();
+            region.n.clear();
+            region.mean.clear();
+            region.variance.clear();
+            region.min.clear();
+            region.max.clear();
+
+            // Static counters.
+            region.static_counters_n.clear();
+            region.static_counters_mean.clear();
+            region.static_counters_variance.clear();
+            region.static_counters_min.clear();
+            region.static_counters_max.clear();
         }
     }
 
