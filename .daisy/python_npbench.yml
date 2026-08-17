@@ -27,102 +27,102 @@ steps:
     export DOCC_DEBUG=dump
 
     # Compile and cache binaries
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=openmp
-    # venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=openmp
+    # venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=openmp
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=openmp
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=openmp
-    # venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda
     venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=openmp
+    # venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
     # Compile and cache instrumented binaries for profiling
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=openmp
-    # DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=openmp
+    # DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=openmp
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=openmp
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
-    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=openmp
-    # DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda
     DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=sequential --remote-tuning
+    DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=openmp
+    # DOCC_CI=regions venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
 
   run:
     adi:
@@ -150,10 +150,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_adi.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     atax:
@@ -181,10 +181,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_atax.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     gemm:
@@ -212,10 +212,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     gesummv:
@@ -243,10 +243,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gesummv.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     gemver:
@@ -274,10 +274,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_gemver.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     k2mm:
@@ -305,10 +305,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k2mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     k3mm:
@@ -336,10 +336,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_k3mm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     mvt:
@@ -367,10 +367,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_mvt.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     symm:
@@ -398,10 +398,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         # docc-cuda:
-        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda
+        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
         #   tags: { framework: docc, device: gpu, model: cuda, precision: double }
         # docc-cuda-prof:
-        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda
+        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_symm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
         #   tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
         #   metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     syr2k:
@@ -429,10 +429,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syr2k.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     syrk:
@@ -460,10 +460,10 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         docc-cuda:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double }
         docc-cuda-prof:
-          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda
+          command: venv/bin/python3 python/benchmarks/npbench/polybench/test_syrk.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
           tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     trmm:
@@ -491,9 +491,9 @@ steps:
           tags: { framework: docc, device: cpu, model: openmp, precision: double, profiling: true }
           metrics: ["flop_fp64", "flop_fp32", "dram_volume", "l2_volume"]
         # docc-cuda:
-        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda
+        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
         #   tags: { framework: docc, device: gpu, model: cuda, precision: double }
         # docc-cuda-prof:
-        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda
+        #   command: venv/bin/python3 python/benchmarks/npbench/polybench/test_trmm.py --docc --size=M --n_runs=1 --target=cuda --remote-tuning
         #   tags: { framework: docc, device: gpu, model: cuda, precision: double, profiling: true }
         #   metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
