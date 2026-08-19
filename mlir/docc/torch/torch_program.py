@@ -2,6 +2,7 @@ import os
 import getpass
 import hashlib
 import shutil
+import contextlib
 from typing import Any, Callable, Optional, List
 import time
 import numpy as np
@@ -68,6 +69,86 @@ def _filter_none_outputs(model) -> List[int]:
     model.recompile()
 
     return none_positions
+
+
+def _strip_guards_fn(model) -> None:
+    """Remove dynamo's ``_guards_fn`` node from an FX graph.
+
+    Recent PyTorch embeds a ``_guards_fn`` call (dynamo's guard checks) in the
+    graph handed to backends. It has no users and references the guard locals
+    dict ``L``, which is undefined when the graph is re-run via torch.export /
+    torch-mlir, so drop it before export.
+    """
+    import torch.fx
+
+    if not isinstance(model, torch.fx.GraphModule):
+        return
+
+    graph = model.graph
+    removed = False
+    for node in list(graph.nodes):
+        if node.op == "call_module" and node.target == "_guards_fn" and not node.users:
+            graph.erase_node(node)
+            removed = True
+
+    if not removed:
+        return
+
+    if hasattr(model, "_guards_fn"):
+        try:
+            delattr(model, "_guards_fn")
+        except Exception:
+            pass
+    model.recompile()
+
+
+@contextlib.contextmanager
+def _disable_export_guards():
+    """Disable torch.export's ``_guards_fn`` insertion during (re-)export.
+
+    Recent PyTorch inserts a ``_guards_fn`` submodule when unlifting an
+    ExportedProgram (``ExportedProgram.module()``, called inside
+    ``run_decompositions``). Its body references the guard locals dict ``L``,
+    which is undefined when torch-mlir re-traces the graph ->
+    ``NameError: name 'L' is not defined``. Force ``check_guards=False`` (torch's
+    own escape hatch, which emits no ``_guards_fn`` node) for the export.
+    """
+    import inspect
+
+    patches = []
+    try:
+        from torch.export.exported_program import ExportedProgram
+
+        original_module = ExportedProgram.module
+        try:
+            has_flag = "check_guards" in inspect.signature(original_module).parameters
+        except (TypeError, ValueError):
+            has_flag = False
+        if has_flag:
+
+            def _module_no_guards(self, check_guards=False):
+                return original_module(self, check_guards=False)
+
+            ExportedProgram.module = _module_no_guards
+            patches.append((ExportedProgram, "module", original_module))
+    except Exception:
+        pass
+
+    try:
+        from torch.export import _unlift
+
+        if hasattr(_unlift, "_ok_to_generate_guards_fn"):
+            original_ok = _unlift._ok_to_generate_guards_fn
+            _unlift._ok_to_generate_guards_fn = lambda: False
+            patches.append((_unlift, "_ok_to_generate_guards_fn", original_ok))
+    except Exception:
+        pass
+
+    try:
+        yield
+    finally:
+        for obj, name, original in patches:
+            setattr(obj, name, original)
 
 
 class TorchProgram(DoccProgram):
@@ -434,6 +515,10 @@ class TorchProgram(DoccProgram):
             else (self.example_input,)
         )
 
+        # Drop dynamo's guard node so re-exporting the graph does not run its
+        # guard code (which references the undefined locals dict `L`).
+        _strip_guards_fn(self.model)
+
         self._frozen_buffer_args = []
         try:
             prog = torch.export.export(self.model, example_inputs)
@@ -453,12 +538,13 @@ class TorchProgram(DoccProgram):
         # torch.constant.none, so we filter them here and restore after execution.
         self._none_output_positions = _filter_none_outputs(self.model)
 
-        torch_mlir = fx.export_and_import(
-            self.model,
-            *example_inputs,
-            output_type="linalg_on_tensors",
-            func_name=self.name,
-        )
+        with _disable_export_guards():
+            torch_mlir = fx.export_and_import(
+                self.model,
+                *example_inputs,
+                output_type="linalg_on_tensors",
+                func_name=self.name,
+            )
         torch_mlir = str(torch_mlir)
 
         # Dump the MLIR code to a file for inspection
