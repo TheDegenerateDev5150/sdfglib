@@ -83,9 +83,12 @@ class PyTorchProgram(DoccProgram):
         # Detect input type (torch or numpy)
         is_torch_input: bool = any(isinstance(arg, torch.Tensor) for arg in args)
 
-        # Assert eagerly compiled
-        assert self._compiled is not None
-        compiled_sdfg: CompiledSDFG = self._compiled
+        # Compile if necessary
+        if self._compiled is None:
+            compiled_sdfg: CompiledSDFG = self.compile()
+            self._compiled = compiled_sdfg
+        else:
+            compiled_sdfg: CompiledSDFG = self._compiled
 
         # Device-resident artifacts consume/produce device pointers directly:
         # pass tensors straight through. CompiledSDFG runs CUDA tensors zero-copy

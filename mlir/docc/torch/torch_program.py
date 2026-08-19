@@ -122,8 +122,9 @@ class TorchProgram(DoccProgram):
         # Detect input type (torch or numpy)
         is_torch_input = any(isinstance(arg, torch.Tensor) for arg in args)
 
-        # Assert eagerly compiled
-        assert self._compiled is not None
+        # Compile if necessary
+        if self._compiled is None:
+            self._compiled = self.compile()
 
         # Prepend frozen buffer values (e.g. BatchNorm running_mean/var) that
         # torch-mlir left as function arguments instead of freezing as constants.
