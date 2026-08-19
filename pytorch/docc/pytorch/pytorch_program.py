@@ -10,7 +10,7 @@ import time
 import hashlib
 import getpass
 import shutil
-from typing import Any
+from typing import Any, Callable, Optional
 
 from docc.compiler import DoccProgram, CompiledSDFG
 from docc.sdfg import StructuredSDFG, DoccMetrics
@@ -83,12 +83,9 @@ class PyTorchProgram(DoccProgram):
         # Detect input type (torch or numpy)
         is_torch_input: bool = any(isinstance(arg, torch.Tensor) for arg in args)
 
-        # Compile if necessary
-        if self._compiled is None:
-            compiled_sdfg: CompiledSDFG = self.compile()
-            self._compiled = compiled_sdfg
-        else:
-            compiled_sdfg: CompiledSDFG = self._compiled
+        # Assert eagerly compiled
+        assert self._compiled is not None
+        compiled_sdfg: CompiledSDFG = self._compiled
 
         # Device-resident artifacts consume/produce device pointers directly:
         # pass tensors straight through. CompiledSDFG runs CUDA tensors zero-copy
@@ -538,11 +535,12 @@ class PyTorchProgram(DoccProgram):
 
 
 def _docc_get_backend_options(
-    options: None | dict[str, str | bool],
-) -> tuple[str, str, bool]:
+    options: None | dict[str, Any],
+) -> tuple[str, str, bool, Optional[Callable[[dict], None]]]:
     target: str = "none"
     category: str = "server"
     remote_tuning: bool = False
+    on_compile: Optional[Callable[[dict], None]] = None
     if options:
         if "target" in options and type(options["target"]) == str:
             target: str = options["target"]
@@ -550,7 +548,37 @@ def _docc_get_backend_options(
             category: str = options["category"]
         if "remote_tuning" in options and type(options["remote_tuning"]) == bool:
             remote_tuning: bool = options["remote_tuning"]
-    return target, category, remote_tuning
+        if "on_compile" in options:
+            on_compile = options["on_compile"]
+            if on_compile is not None and not callable(on_compile):
+                raise TypeError("backend option 'on_compile' must be callable")
+    return target, category, remote_tuning, on_compile
+
+
+def _invoke_on_compile(
+    on_compile: Optional[Callable[[dict], None]],
+    program: "PyTorchProgram",
+    graph: str,
+) -> None:
+    """Notify a caller-supplied callback about a freshly compiled artifact.
+
+    The info dict includes the scheduled ``StructuredSDFG`` under "sdfg".
+    """
+    if on_compile is None:
+        return
+    compiled = program._compiled
+    assert compiled is not None
+    on_compile(
+        {
+            "name": program.name,
+            "graph": graph,
+            "target": program.target,
+            "category": program.category,
+            "device_resident": compiled.device_resident,
+            "device_backend": compiled.device_backend,
+            "sdfg": program._sdfg,
+        }
+    )
 
 
 def _docc_inference_compiler(
@@ -565,7 +593,9 @@ def _docc_inference_compiler(
     else:
         example_input = tuple(example_inputs)
 
-    target, category, remote_tuning = _docc_get_backend_options(backend_options)
+    target, category, remote_tuning, on_compile = _docc_get_backend_options(
+        backend_options
+    )
     program = PyTorchProgram(
         gm,
         example_input=example_input,
@@ -573,6 +603,12 @@ def _docc_inference_compiler(
         category=category,
         remote_tuning=remote_tuning,
     )
+
+    # Compile eagerly: torch backends receive example inputs precisely so the
+    # artifact can be built ahead of execution. This also makes the resolved
+    # calling convention (e.g. device residency) known before the first call.
+    program.compile()
+    _invoke_on_compile(on_compile, program, "inference")
 
     def compiled_fn(*args):
         result = program(*args)
