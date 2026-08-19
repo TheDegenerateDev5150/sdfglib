@@ -2,7 +2,7 @@ import os
 import getpass
 import hashlib
 import shutil
-from typing import Any, Optional, List
+from typing import Any, Callable, Optional, List
 import time
 import numpy as np
 
@@ -122,9 +122,8 @@ class TorchProgram(DoccProgram):
         # Detect input type (torch or numpy)
         is_torch_input = any(isinstance(arg, torch.Tensor) for arg in args)
 
-        # Compile if necessary
-        if self._compiled is None:
-            self._compiled = self.compile()
+        # Assert eagerly compiled
+        assert self._compiled is not None
 
         # Prepend frozen buffer values (e.g. BatchNorm running_mean/var) that
         # torch-mlir left as function arguments instead of freezing as constants.
@@ -617,11 +616,12 @@ def compile_torch(
 
 
 def _docc_get_backend_options(
-    options: None | dict[str, str | bool],
-) -> tuple[str, str, bool]:
+    options: None | dict[str, Any],
+) -> tuple[str, str, bool, Optional[Callable[[dict], None]]]:
     target = "none"
     category = "server"
     remote_tuning = False
+    on_compile: Optional[Callable[[dict], None]] = None
     if options:
         if "target" in options:
             target = options["target"]
@@ -629,7 +629,39 @@ def _docc_get_backend_options(
             category = options["category"]
         if "remote_tuning" in options:
             remote_tuning = options["remote_tuning"]
-    return target, category, remote_tuning
+        if "on_compile" in options:
+            on_compile = options["on_compile"]
+            if on_compile is not None and not callable(on_compile):
+                raise TypeError("backend option 'on_compile' must be callable")
+    return target, category, remote_tuning, on_compile
+
+
+def _invoke_on_compile(
+    on_compile: Optional[Callable[[dict], None]],
+    program: "TorchProgram",
+    graph: str,
+) -> None:
+    """Notify a caller-supplied callback about a freshly compiled artifact.
+
+    ``graph`` is "inference", "forward", or "backward" (the latter two for the
+    AOTAutograd training path, whose graphs can differ in device residency).
+    The info dict includes the scheduled ``StructuredSDFG`` under "sdfg".
+    """
+    if on_compile is None:
+        return
+    compiled = program._compiled
+    assert compiled is not None
+    on_compile(
+        {
+            "name": program.name,
+            "graph": graph,
+            "target": program.target,
+            "category": program.category,
+            "device_resident": compiled.device_resident,
+            "device_backend": compiled.device_backend,
+            "sdfg": program._sdfg,
+        }
+    )
 
 
 def _docc_dynamo_compiler(gm, example_inputs, backend_options):
@@ -655,7 +687,9 @@ def _docc_dynamo_compiler(gm, example_inputs, backend_options):
     else:
         example_input = tuple(example_inputs)
 
-    target, category, remote_tuning = _docc_get_backend_options(backend_options)
+    target, category, remote_tuning, on_compile = _docc_get_backend_options(
+        backend_options
+    )
     program = TorchProgram(
         gm,
         example_input=example_input,
@@ -663,6 +697,12 @@ def _docc_dynamo_compiler(gm, example_inputs, backend_options):
         category=category,
         remote_tuning=remote_tuning,
     )
+
+    # Compile eagerly: torch backends receive example inputs precisely so the
+    # artifact can be built ahead of execution. This also makes the resolved
+    # calling convention (e.g. device residency) known before the first call.
+    program.compile()
+    _invoke_on_compile(on_compile, program, "inference")
 
     def compiled_fn(*args):
         result = program(*args)
@@ -673,7 +713,13 @@ def _docc_dynamo_compiler(gm, example_inputs, backend_options):
     return compiled_fn
 
 
-def _docc_aot_compiler_wrapper(target: str, category: str, remote_tuning: bool):
+def _docc_aot_compiler_wrapper(
+    target: str,
+    category: str,
+    remote_tuning: bool,
+    on_compile: Optional[Callable[[dict], None]] = None,
+    graph: str = "forward",
+):
     def _docc_aot_compiler(gm, example_inputs):
         """AOTAutograd Compiler based on TorchProgram (inference and training)."""
         from functorch.compile import make_boxed_func
@@ -701,6 +747,12 @@ def _docc_aot_compiler_wrapper(target: str, category: str, remote_tuning: bool):
             category=category,
             remote_tuning=remote_tuning,
         )
+
+        # Compile eagerly so the resolved calling convention (e.g. device
+        # residency) is known before execution. For AOTAutograd this runs once
+        # per graph (forward and backward), which may differ in residency.
+        program.compile()
+        _invoke_on_compile(on_compile, program, graph)
 
         def compiled_fn(*args):
             result = program(*args)
@@ -740,10 +792,14 @@ def _docc_backend(gm, example_inputs, *, options=None):
     if _needs_autograd(gm, example_inputs):
         from torch._dynamo.backends.common import aot_autograd
 
-        target, category, remote_tuning = _docc_get_backend_options(options)
+        target, category, remote_tuning, on_compile = _docc_get_backend_options(options)
         aot_backend = aot_autograd(
-            fw_compiler=_docc_aot_compiler_wrapper(target, category, remote_tuning),
-            bw_compiler=_docc_aot_compiler_wrapper(target, category, remote_tuning),
+            fw_compiler=_docc_aot_compiler_wrapper(
+                target, category, remote_tuning, on_compile, "forward"
+            ),
+            bw_compiler=_docc_aot_compiler_wrapper(
+                target, category, remote_tuning, on_compile, "backward"
+            ),
         )
         return aot_backend(gm, example_inputs)
     else:
