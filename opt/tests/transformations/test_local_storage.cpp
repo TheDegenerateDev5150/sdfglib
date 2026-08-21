@@ -2113,3 +2113,70 @@ TEST(LocalStorageTest, Gate_GpuPerThread_Accepts) {
     EXPECT_TRUE(xform.can_be_applied(builder, am));
     EXPECT_TRUE(xform.storage_type().is_cpu_stack());
 }
+
+/**
+ * Apply_Cooperative_Shared: a read-only tile cooperative across a GPU block dim
+ * (new *_Offload schedule) localizes into an NV_Shared buffer, staged by a
+ * flattened offload copy-Map + a barrier, with the body reading the buffer.
+ */
+TEST(LocalStorageTest, Apply_Cooperative_Shared) {
+    builder::StructuredSDFGBuilder builder("ls_coop_shared", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+    auto i = symbolic::symbol("i");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    auto sched = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(32));
+    auto& map_i =
+        builder.add_map(seq, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::integer(1)), sched);
+    auto& loop_k = builder.add_for(
+        map_i.root(),
+        k,
+        symbolic::Lt(k, symbolic::integer(16)),
+        symbolic::integer(0),
+        symbolic::add(k, symbolic::integer(1))
+    );
+
+    // out[i] += A[k] — A[k] is read cooperatively (base independent of thread dim i).
+    auto& block = builder.add_block(loop_k.root());
+    auto& c_in = builder.add_access(block, "C");
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& t = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, c_in, t, "_in1", {i}, ptr);
+    builder.add_computational_memlet(block, a_in, t, "_in2", {k}, ptr);
+    builder.add_computational_memlet(block, t, "_out", c_out, {i}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage xform(loop_k, a_in);
+    ASSERT_TRUE(xform.can_be_applied(builder, am));
+    EXPECT_TRUE(xform.storage_type().is_nv_shared());
+    xform.apply(builder, am);
+
+    auto buf = xform.local_container();
+    ASSERT_TRUE(builder.subject().exists(buf));
+    EXPECT_TRUE(builder.subject().type(buf).storage_type().is_nv_shared());
+
+    // The kernel-map body is now [copy_map (offload), barrier, k-loop].
+    ASSERT_EQ(map_i.root().size(), 3u);
+    auto* copy_map = dyn_cast<structured_control_flow::Map*>(&map_i.root().at(0));
+    ASSERT_NE(copy_map, nullptr);
+    EXPECT_EQ(copy_map->schedule_type().category(), structured_control_flow::ScheduleTypeCategory::Offloader);
+    EXPECT_NE(dyn_cast<structured_control_flow::Block*>(&map_i.root().at(1)), nullptr); // barrier block
+    EXPECT_NE(dyn_cast<structured_control_flow::For*>(&map_i.root().at(2)), nullptr);
+
+    // The body reads the shared buffer, not A.
+    auto* main_block = dyn_cast<structured_control_flow::Block*>(&loop_k.root().at(0));
+    ASSERT_NE(main_block, nullptr);
+    EXPECT_TRUE(block_uses(*main_block, buf));
+    EXPECT_FALSE(block_uses(*main_block, "A"));
+}

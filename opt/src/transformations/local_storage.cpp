@@ -8,6 +8,7 @@
 #include "sdfg/analysis/memory_layout_analysis.h"
 #include "sdfg/analysis/pointer_analyzers.h"
 #include "sdfg/data_flow/library_node.h"
+#include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/data_flow/pointer_metadata.h"
 #include "sdfg/data_flow/tasklet.h"
 #include "sdfg/structured_control_flow/block.h"
@@ -404,10 +405,43 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
         case Locality::Private:
             storage_type_ = types::StorageType::CPU_Stack();
             break;
-        case Locality::Shared:
+        case Locality::Shared: {
+            // v1 cooperative path: a single GPU cooperative block dim, read-only,
+            // where the cooperative Map is the loop's immediate enclosing loop (so
+            // the shared tile is staged exactly once, no re-stage / WAR hazard).
+            if (plan_.dims.size() != 1) {
+                return false;
+            }
+            const auto& d = plan_.dims.front();
+            if (!d.is_gpu || !d.cooperative || d.level != LocalityPlan::Level::Block) {
+                return false;
+            }
+            if (container_written_) {
+                return false;
+            }
+            // The first loop ancestor must be the cooperative Map itself.
+            structured_control_flow::Map* coop_map = nullptr;
+            for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop_)) {
+                if (auto* enclosing = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
+                    coop_map = dynamic_cast<structured_control_flow::Map*>(enclosing);
+                    break;
+                }
+            }
+            if (!coop_map || !symbolic::eq(coop_map->indvar(), d.indvar)) {
+                return false;
+            }
+            // The cooperative copy is lowered by the new offload dispatcher, so
+            // only the *_Offload schedules are supported (not the legacy ones).
+            const std::string& sched_value = coop_map->schedule_type().value();
+            if (sched_value != "CUDA_Offload" && sched_value != "ROCM_Offload") {
+                return false;
+            }
+            storage_type_ = types::StorageType::NV_Shared();
+            break;
+        }
         case Locality::Global:
-            // Cooperative GPU read tile: recognised by derive_storage but the
-            // device-memory apply path is not implemented yet, so reject.
+            // Grid-cooperative tiles need global memory + grid-wide sync, which is
+            // not yet implemented.
             return false;
         case Locality::Reject:
             return false;
@@ -523,11 +557,70 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
         builder.remove_child(*parent, index);
     };
 
-    if (needs_copy_in()) {
-        emit_copy(/*writeback=*/false);
-    }
-    if (needs_copy_out()) {
-        emit_copy(/*writeback=*/true);
+    // Cooperative GPU staging: a single flattened Map carrying the cooperative
+    // dim's own offload schedule loads the tile into shared memory; the offload
+    // dispatcher lowers it to the thread-strided coverage loop.
+    auto emit_cooperative_copy_in = [&]() {
+        structured_control_flow::Map* coop_map = nullptr;
+        for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop_)) {
+            if (auto* enclosing = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
+                coop_map = dynamic_cast<structured_control_flow::Map*>(enclosing);
+                break;
+            }
+        }
+
+        auto c_name = builder.find_new_name("__daisy_ls_coop_" + container_);
+        builder.add_container(c_name, types::Scalar(types::PrimitiveType::UInt64));
+        auto c = symbolic::symbol(c_name);
+
+        auto& copy_map = builder.add_map_before(
+            *parent,
+            loop_,
+            c,
+            symbolic::Lt(c, total_size),
+            symbolic::integer(0),
+            symbolic::add(c, symbolic::integer(1)),
+            coop_map->schedule_type(),
+            loop_.debug_info()
+        );
+
+        // Row-major decomposition of the flat index into per-varying-dim indices.
+        std::vector<symbolic::Expression> decomp;
+        symbolic::Expression remainder = c;
+        for (size_t i = 0; i < varying_dim_sizes.size(); i++) {
+            if (i + 1 < varying_dim_sizes.size()) {
+                symbolic::Expression divisor = symbolic::integer(1);
+                for (size_t j = i + 1; j < varying_dim_sizes.size(); j++) {
+                    divisor = symbolic::mul(divisor, varying_dim_sizes[j]);
+                }
+                decomp.push_back(symbolic::div(remainder, divisor));
+                remainder = symbolic::mod(remainder, divisor);
+            } else {
+                decomp.push_back(remainder);
+            }
+        }
+
+        auto& block = builder.add_block(copy_map.root());
+        auto& src = builder.add_access(block, container_);
+        auto& dst = builder.add_access(block, local_name_);
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, src, tasklet, "_in", build_original_subset(decomp), pointer_type);
+        builder.add_computational_memlet(block, tasklet, "_out", dst, {c}, buffer_type);
+
+        // Barrier so every thread's load is visible before the tile is consumed.
+        auto& barrier_block = builder.add_block_before(*parent, loop_, loop_.debug_info());
+        builder.add_library_node<data_flow::BarrierLocalNode>(barrier_block, DebugInfo());
+    };
+
+    if (storage_type_.is_nv_shared()) {
+        emit_cooperative_copy_in(); // read-only cooperative tile: copy-in + barrier, no writeback
+    } else {
+        if (needs_copy_in()) {
+            emit_copy(/*writeback=*/false);
+        }
+        if (needs_copy_out()) {
+            emit_copy(/*writeback=*/true);
+        }
     }
 
     // Redirect all container accesses in the loop body to the buffer. v1

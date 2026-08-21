@@ -128,7 +128,11 @@ void GPUOffloadMapDispatcher::dispatch_node(
     std::vector<std::string> arguments;
 
     for (auto& argument : used_arguments) {
-        if (!sdfg_.type(argument.first).storage_type().is_nv_symbol()) {
+        auto storage = sdfg_.type(argument.first).storage_type();
+        // Thread-index symbols and shared-memory scratch are declared inside the
+        // kernel (the latter as a local of the enclosing kernel map), never passed
+        // as kernel arguments.
+        if (!storage.is_nv_symbol() && !storage.is_nv_shared()) {
             arguments.push_back(argument.first);
         }
     }
