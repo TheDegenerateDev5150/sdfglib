@@ -2180,3 +2180,198 @@ TEST(LocalStorageTest, Apply_Cooperative_Shared) {
     EXPECT_TRUE(block_uses(*main_block, buf));
     EXPECT_FALSE(block_uses(*main_block, "A"));
 }
+
+// =====================================================================
+// Pure buffer / tile index math (TileBuffer, TileInfo) — no SDFG state
+// =====================================================================
+
+TEST(LocalStorageTest, TileBuffer_TotalSize) {
+    LocalStorage::TileBuffer buf{{symbolic::integer(2)}, {symbolic::integer(3), symbolic::integer(4)}};
+    EXPECT_TRUE(symbolic::eq(buf.total_size(), symbolic::integer(24)));
+
+    LocalStorage::TileBuffer tile_only{{}, {symbolic::integer(8)}};
+    EXPECT_TRUE(symbolic::eq(tile_only.total_size(), symbolic::integer(8)));
+}
+
+TEST(LocalStorageTest, TileBuffer_Linearize_TileOnly) {
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    LocalStorage::TileBuffer buf{{}, {symbolic::integer(3), symbolic::integer(4)}};
+    // Row-major: i*4 + j.
+    EXPECT_TRUE(symbolic::eq(buf.linearize({}, {i, j}), symbolic::add(symbolic::mul(i, symbolic::integer(4)), j)));
+}
+
+TEST(LocalStorageTest, TileBuffer_Linearize_WithSlots) {
+    auto s = symbolic::symbol("s");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    LocalStorage::TileBuffer buf{{symbolic::integer(2)}, {symbolic::integer(3), symbolic::integer(4)}};
+    // Row-major over [slot(2), tile(3,4)]: s*12 + i*4 + j.
+    auto expected =
+        symbolic::add(symbolic::mul(s, symbolic::integer(12)), symbolic::add(symbolic::mul(i, symbolic::integer(4)), j));
+    EXPECT_TRUE(symbolic::eq(buf.linearize({s}, {i, j}), expected));
+}
+
+TEST(LocalStorageTest, TileBuffer_Delinearize) {
+    auto c = symbolic::symbol("c");
+    // Single tile dim: the flat index passes through unchanged.
+    LocalStorage::TileBuffer d1{{}, {symbolic::integer(4)}};
+    auto one = d1.delinearize_tile(c);
+    ASSERT_EQ(one.size(), 1u);
+    EXPECT_TRUE(symbolic::eq(one[0], c));
+
+    // Two tile dims (3 x 4): row-major decomposition [c / 4, c % 4] (integer
+    // div/mod, lowered by codegen). Tested structurally — symbolic::div is exact
+    // division, so a concrete roundtrip would not floor.
+    LocalStorage::TileBuffer d2{{}, {symbolic::integer(3), symbolic::integer(4)}};
+    auto two = d2.delinearize_tile(c);
+    ASSERT_EQ(two.size(), 2u);
+    EXPECT_TRUE(symbolic::eq(two[0], symbolic::div(c, symbolic::integer(4))));
+    EXPECT_TRUE(symbolic::eq(two[1], symbolic::mod(c, symbolic::integer(4))));
+}
+
+TEST(LocalStorageTest, TileInfo_VaryingDims) {
+    LocalStorage::TileInfo ti;
+    ti.dimensions = {symbolic::integer(1), symbolic::integer(8), symbolic::integer(1), symbolic::integer(4)};
+    EXPECT_EQ(ti.varying_dims(), (std::vector<size_t>{1, 3}));
+    auto sizes = ti.varying_sizes();
+    ASSERT_EQ(sizes.size(), 2u);
+    EXPECT_TRUE(symbolic::eq(sizes[0], symbolic::integer(8)));
+    EXPECT_TRUE(symbolic::eq(sizes[1], symbolic::integer(4)));
+}
+
+TEST(LocalStorageTest, TileInfo_OriginalSubset_StridedBox) {
+    // 2D box: dim0 degenerate (row i), dim1 varying (extent 4), strides [M, 1], offset off.
+    auto i = symbolic::symbol("i");
+    auto M = symbolic::symbol("M");
+    auto off = symbolic::symbol("off");
+    auto j = symbolic::symbol("j");
+    LocalStorage::TileInfo ti;
+    ti.dimensions = {symbolic::integer(1), symbolic::integer(4)};
+    ti.bases = {i, symbolic::integer(0)};
+    ti.strides = {M, symbolic::integer(1)};
+    ti.offset = off;
+    // original_subset({j}) = off + M*i + (0 + j).
+    auto res = ti.original_subset({j});
+    ASSERT_EQ(res.size(), 1u);
+    EXPECT_TRUE(symbolic::eq(res[0], symbolic::add(off, symbolic::add(symbolic::mul(M, i), j))));
+}
+
+TEST(LocalStorageTest, TileInfo_LocalIndex) {
+    // Only the varying dim contributes a local index (access - base).
+    auto i = symbolic::symbol("i");
+    auto c = symbolic::symbol("c");
+    auto x = symbolic::symbol("x");
+    LocalStorage::TileInfo ti;
+    ti.dimensions = {symbolic::integer(1), symbolic::integer(4)};
+    ti.bases = {i, c};
+    auto local = ti.local_index({i, x});
+    ASSERT_EQ(local.size(), 1u);
+    EXPECT_TRUE(symbolic::eq(local[0], symbolic::sub(x, c)));
+}
+
+TEST(LocalStorageTest, TileBuffer_SlotOffset) {
+    // [slot(2)][tile(3,4)]: tile block = 12, so slot s starts at s*12.
+    LocalStorage::TileBuffer buf{{symbolic::integer(2)}, {symbolic::integer(3), symbolic::integer(4)}};
+    EXPECT_TRUE(symbolic::eq(buf.tile_total_size(), symbolic::integer(12)));
+    auto s = symbolic::symbol("s");
+    EXPECT_TRUE(symbolic::eq(buf.slot_offset({s}), symbolic::mul(s, symbolic::integer(12))));
+
+    // [slot(2,5)][tile(4)]: row-major slots scaled by tile_total 4 -> a*20 + b*4.
+    LocalStorage::TileBuffer buf2{{symbolic::integer(2), symbolic::integer(5)}, {symbolic::integer(4)}};
+    EXPECT_TRUE(symbolic::eq(buf2.tile_total_size(), symbolic::integer(4)));
+    auto a = symbolic::symbol("a");
+    auto b = symbolic::symbol("b");
+    EXPECT_TRUE(symbolic::
+                    eq(buf2.slot_offset({a, b}),
+                       symbolic::add(symbolic::mul(a, symbolic::integer(20)), symbolic::mul(b, symbolic::integer(4)))));
+
+    // slot_offset(slots) + tile-linear == full linearize(slots, tile) (consistency).
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    EXPECT_TRUE(symbolic::
+                    eq(buf.linearize({s}, {i, j}),
+                       symbolic::add(buf.slot_offset({s}), symbolic::add(symbolic::mul(i, symbolic::integer(4)), j))));
+}
+
+/**
+ * Apply_Cooperative_Mixed: a tile that is per-thread along one GPU block dim (i)
+ * and cooperative along another (j) — shared-memory GEMM shape. The buffer gains
+ * a per-thread slot prefix (sized by i's block width), the copy is staged with a
+ * leading + trailing barrier, and the body reads buf[threadIdx.x-slot][k].
+ */
+TEST(LocalStorageTest, Apply_Cooperative_Mixed) {
+    builder::StructuredSDFGBuilder builder("ls_coop_mixed", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(elem);
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto M = symbolic::symbol("M");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("M", loop_var, true);
+    builder.add_container("A", ptr, true);
+    builder.add_container("C", ptr, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+
+    auto sched_i = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(8));
+    auto sched_j = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::Y_BLOCK, symbolic::integer(4));
+    auto& map_i =
+        builder
+            .add_map(seq, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::integer(1)), sched_i);
+    auto& map_j = builder.add_map(
+        map_i.root(), j, symbolic::Lt(j, M), symbolic::integer(0), symbolic::add(j, symbolic::integer(1)), sched_j
+    );
+    auto& loop_k = builder.add_for(
+        map_j.root(),
+        k,
+        symbolic::Lt(k, symbolic::integer(16)),
+        symbolic::integer(0),
+        symbolic::add(k, symbolic::integer(1))
+    );
+
+    // C[i*M + j] += A[i*16 + k] — A per-thread in i (base uses i), cooperative in j.
+    auto& block = builder.add_block(loop_k.root());
+    auto& c_in = builder.add_access(block, "C");
+    auto& a_in = builder.add_access(block, "A");
+    auto& c_out = builder.add_access(block, "C");
+    auto& t = builder.add_tasklet(block, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(block, c_in, t, "_in1", {symbolic::add(symbolic::mul(i, M), j)}, ptr);
+    builder
+        .add_computational_memlet(block, a_in, t, "_in2", {symbolic::add(symbolic::mul(i, symbolic::integer(16)), k)}, ptr);
+    builder.add_computational_memlet(block, t, "_out", c_out, {symbolic::add(symbolic::mul(i, M), j)}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage xform(loop_k, a_in);
+    ASSERT_TRUE(xform.can_be_applied(builder, am));
+    EXPECT_TRUE(xform.storage_type().is_nv_shared());
+    xform.apply(builder, am);
+
+    auto buf = xform.local_container();
+    ASSERT_TRUE(builder.subject().exists(buf));
+    // Buffer = [slot(BM=8)] x [tile(16)] = 128 shared elements.
+    EXPECT_TRUE(builder.subject().type(buf).storage_type().is_nv_shared());
+    EXPECT_TRUE(builder.subject().type(buf) == types::Array(elem, symbolic::integer(128)));
+
+    // The cooperative map body is [leading barrier, copy_map, trailing barrier, k-loop].
+    ASSERT_EQ(map_j.root().size(), 4u);
+    EXPECT_NE(dyn_cast<structured_control_flow::Block*>(&map_j.root().at(0)), nullptr);
+    auto* copy_map = dyn_cast<structured_control_flow::Map*>(&map_j.root().at(1));
+    ASSERT_NE(copy_map, nullptr);
+    EXPECT_EQ(copy_map->schedule_type().category(), structured_control_flow::ScheduleTypeCategory::Offloader);
+    EXPECT_NE(dyn_cast<structured_control_flow::Block*>(&map_j.root().at(2)), nullptr);
+    EXPECT_NE(dyn_cast<structured_control_flow::For*>(&map_j.root().at(3)), nullptr);
+
+    // The body reads the shared buffer, not A.
+    auto* main_block = dyn_cast<structured_control_flow::Block*>(&loop_k.root().at(0));
+    ASSERT_NE(main_block, nullptr);
+    EXPECT_TRUE(block_uses(*main_block, buf));
+    EXPECT_FALSE(block_uses(*main_block, "A"));
+}

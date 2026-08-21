@@ -12,6 +12,7 @@
 #include "sdfg/structured_control_flow/control_flow_node.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/symbolic.h"
+#include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
 #include "sdfg/targets/gpu/gpu_types.h"
 #include "sdfg/transformations/transformation.h"
 #include "sdfg/types/type.h"
@@ -59,6 +60,43 @@ public:
         std::vector<symbolic::Expression> strides;
         /// Layout offset from MemoryLayoutAnalysis.
         symbolic::Expression offset = symbolic::integer(0);
+
+        /// Indices of the varying (extent > 1) dims, in dimension order. The
+        /// degenerate extent-1 dims collapse to their base and carry no buffer axis.
+        std::vector<size_t> varying_dims() const;
+        /// Extents of the varying dims, in dimension order.
+        std::vector<symbolic::Expression> varying_sizes() const;
+        /// Container linear address for per-varying-dim @p tile_indices (extent-1
+        /// dims use their base). Pure; unit-testable.
+        std::vector<symbolic::Expression> original_subset(const std::vector<symbolic::Expression>& tile_indices) const;
+        /// Per-varying-dim local tile index (@p access_subset[d] - base[d]) for a
+        /// body access. Pure; unit-testable.
+        std::vector<symbolic::Expression> local_index(const std::vector<symbolic::Expression>& access_subset) const;
+    };
+
+    /// Dense row-major local buffer laid out as [per-thread slot dims] ++ [tile
+    /// dims]. Pure index arithmetic, no SDFG state — unit-testable in isolation.
+    struct TileBuffer {
+        /// Per-thread buffer-prefix dims (one slot per GPU thread along a
+        /// per-thread parallel dim); empty for the non-mixed cooperative/private case.
+        std::vector<symbolic::Expression> slot_sizes;
+        /// Cooperative / varying tile dims (the actual staged region).
+        std::vector<symbolic::Expression> tile_sizes;
+
+        /// Total scalar slots = product(slot_sizes) * product(tile_sizes).
+        symbolic::Expression total_size() const;
+        /// Product of the tile dims only (one per-thread slot's worth).
+        symbolic::Expression tile_total_size() const;
+        /// Buffer offset of a per-thread slot: row-major over slot_sizes, scaled
+        /// by tile_total_size so each slot owns a contiguous tile block.
+        symbolic::Expression slot_offset(const std::vector<symbolic::Expression>& slot_indices) const;
+        /// Row-major linear index over [slot_indices ++ tile_indices].
+        symbolic::Expression linearize(
+            const std::vector<symbolic::Expression>& slot_indices, const std::vector<symbolic::Expression>& tile_indices
+        ) const;
+        /// Decompose a flat tile index (0..product(tile_sizes)) into per-tile-dim
+        /// indices (row-major).
+        std::vector<symbolic::Expression> delinearize_tile(const symbolic::Expression& flat) const;
     };
 
     /// How a container is accessed within a loop, read straight off the
@@ -97,6 +135,7 @@ public:
             bool cooperative = false; ///< indvar absent from every tile base
             bool is_gpu = false; ///< GPU (CUDA/ROCM) offloader schedule
             Level level = Level::Block; ///< GPU parallelism level (meaningful iff is_gpu)
+            gpu::TargetLevel target_level = gpu::TargetLevel::X_BLOCK; ///< GPU axis (for threadIdx slotting)
             symbolic::Integer parallel_size = symbolic::integer(0); ///< parallel width (0 on CPU)
             bool needs_sync = false; ///< schedule requires nested synchronization
         };
@@ -129,6 +168,20 @@ public:
             for (const auto& d : dims)
                 if (!d.is_gpu && d.cooperative) return true;
             return false;
+        }
+        /// The GPU per-thread dims (indvar in a tile base) — each owns a buffer slot.
+        std::vector<Dim> gpu_per_thread_dims() const {
+            std::vector<Dim> out;
+            for (const auto& d : dims)
+                if (d.is_gpu && !d.cooperative) out.push_back(d);
+            return out;
+        }
+        /// The GPU cooperative dims (the shared/copy parallelism axes).
+        std::vector<Dim> gpu_cooperative_dims() const {
+            std::vector<Dim> out;
+            for (const auto& d : dims)
+                if (d.is_gpu && d.cooperative) out.push_back(d);
+            return out;
         }
     };
 
@@ -285,6 +338,41 @@ private:
 
     /// Hard capacity guard: max scalar slots the local buffer may occupy.
     size_t max_tile_elements() const { return 1u << 16; }
+
+    /// Private/CPU path: a nested sequential copy nest around the loop (copy-in
+    /// when @p writeback is false, copy-out when true).
+    void emit_private_copy(
+        builder::StructuredSDFGBuilder& builder,
+        structured_control_flow::Sequence& parent,
+        const TileBuffer& buffer,
+        const types::IType& buffer_type,
+        const types::IType& pointer_type,
+        bool writeback
+    );
+
+    /// Cooperative GPU path: a flattened copy-in Map carrying the cooperative
+    /// dim's offload schedule, followed by a barrier (read-only, no writeback).
+    /// @p slot_indices are the per-thread buffer-slot indices (threadIdx.<axis>);
+    /// @p leading_barrier adds a pre-copy barrier for re-staged (per-thread) tiles.
+    void emit_cooperative_copy_in(
+        builder::StructuredSDFGBuilder& builder,
+        structured_control_flow::Sequence& parent,
+        const TileBuffer& buffer,
+        const types::IType& buffer_type,
+        const types::IType& pointer_type,
+        const std::vector<symbolic::Expression>& slot_indices,
+        bool leading_barrier
+    );
+
+    /// Redirect every container access in the loop body to the local buffer,
+    /// prefixed by the per-thread @p slot_indices.
+    void rewrite_body(
+        builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
+        const TileBuffer& buffer,
+        const types::IType& buffer_type,
+        const std::vector<symbolic::Expression>& slot_indices
+    );
 
 public:
     /**
