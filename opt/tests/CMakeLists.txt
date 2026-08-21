@@ -76,6 +76,7 @@ set(TEST_FILES
     transformations/tile_fusion_test.cpp
     transformations/out_local_storage_test.cpp
     transformations/in_local_storage_test.cpp
+    transformations/test_local_storage.cpp
     transformations/recorder_test.cpp
     transformations/vectorize_transform_test.cpp
     transformations/transformation_serialization_test.cpp

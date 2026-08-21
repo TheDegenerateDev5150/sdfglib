@@ -125,8 +125,8 @@ set(SOURCE_FILES
     src/transformations/einsum2dot.cpp
     src/transformations/einsum2gemm.cpp
     src/transformations/in_local_storage.cpp
-    src/transformations/loop_condition_normalize.cpp
-    src/transformations/loop_distribute.cpp
+    src/transformations/local_storage.cpp
+    src/transformations/loop_condition_normalize.cpp    src/transformations/loop_distribute.cpp
     src/transformations/loop_indvar_finalize.cpp
     src/transformations/loop_interchange.cpp
     src/transformations/loop_peeling.cpp
