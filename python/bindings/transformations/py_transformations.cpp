@@ -5,6 +5,7 @@
 
 #include <sdfg/data_flow/access_node.h>
 #include <sdfg/transformations/in_local_storage.h>
+#include <sdfg/transformations/local_storage.h>
 #include <sdfg/transformations/loop_distribute.h>
 #include <sdfg/transformations/loop_interchange.h>
 #include <sdfg/transformations/loop_peeling.h>
@@ -320,6 +321,28 @@ void register_transformations(py::module& m) {
         .def("__repr__", [](const InLocalStorage& t) {
             std::ostringstream oss;
             oss << "<InLocalStorage name='" << t.name() << "'>";
+            return oss.str();
+        });
+
+    // LocalStorage transformation (schedule-derived local buffer; direction derived)
+    py::class_<LocalStorage, Transformation>(m, "LocalStorage")
+        .def(
+            py::init<StructuredLoop&, const sdfg::data_flow::AccessNode&>(),
+            py::arg("loop"),
+            py::arg("access_node"),
+            "Create a local-storage transformation.\n\n"
+            "The copy direction (in/out) and the storage space are both derived\n"
+            "from the dataflow and the enclosing parallel schedule.\n\n"
+            "Args:\n"
+            "    loop: The loop defining the localization scope\n"
+            "    access_node: An access node for the container to localize"
+        )
+        .def_property_readonly(
+            "local_container", &LocalStorage::local_container, "Name of the created local buffer (valid after apply())"
+        )
+        .def("__repr__", [](const LocalStorage& t) {
+            std::ostringstream oss;
+            oss << "<LocalStorage name='" << t.name() << "'>";
             return oss.str();
         });
 
