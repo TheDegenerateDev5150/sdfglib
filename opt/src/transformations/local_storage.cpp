@@ -14,6 +14,7 @@
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/if_else.h"
 #include "sdfg/structured_control_flow/map.h"
+#include "sdfg/structured_control_flow/reduce.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/structured_sdfg.h"
@@ -347,12 +348,10 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
     plan.loop_is_outermost = loop_analysis.is_outermost_loop(&loop);
 
-    if (auto* self_map = dynamic_cast<structured_control_flow::Map*>(&loop)) {
-        plan.loop_is_gpu = gpu::is_gpu_schedule(self_map->schedule_type());
-    }
+    plan.loop_is_gpu = gpu::is_gpu_schedule(loop.schedule_type());
     for (auto* desc : loop_analysis.descendants(&loop)) {
-        auto* m = dynamic_cast<structured_control_flow::Map*>(desc);
-        if (m && gpu::is_gpu_schedule(m->schedule_type())) {
+        auto* sl = dynamic_cast<structured_control_flow::StructuredLoop*>(desc);
+        if (sl && gpu::is_gpu_schedule(sl->schedule_type())) {
             plan.has_gpu_descendant = true;
             break;
         }
@@ -370,18 +369,21 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
     };
 
     for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop)) {
-        auto* map = dynamic_cast<structured_control_flow::Map*>(node);
-        if (!map) {
+        auto* sloop = dynamic_cast<structured_control_flow::StructuredLoop*>(node);
+        if (!sloop) {
             continue;
         }
-        auto& sched = map->schedule_type();
+        auto& sched = sloop->schedule_type();
         bool is_gpu = gpu::is_gpu_schedule(sched);
-        // Only genuinely parallel loops shape the storage; sequential maps don't.
+        // Only genuinely parallel loops shape the storage; plain sequential
+        // For/Map/Reduce loops don't. A GPU-scheduled Reduce counts here too: its
+        // combine is spread across threads exactly like a Map, so it forms a
+        // cooperative / per-thread storage level for any read tile inside it.
         if (!is_gpu && sched.category() == structured_control_flow::ScheduleTypeCategory::None) {
             continue;
         }
         LocalityPlan::Dim d;
-        d.indvar = map->indvar();
+        d.indvar = sloop->indvar();
         d.is_gpu = is_gpu;
         d.cooperative = is_cooperative(d.indvar);
         if (is_gpu) {
@@ -416,6 +418,40 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
     return plan;
 }
 
+bool LocalStorage::is_reduction_accumulator(
+    structured_control_flow::StructuredLoop& loop,
+    const std::string& container,
+    analysis::AnalysisManager& analysis_manager
+) {
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    auto owns = [&](structured_control_flow::ControlFlowNode* node) {
+        auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(node);
+        if (!reduce) {
+            return false;
+        }
+        for (const auto& r : reduce->reductions()) {
+            if (r.container == container) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (owns(&loop)) {
+        return true;
+    }
+    for (auto* node : loop_analysis.ancestors(&loop)) {
+        if (owns(node)) {
+            return true;
+        }
+    }
+    for (auto* node : loop_analysis.descendants(&loop)) {
+        if (owns(node)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bool container_written) {
     using Level = LocalityPlan::Level;
     // A cooperative CPU-parallel dim would need threads to share a stack — impossible.
@@ -423,8 +459,8 @@ LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bo
         return Locality::Reject;
     }
     if (plan.has_gpu_cooperative()) {
-        // Writing a cooperative tile across threads is a reduction the reduce
-        // dispatcher cannot lower in device memory.
+        // A cooperative write across threads is a reduction: that is owned by the
+        // Reduce node + reduce dispatcher, not LocalStorage.
         if (container_written) {
             return Locality::Reject;
         }
@@ -464,6 +500,13 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
         return false;
     }
     if (sdfg.type(container_).type_id() != types::TypeID::Pointer) {
+        return false;
+    }
+
+    // Reduction accumulators are staged and combined by the Reduce node + reduce
+    // dispatcher; LocalStorage stages read-only operands only and must not also
+    // localize an accumulator.
+    if (is_reduction_accumulator(loop_, container_, analysis_manager)) {
         return false;
     }
 

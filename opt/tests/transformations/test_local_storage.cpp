@@ -11,6 +11,7 @@
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/for.h"
 #include "sdfg/structured_control_flow/map.h"
+#include "sdfg/structured_control_flow/reduce.h"
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
@@ -2016,6 +2017,95 @@ TEST(LocalStorageTest, Plan_GpuOffload_GridLevel) {
     ASSERT_EQ(plan.dims.size(), 1u);
     EXPECT_EQ(plan.dims[0].level, LocalStorage::LocalityPlan::Level::Grid);
     EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Global);
+}
+
+// A GPU-scheduled Reduce enclosing the loop is a cooperative block level too, so
+// build_locality_plan classifies a read tile inside a block reduction as shared
+// (previously it saw only Maps and mis-derived a private per-thread buffer).
+TEST(LocalStorageTest, Plan_GpuOffloadReduce_BlockLevel) {
+    builder::StructuredSDFGBuilder builder("plan_offload_reduce_block", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto i = symbolic::symbol("i");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+    builder.add_container("acc", ptr);
+
+    auto sched = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(64));
+    auto& reduce_i = builder.add_reduce(
+        seq,
+        i,
+        symbolic::Lt(i, N),
+        symbolic::integer(0),
+        symbolic::add(i, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        sched
+    );
+    auto& loop_k =
+        builder
+            .add_for(reduce_i.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage::TileInfo ti;
+    ti.bases = {k}; // base independent of i → cooperative across the block reduce
+    auto plan = LocalStorage::build_locality_plan(loop_k, ti, am);
+
+    ASSERT_EQ(plan.dims.size(), 1u);
+    EXPECT_TRUE(plan.dims[0].is_gpu);
+    EXPECT_TRUE(plan.dims[0].cooperative);
+    EXPECT_EQ(plan.dims[0].level, LocalStorage::LocalityPlan::Level::Block);
+    EXPECT_TRUE(symbolic::eq(plan.dims[0].parallel_size, symbolic::integer(64)));
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Shared);
+}
+
+// A reduction accumulator is owned by the Reduce node + reduce dispatcher;
+// is_reduction_accumulator detects it whether the Reduce is the loop itself, an
+// ancestor, or a descendant, so can_be_applied refuses to localize it.
+TEST(LocalStorageTest, IsReductionAccumulator_EnclosingAndNested) {
+    builder::StructuredSDFGBuilder builder("ls_reduce_acc", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto j = symbolic::symbol("j");
+    auto i = symbolic::symbol("i");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("j", loop_var);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+    builder.add_container("acc", ptr);
+    builder.add_container("other", ptr);
+
+    auto& for_j =
+        builder.add_for(seq, j, symbolic::Lt(j, N), symbolic::integer(0), symbolic::add(j, symbolic::integer(1)));
+    auto& reduce_i = builder.add_reduce(
+        for_j.root(),
+        i,
+        symbolic::Lt(i, N),
+        symbolic::integer(0),
+        symbolic::add(i, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& loop_k =
+        builder
+            .add_for(reduce_i.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+
+    analysis::AnalysisManager am(builder.subject());
+    EXPECT_TRUE(LocalStorage::is_reduction_accumulator(reduce_i, "acc", am)); // the reduce itself
+    EXPECT_TRUE(LocalStorage::is_reduction_accumulator(loop_k, "acc", am)); // ancestor reduce
+    EXPECT_TRUE(LocalStorage::is_reduction_accumulator(for_j, "acc", am)); // descendant reduce
+    EXPECT_FALSE(LocalStorage::is_reduction_accumulator(loop_k, "other", am));
 }
 
 // =====================================================================

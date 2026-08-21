@@ -307,8 +307,8 @@ public:
      *
      * - A cooperative non-GPU parallel dim cannot be served by a private stack
      *   → Reject.
-     * - A cooperative *write* is a reduction the reduce dispatcher cannot lower
-     *   in device memory → Reject (only read-only cooperative tiles localize).
+     * - A cooperative *write* is a reduction owned by the Reduce node + reduce
+     *   dispatcher → Reject (only read-only cooperative tiles localize here).
      * - A cooperative GPU read tile inside a kernel (and not the outermost loop)
      *   maps to the coarsest cooperative level: grid → Global, block → Shared;
      *   a warp-only cooperative tile is served by shuffles (no buffer) → Reject.
@@ -317,6 +317,21 @@ public:
      * - Otherwise the tile is per-thread / sequential → Private.
      */
     static Locality derive_storage(const LocalityPlan& plan, bool container_written);
+
+    /**
+     * @brief Whether @p container is the accumulator of a Reduce enclosing,
+     *        nested within, or equal to @p loop.
+     *
+     * Reduction accumulators are staged and combined by the Reduce node + reduce
+     * dispatcher (registers / shared / global partials, tree / shuffle / atomic
+     * combine). LocalStorage stages read-only operands only and must never also
+     * localize an accumulator, so it rejects any such container.
+     */
+    static bool is_reduction_accumulator(
+        structured_control_flow::StructuredLoop& loop,
+        const std::string& container,
+        analysis::AnalysisManager& analysis_manager
+    );
 
 private:
     structured_control_flow::StructuredLoop& loop_;
