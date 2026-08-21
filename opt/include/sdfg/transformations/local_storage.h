@@ -80,19 +80,25 @@ public:
      *   - **cooperative** — the indvar is absent from every base, so all
      *     iterations along that dim share one tile and must stage it together.
      *
-     * Together with each loop's parallelism level (GPU thread/block via the
-     * schedule category, or CPU thread) this determines the required storage:
-     * a cooperative GPU dim demands block-shared memory, a cooperative CPU dim
-     * cannot be served by a private stack at all, and the purely per-thread /
+     * Each GPU dim additionally carries its parallelism *level* (grid block,
+     * thread block, or warp). The coarsest cooperative level determines the
+     * required memory space: cooperation across blocks (grid) needs global
+     * memory, cooperation within a block (block) needs shared memory, and warp
+     * cooperation is served by shuffles (no buffer). A cooperative CPU dim
+     * cannot be backed by a private stack at all; the purely per-thread /
      * sequential case maps to a thread-private stack buffer.
      */
     struct LocalityPlan {
+        /// GPU parallelism level of a dim, coarsest (Grid) to finest (Warp).
+        enum class Level { Grid, Block, Warp };
+
         struct Dim {
             symbolic::Symbol indvar; ///< the parallel loop's induction variable
             bool cooperative = false; ///< indvar absent from every tile base
             bool is_gpu = false; ///< GPU (CUDA/ROCM) offloader schedule
-            gpu::GPUDimension gpu_dim = gpu::GPUDimension::X; ///< GPU thread dimension
-            symbolic::Integer block_size = symbolic::integer(0); ///< GPU block width (0 on CPU)
+            Level level = Level::Block; ///< GPU parallelism level (meaningful iff is_gpu)
+            symbolic::Integer parallel_size = symbolic::integer(0); ///< parallel width (0 on CPU)
+            bool needs_sync = false; ///< schedule requires nested synchronization
         };
 
         std::vector<Dim> dims; ///< enclosing parallel loops, innermost-first
@@ -106,10 +112,16 @@ public:
                 if (d.is_gpu) return true;
             return false;
         }
-        /// True when threads in a block must share the tile (cooperative GPU dim).
+        /// True when any cooperative GPU dim exists (threads share the tile).
         bool has_gpu_cooperative() const {
             for (const auto& d : dims)
                 if (d.is_gpu && d.cooperative) return true;
+            return false;
+        }
+        /// True when a cooperative GPU dim at @p level exists.
+        bool has_cooperative_at(Level level) const {
+            for (const auto& d : dims)
+                if (d.is_gpu && d.cooperative && d.level == level) return true;
             return false;
         }
         /// True when a cooperative non-GPU parallel dim exists (no private stack fits).
@@ -221,7 +233,7 @@ public:
      *
      * Walks @p loop's ancestor chain, and for each genuinely parallel loop
      * records whether the tile is per-thread or cooperative (see LocalityPlan),
-     * tagging GPU dims with their thread dimension and block size.
+     * tagging GPU dims with their parallelism level, width, and sync requirement.
      */
     static LocalityPlan build_locality_plan(
         structured_control_flow::StructuredLoop& loop,
@@ -234,6 +246,7 @@ public:
         Reject, ///< the schedule cannot be safely localized
         Private, ///< thread-private / sequential buffer (CPU_Stack; registers when tiny)
         Shared, ///< block-shared GPU buffer (NV_Shared)
+        Global, ///< grid-wide GPU buffer (NV_Global)
     };
 
     /**
@@ -242,9 +255,10 @@ public:
      * - A cooperative non-GPU parallel dim cannot be served by a private stack
      *   → Reject.
      * - A cooperative *write* is a reduction the reduce dispatcher cannot lower
-     *   in shared memory → Reject (only read-only cooperative tiles localize).
+     *   in device memory → Reject (only read-only cooperative tiles localize).
      * - A cooperative GPU read tile inside a kernel (and not the outermost loop)
-     *   → Shared.
+     *   maps to the coarsest cooperative level: grid → Global, block → Shared;
+     *   a warp-only cooperative tile is served by shuffles (no buffer) → Reject.
      * - A host-level loop that itself is GPU-scheduled or wraps a GPU kernel is
      *   not a localization site → Reject.
      * - Otherwise the tile is per-thread / sequential → Private.

@@ -1720,13 +1720,15 @@ TEST(LocalStorageTest, Apply_Scalar_Accumulator) {
 
 namespace {
 
-/// A cooperative/per-thread GPU dim for direct derive_storage tests.
-LocalStorage::LocalityPlan::Dim make_gpu_dim(bool cooperative) {
+/// A cooperative/per-thread GPU dim at @p level for direct derive_storage tests.
+LocalStorage::LocalityPlan::Dim
+make_gpu_dim(bool cooperative, LocalStorage::LocalityPlan::Level level = LocalStorage::LocalityPlan::Level::Block) {
     LocalStorage::LocalityPlan::Dim d;
     d.indvar = symbolic::symbol("i");
     d.is_gpu = true;
     d.cooperative = cooperative;
-    d.block_size = symbolic::integer(32);
+    d.level = level;
+    d.parallel_size = symbolic::integer(32);
     return d;
 }
 
@@ -1911,6 +1913,109 @@ TEST(LocalStorageTest, Derive_HostWrapsGpuKernel_Reject) {
     LocalStorage::LocalityPlan plan2;
     plan2.loop_is_gpu = true;
     EXPECT_EQ(LocalStorage::derive_storage(plan2, false), LocalStorage::Locality::Reject);
+}
+
+// Cooperation across blocks (grid level) needs grid-wide global memory.
+TEST(LocalStorageTest, Derive_GpuGridCooperativeRead_Global) {
+    using Level = LocalStorage::LocalityPlan::Level;
+    LocalStorage::LocalityPlan plan;
+    plan.dims.push_back(make_gpu_dim(/*cooperative*/ true, Level::Grid));
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Global);
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ true), LocalStorage::Locality::Reject);
+}
+
+// The coarsest cooperative level wins: grid + block cooperation → global.
+TEST(LocalStorageTest, Derive_GpuGridAndBlockCooperative_Global) {
+    using Level = LocalStorage::LocalityPlan::Level;
+    LocalStorage::LocalityPlan plan;
+    plan.dims.push_back(make_gpu_dim(/*cooperative*/ true, Level::Block));
+    plan.dims.push_back(make_gpu_dim(/*cooperative*/ true, Level::Grid));
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Global);
+}
+
+// Warp-only cooperation is served by shuffles, not a staged buffer → Reject.
+TEST(LocalStorageTest, Derive_GpuWarpCooperativeRead_Reject) {
+    using Level = LocalStorage::LocalityPlan::Level;
+    LocalStorage::LocalityPlan plan;
+    plan.dims.push_back(make_gpu_dim(/*cooperative*/ true, Level::Warp));
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Reject);
+}
+
+// A per-thread warp dim (indvar in the tile base) is fine → private register tile.
+TEST(LocalStorageTest, Derive_GpuWarpPerThread_Private) {
+    using Level = LocalStorage::LocalityPlan::Level;
+    LocalStorage::LocalityPlan plan;
+    plan.dims.push_back(make_gpu_dim(/*cooperative*/ false, Level::Warp));
+    EXPECT_EQ(LocalStorage::derive_storage(plan, false), LocalStorage::Locality::Private);
+}
+
+// build_locality_plan reads the new *_Offload schedule: block-level target,
+// parallel size, and sync flag.
+TEST(LocalStorageTest, Plan_GpuOffload_BlockLevel) {
+    builder::StructuredSDFGBuilder builder("plan_offload_block", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    auto i = symbolic::symbol("i");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    auto sched = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(64));
+    auto& map_i =
+        builder.add_map(seq, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::integer(1)), sched);
+    auto& loop_k =
+        builder
+            .add_for(map_i.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage::TileInfo ti;
+    ti.bases = {k}; // base independent of i → cooperative across the block
+    auto plan = LocalStorage::build_locality_plan(loop_k, ti, am);
+
+    ASSERT_EQ(plan.dims.size(), 1u);
+    EXPECT_TRUE(plan.dims[0].is_gpu);
+    EXPECT_TRUE(plan.dims[0].cooperative);
+    EXPECT_EQ(plan.dims[0].level, LocalStorage::LocalityPlan::Level::Block);
+    EXPECT_TRUE(symbolic::eq(plan.dims[0].parallel_size, symbolic::integer(64)));
+    EXPECT_FALSE(plan.dims[0].needs_sync);
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Shared);
+}
+
+// A grid-level *_Offload cooperative read derives to grid-wide global memory.
+TEST(LocalStorageTest, Plan_GpuOffload_GridLevel) {
+    builder::StructuredSDFGBuilder builder("plan_offload_grid", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    auto i = symbolic::symbol("i");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("i", loop_var);
+    builder.add_container("k", loop_var);
+
+    auto sched = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_GRID, symbolic::integer(128));
+    auto& map_i =
+        builder.add_map(seq, i, symbolic::Lt(i, N), symbolic::integer(0), symbolic::add(i, symbolic::integer(1)), sched);
+    auto& loop_k =
+        builder
+            .add_for(map_i.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage::TileInfo ti;
+    ti.bases = {k};
+    auto plan = LocalStorage::build_locality_plan(loop_k, ti, am);
+
+    ASSERT_EQ(plan.dims.size(), 1u);
+    EXPECT_EQ(plan.dims[0].level, LocalStorage::LocalityPlan::Level::Grid);
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Global);
 }
 
 // =====================================================================

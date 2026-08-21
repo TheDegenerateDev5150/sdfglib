@@ -17,6 +17,7 @@
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/structured_sdfg.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
+#include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
 #include "sdfg/targets/gpu/gpu_schedule_type.h"
 #include "sdfg/types/array.h"
 #include "sdfg/types/pointer.h"
@@ -268,8 +269,30 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
         d.is_gpu = is_gpu;
         d.cooperative = is_cooperative(d.indvar);
         if (is_gpu) {
-            d.gpu_dim = gpu::gpu_dimension(sched);
-            d.block_size = gpu::gpu_block_size(sched);
+            const std::string& value = sched.value();
+            if (value == "CUDA_Offload" || value == "ROCM_Offload") {
+                switch (gpu::gpu_target_level(sched)) {
+                    case gpu::TargetLevel::X_GRID:
+                    case gpu::TargetLevel::Y_GRID:
+                    case gpu::TargetLevel::Z_GRID:
+                        d.level = LocalityPlan::Level::Grid;
+                        break;
+                    case gpu::TargetLevel::X_BLOCK:
+                    case gpu::TargetLevel::Y_BLOCK:
+                    case gpu::TargetLevel::Z_BLOCK:
+                        d.level = LocalityPlan::Level::Block;
+                        break;
+                    case gpu::TargetLevel::WARP:
+                        d.level = LocalityPlan::Level::Warp;
+                        break;
+                }
+                d.parallel_size = gpu::ScheduleType_GPU_Offload::parallel_size(sched);
+                d.needs_sync = gpu::ScheduleType_GPU_Offload::nested_sync(sched);
+            } else {
+                // Legacy CUDA/ROCM: a single fused block-thread dimension.
+                d.level = LocalityPlan::Level::Block;
+                d.parallel_size = gpu::gpu_block_size(sched);
+            }
         }
         plan.dims.push_back(d);
     }
@@ -277,22 +300,31 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
 }
 
 LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bool container_written) {
+    using Level = LocalityPlan::Level;
     // A cooperative CPU-parallel dim would need threads to share a stack — impossible.
     if (plan.has_cpu_cooperative()) {
         return Locality::Reject;
     }
     if (plan.has_gpu_cooperative()) {
-        // Writing a shared tile across cooperative threads is a reduction the
-        // reduce dispatcher cannot lower in shared memory.
+        // Writing a cooperative tile across threads is a reduction the reduce
+        // dispatcher cannot lower in device memory.
         if (container_written) {
             return Locality::Reject;
         }
-        // A shared buffer lives in a block scope, so we must be inside a kernel
-        // and below the outermost loop.
+        // A cooperative buffer lives in a device scope inside the kernel, below
+        // the outermost loop.
         if (!plan.inside_gpu_kernel() || plan.loop_is_outermost) {
             return Locality::Reject;
         }
-        return Locality::Shared;
+        // Storage follows the coarsest cooperative level.
+        if (plan.has_cooperative_at(Level::Grid)) {
+            return Locality::Global;
+        }
+        if (plan.has_cooperative_at(Level::Block)) {
+            return Locality::Shared;
+        }
+        // Warp-only cooperation is served by shuffles, not a staged buffer.
+        return Locality::Reject;
     }
     // No cooperative dims: a thread-private / sequential buffer. But a host-level
     // loop that is itself GPU-scheduled or wraps a GPU kernel is not a site for
@@ -373,8 +405,9 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
             storage_type_ = types::StorageType::CPU_Stack();
             break;
         case Locality::Shared:
+        case Locality::Global:
             // Cooperative GPU read tile: recognised by derive_storage but the
-            // shared-memory apply path is not implemented yet, so reject.
+            // device-memory apply path is not implemented yet, so reject.
             return false;
         case Locality::Reject:
             return false;
