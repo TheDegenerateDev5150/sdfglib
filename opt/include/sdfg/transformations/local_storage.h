@@ -144,6 +144,11 @@ public:
         bool loop_is_outermost = false; ///< the localized loop is the outermost loop
         bool loop_is_gpu = false; ///< the localized loop itself is GPU-scheduled
         bool has_gpu_descendant = false; ///< a GPU map lives inside the loop body
+        /// The localized loop is itself a GPU map and a block-scheduled loop in its
+        /// body consumes the tile: stage once per block into shared, reused by the
+        /// (sibling) consumers below (e.g. fused softmax: cache the row, then
+        /// max-reduce / sum-reduce / normalize all read from shared).
+        bool enclosing_cooperative = false;
 
         /// True when a GPU-scheduled loop encloses us (we are inside a device kernel).
         bool inside_gpu_kernel() const {
@@ -377,6 +382,17 @@ private:
         const types::IType& pointer_type,
         const std::vector<symbolic::Expression>& slot_indices,
         bool leading_barrier
+    );
+
+    /// Stage the tile once at the top of the localized GPU map's body (a
+    /// block-scheduled copy map + trailing barrier), so the block consumers below
+    /// read the shared buffer. Used for the enclosing-cooperative case.
+    void emit_enclosing_cooperative_copy_in(
+        builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
+        const TileBuffer& buffer,
+        const types::IType& buffer_type,
+        const types::IType& pointer_type
     );
 
     /// Redirect every container access in the loop body to the local buffer,

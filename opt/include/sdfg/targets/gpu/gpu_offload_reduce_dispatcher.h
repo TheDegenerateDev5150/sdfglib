@@ -116,6 +116,10 @@ protected:
     // (x * y * z). Sizes the per-thread shared buffer for a multi-dimensional block.
     symbolic::Expression reduce_block_size_product();
 
+    // Name of the shared partials buffer for @p container: the schedule's
+    // partial_container property when set, else the invented __daisy_reduce_smem_<c>.
+    std::string partials_buffer_name(const std::string& container);
+
     void dispatch_reduction_declarations(
         codegen::LanguageExtension& language_extension,
         codegen::PrettyPrinter& stream,

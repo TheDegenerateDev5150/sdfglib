@@ -2112,6 +2112,148 @@ TEST(LocalStorageTest, IsReductionAccumulator_EnclosingAndNested) {
 // can_be_applied: schedule gate (end-to-end)
 // =====================================================================
 
+// B1: fused-softmax staging topology — a read-only row X[row,:] staged at an
+// enclosing grid loop and reused by sibling block loops over the columns.
+// build_locality_plan flags this as enclosing_cooperative (a block consumer lives
+// below the localized GPU map), deriving a per-block NV_Shared row.
+TEST(LocalStorageTest, Gate_EnclosingCooperativeStaging_Accepts) {
+    builder::StructuredSDFGBuilder builder("ls_probe_softmax", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", elem);
+    auto row = symbolic::symbol("row");
+    auto j1 = symbolic::symbol("j1");
+    auto j2 = symbolic::symbol("j2");
+    auto R = symbolic::symbol("R");
+    auto Nc = symbolic::integer(32); // row width: constant so the shared tile is fixed-size
+    builder.add_container("R", loop_var, true);
+    builder.add_container("X", ptr, true);
+    builder.add_container("Y1", ptr, true);
+    builder.add_container("Y2", ptr, true);
+    builder.add_container("row", loop_var);
+    builder.add_container("j1", loop_var);
+    builder.add_container("j2", loop_var);
+
+    auto grid = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_GRID, symbolic::integer(1));
+    auto block = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(32));
+
+    auto& map_row =
+        builder
+            .add_map(seq, row, symbolic::Lt(row, R), symbolic::integer(0), symbolic::add(row, symbolic::integer(1)), grid);
+    // Sibling 1: Y1[row*32 + j1] = X[row*32 + j1]
+    auto& map_j1 = builder.add_map(
+        map_row.root(), j1, symbolic::Lt(j1, Nc), symbolic::integer(0), symbolic::add(j1, symbolic::integer(1)), block
+    );
+    auto& blk1 = builder.add_block(map_j1.root());
+    auto& x_in1 = builder.add_access(blk1, "X");
+    auto& y1_out = builder.add_access(blk1, "Y1");
+    auto& t1 = builder.add_tasklet(blk1, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(blk1, x_in1, t1, "_in", {symbolic::add(symbolic::mul(row, Nc), j1)}, ptr);
+    builder.add_computational_memlet(blk1, t1, "_out", y1_out, {symbolic::add(symbolic::mul(row, Nc), j1)}, ptr);
+    // Sibling 2: Y2[row*32 + j2] = X[row*32 + j2]
+    auto& map_j2 = builder.add_map(
+        map_row.root(), j2, symbolic::Lt(j2, Nc), symbolic::integer(0), symbolic::add(j2, symbolic::integer(1)), block
+    );
+    auto& blk2 = builder.add_block(map_j2.root());
+    auto& x_in2 = builder.add_access(blk2, "X");
+    auto& y2_out = builder.add_access(blk2, "Y2");
+    auto& t2 = builder.add_tasklet(blk2, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(blk2, x_in2, t2, "_in", {symbolic::add(symbolic::mul(row, Nc), j2)}, ptr);
+    builder.add_computational_memlet(blk2, t2, "_out", y2_out, {symbolic::add(symbolic::mul(row, Nc), j2)}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+
+    LocalStorage::TileInfo ti;
+    ti.bases = {symbolic::mul(row, Nc)};
+    auto plan = LocalStorage::build_locality_plan(map_row, ti, am);
+    EXPECT_TRUE(plan.dims.empty());
+    EXPECT_TRUE(plan.loop_is_gpu);
+    EXPECT_TRUE(plan.has_gpu_descendant);
+    EXPECT_TRUE(plan.enclosing_cooperative);
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ false), LocalStorage::Locality::Shared);
+    EXPECT_EQ(LocalStorage::derive_storage(plan, /*written*/ true), LocalStorage::Locality::Reject);
+
+    LocalStorage xform(map_row, x_in1);
+    EXPECT_TRUE(xform.can_be_applied(builder, am));
+}
+
+// B1 apply: the staged row is loaded once at the top of the grid body (copy map +
+// barrier), and BOTH sibling block loops read the shared buffer instead of X.
+TEST(LocalStorageTest, Apply_EnclosingCooperativeStaging) {
+    builder::StructuredSDFGBuilder builder("ls_apply_softmax", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", elem);
+    auto row = symbolic::symbol("row");
+    auto j1 = symbolic::symbol("j1");
+    auto j2 = symbolic::symbol("j2");
+    auto R = symbolic::symbol("R");
+    auto Nc = symbolic::integer(32);
+    builder.add_container("R", loop_var, true);
+    builder.add_container("X", ptr, true);
+    builder.add_container("Y1", ptr, true);
+    builder.add_container("Y2", ptr, true);
+    builder.add_container("row", loop_var);
+    builder.add_container("j1", loop_var);
+    builder.add_container("j2", loop_var);
+
+    auto grid = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_GRID, symbolic::integer(1));
+    auto block = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(32));
+
+    auto& map_row =
+        builder
+            .add_map(seq, row, symbolic::Lt(row, R), symbolic::integer(0), symbolic::add(row, symbolic::integer(1)), grid);
+    auto& map_j1 = builder.add_map(
+        map_row.root(), j1, symbolic::Lt(j1, Nc), symbolic::integer(0), symbolic::add(j1, symbolic::integer(1)), block
+    );
+    auto& blk1 = builder.add_block(map_j1.root());
+    auto& x_in1 = builder.add_access(blk1, "X");
+    auto& y1_out = builder.add_access(blk1, "Y1");
+    auto& t1 = builder.add_tasklet(blk1, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(blk1, x_in1, t1, "_in", {symbolic::add(symbolic::mul(row, Nc), j1)}, ptr);
+    builder.add_computational_memlet(blk1, t1, "_out", y1_out, {symbolic::add(symbolic::mul(row, Nc), j1)}, ptr);
+    auto& map_j2 = builder.add_map(
+        map_row.root(), j2, symbolic::Lt(j2, Nc), symbolic::integer(0), symbolic::add(j2, symbolic::integer(1)), block
+    );
+    auto& blk2 = builder.add_block(map_j2.root());
+    auto& x_in2 = builder.add_access(blk2, "X");
+    auto& y2_out = builder.add_access(blk2, "Y2");
+    auto& t2 = builder.add_tasklet(blk2, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(blk2, x_in2, t2, "_in", {symbolic::add(symbolic::mul(row, Nc), j2)}, ptr);
+    builder.add_computational_memlet(blk2, t2, "_out", y2_out, {symbolic::add(symbolic::mul(row, Nc), j2)}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage xform(map_row, x_in1);
+    ASSERT_TRUE(xform.can_be_applied(builder, am));
+    EXPECT_TRUE(xform.storage_type().is_nv_shared());
+    xform.apply(builder, am);
+
+    auto buf = xform.local_container();
+    ASSERT_TRUE(builder.subject().exists(buf));
+    EXPECT_TRUE(builder.subject().type(buf).storage_type().is_nv_shared());
+
+    // Grid body is now [copy_map (offload), barrier, map_j1, map_j2].
+    ASSERT_EQ(map_row.root().size(), 4u);
+    auto* copy_map = dyn_cast<structured_control_flow::Map*>(&map_row.root().at(0));
+    ASSERT_NE(copy_map, nullptr);
+    EXPECT_EQ(copy_map->schedule_type().category(), structured_control_flow::ScheduleTypeCategory::Offloader);
+    EXPECT_NE(dyn_cast<structured_control_flow::Block*>(&map_row.root().at(1)), nullptr); // barrier
+    EXPECT_NE(dyn_cast<structured_control_flow::Map*>(&map_row.root().at(2)), nullptr);
+    EXPECT_NE(dyn_cast<structured_control_flow::Map*>(&map_row.root().at(3)), nullptr);
+
+    // Both consumers now read the shared buffer, not X.
+    EXPECT_TRUE(block_uses(blk1, buf));
+    EXPECT_FALSE(block_uses(blk1, "X"));
+    EXPECT_TRUE(block_uses(blk2, buf));
+    EXPECT_FALSE(block_uses(blk2, "X"));
+}
+
 /**
  * Gate_GpuCooperativeRead_Rejects: a read-only tile that is cooperative across a
  * GPU thread dim derives to shared memory, whose apply path is not implemented

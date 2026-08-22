@@ -301,3 +301,106 @@ def test_local_storage_cooperative_mixed(N, M, K, bm, bn, tmp_path):
     # Each row i of C is the row sum of A[i, :], broadcast across the M columns.
     expected = np.broadcast_to(A.sum(axis=1)[:, None], (N, M))
     np.testing.assert_allclose(C, expected, rtol=1e-4, atol=1e-4)
+
+
+def _build_enclosing_reuse(R, N, block):
+    """Two sibling block loops over columns both read row X[row,:].
+
+    Pass 1: Y1[row,j] = X[row,j]. Pass 2: Y2[row,j] = X[row, N-1-j] (reversed).
+    Localizing X at the enclosing grid row-loop stages X[row,:] once into a
+    per-block shared row that both passes reuse; the reversed read proves the
+    whole row is resident and threads read one another's staged elements.
+    """
+    f = Scalar(PrimitiveType.Float)
+    host = Pointer(f)
+    dev = Pointer(f, StorageType.NV_Generic())
+    i32 = Scalar(PrimitiveType.Int32)
+
+    b = StructuredSDFGBuilder("ls_enclosing_cuda")
+    for nm in ("X", "Y1", "Y2"):
+        b.add_container(nm, host, is_argument=True)
+    for nm in ("__daisy_dev_X", "__daisy_dev_Y1", "__daisy_dev_Y2"):
+        b.add_container(nm, dev, is_argument=False)
+    b.add_container("row", i32)
+    b.add_container("j1", i32)
+    b.add_container("j2", i32)
+
+    def off(hc, dc, dirn, life, size):
+        b.add_cuda_offloading_block(hc, dc, dirn, life, dev, size)
+
+    nb = f"{R} * {N} * {FLOAT_BYTES}"
+    for nm in ("__daisy_dev_X", "__daisy_dev_Y1", "__daisy_dev_Y2"):
+        off(nm, nm, DataTransferDirection.NONE, BufferLifecycle.ALLOC, nb)
+    off("X", "__daisy_dev_X", DataTransferDirection.H2D, BufferLifecycle.NO_CHANGE, nb)
+
+    row_map = b.begin_map(
+        "row", "0", str(R), "1", ScheduleType.cuda_offload(TargetLevel.X_GRID, 1)
+    )
+    b.begin_map(
+        "j1", "0", str(N), "1", ScheduleType.cuda_offload(TargetLevel.X_BLOCK, block)
+    )
+    blk1 = b.add_block()
+    x1 = b.add_access(blk1, "__daisy_dev_X")
+    y1 = b.add_access(blk1, "__daisy_dev_Y1")
+    t1 = b.add_tasklet(blk1, TaskletCode.assign, ["_in"], ["_out"])
+    b.add_memlet(blk1, x1, "", t1, "_in", f"row*{N} + j1", dev)
+    b.add_memlet(blk1, t1, "_out", y1, "", f"row*{N} + j1", dev)
+    b.end_map()
+    b.begin_map(
+        "j2", "0", str(N), "1", ScheduleType.cuda_offload(TargetLevel.X_BLOCK, block)
+    )
+    blk2 = b.add_block()
+    x2 = b.add_access(blk2, "__daisy_dev_X")
+    y2 = b.add_access(blk2, "__daisy_dev_Y2")
+    t2 = b.add_tasklet(blk2, TaskletCode.assign, ["_in"], ["_out"])
+    b.add_memlet(blk2, x2, "", t2, "_in", f"row*{N} + ({N} - 1 - j2)", dev)
+    b.add_memlet(blk2, t2, "_out", y2, "", f"row*{N} + j2", dev)
+    b.end_map()
+    b.end_map()
+
+    for host_nm, dev_nm in (("Y1", "__daisy_dev_Y1"), ("Y2", "__daisy_dev_Y2")):
+        off(host_nm, dev_nm, DataTransferDirection.D2H, BufferLifecycle.NO_CHANGE, nb)
+    for nm in ("__daisy_dev_X", "__daisy_dev_Y1", "__daisy_dev_Y2"):
+        off(nm, nm, DataTransferDirection.NONE, BufferLifecycle.FREE, "0")
+
+    return b, row_map, x1
+
+
+@pytest.mark.parametrize(
+    "R,N,block",
+    [(4, 32, 32), (3, 50, 32), (5, 17, 16)],
+    ids=["4x32x32", "3x50x32", "5x17x16"],
+)
+def test_local_storage_enclosing_reuse(R, N, block, tmp_path):
+    builder, row_map, x1 = _build_enclosing_reuse(R, N, block)
+
+    am = AnalysisManager(builder)
+    xform = LocalStorage(row_map, x1)
+    assert xform.can_be_applied(
+        builder, am
+    ), "enclosing-scope cooperative staging should apply"
+    xform.apply(builder, am)
+    # Hoist the staging barrier's boundary guard so ragged blocks don't deadlock.
+    SyncConditionPropagation().run(builder, am)
+
+    sdfg = builder.move()
+    sdfg.validate()
+    output_dir = tmp_path / f"enc_{R}x{N}x{block}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lib_path = sdfg._compile(str(output_dir), "cuda")
+
+    generated = "\n".join(p.read_text() for p in output_dir.rglob("*.cu"))
+    assert "__shared__" in generated, "shared row buffer not emitted"
+    assert "__syncthreads" in generated, "staging barrier not emitted"
+
+    compiled = CompiledSDFG(lib_path, sdfg)
+
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((R, N)).astype(np.float32)
+    Y1 = np.zeros((R, N), dtype=np.float32)
+    Y2 = np.zeros((R, N), dtype=np.float32)
+
+    compiled(X.reshape(-1), Y1.reshape(-1), Y2.reshape(-1))
+
+    np.testing.assert_allclose(Y1, X, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(Y2, X[:, ::-1], rtol=1e-6, atol=1e-6)
