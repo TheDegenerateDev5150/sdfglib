@@ -390,20 +390,12 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
             const std::string& value = sched.value();
             if (value == "CUDA_Offload" || value == "ROCM_Offload") {
                 d.target_level = gpu::gpu_target_level(sched);
-                switch (d.target_level) {
-                    case gpu::TargetLevel::X_GRID:
-                    case gpu::TargetLevel::Y_GRID:
-                    case gpu::TargetLevel::Z_GRID:
-                        d.level = LocalityPlan::Level::Grid;
-                        break;
-                    case gpu::TargetLevel::X_BLOCK:
-                    case gpu::TargetLevel::Y_BLOCK:
-                    case gpu::TargetLevel::Z_BLOCK:
-                        d.level = LocalityPlan::Level::Block;
-                        break;
-                    case gpu::TargetLevel::WARP:
-                        d.level = LocalityPlan::Level::Warp;
-                        break;
+                if (gpu::is_grid_level(d.target_level)) {
+                    d.level = LocalityPlan::Level::Grid;
+                } else if (gpu::is_block_level(d.target_level)) {
+                    d.level = LocalityPlan::Level::Block;
+                } else {
+                    d.level = LocalityPlan::Level::Warp;
                 }
                 d.parallel_size = gpu::ScheduleType_GPU_Offload::parallel_size(sched);
                 d.needs_sync = gpu::ScheduleType_GPU_Offload::nested_sync(sched);
