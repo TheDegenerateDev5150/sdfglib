@@ -20,6 +20,7 @@ import pytest
 from docc.sdfg import (
     AnalysisManager,
     BufferLifecycle,
+    CMathFunction,
     DataTransferDirection,
     LocalStorage,
     Pointer,
@@ -404,3 +405,160 @@ def test_local_storage_enclosing_reuse(R, N, block, tmp_path):
 
     np.testing.assert_allclose(Y1, X, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(Y2, X[:, ::-1], rtol=1e-6, atol=1e-6)
+
+
+def _build_fused_reduce(R, N, block):
+    """Fused per-row normalize sharing one staged row across two reductions.
+
+    map row: stage X[row,:] -> buf; reduce-max -> m; barrier; reduce-sum -> s;
+    barrier; Y[row,j] = (buf[j] - m[row]) / s[row]. LocalStorage stages X so the
+    two reduces and the normalize all read the one shared row (X loaded once).
+    Reference: Y = (X - rowmax) / rowsum.
+    """
+    f = Scalar(PrimitiveType.Float)
+    host = Pointer(f)
+    dev = Pointer(f, StorageType.NV_Generic())
+    i32 = Scalar(PrimitiveType.Int32)
+
+    b = StructuredSDFGBuilder("ls_fused_cuda")
+    for nm in ("X", "Y", "m", "s"):
+        b.add_container(nm, host, is_argument=True)
+    for nm in ("__daisy_dev_X", "__daisy_dev_Y", "__daisy_dev_m", "__daisy_dev_s"):
+        b.add_container(nm, dev, is_argument=False)
+    b.add_container("tmp", dev, is_argument=False)  # per-thread scratch
+    for nm in ("row", "jr", "js", "jn"):
+        b.add_container(nm, i32)
+
+    def off(hc, dc, dirn, life, size):
+        b.add_cuda_offloading_block(hc, dc, dirn, life, dev, size)
+
+    nbX = f"{R} * {N} * {FLOAT_BYTES}"
+    nbm = f"{R} * {FLOAT_BYTES}"
+    for dc, sz in (
+        ("__daisy_dev_X", nbX),
+        ("__daisy_dev_Y", nbX),
+        ("__daisy_dev_m", nbm),
+        ("__daisy_dev_s", nbm),
+        ("tmp", str(FLOAT_BYTES)),
+    ):
+        off(dc, dc, DataTransferDirection.NONE, BufferLifecycle.ALLOC, sz)
+    off("X", "__daisy_dev_X", DataTransferDirection.H2D, BufferLifecycle.NO_CHANGE, nbX)
+    off("m", "__daisy_dev_m", DataTransferDirection.H2D, BufferLifecycle.NO_CHANGE, nbm)
+    off("s", "__daisy_dev_s", DataTransferDirection.H2D, BufferLifecycle.NO_CHANGE, nbm)
+
+    row_map = b.begin_map(
+        "row", "0", str(R), "1", ScheduleType.cuda_offload(TargetLevel.X_GRID, 1)
+    )
+
+    b.begin_reduce(
+        "jr",
+        "0",
+        str(N),
+        "1",
+        [("max", "__daisy_dev_m")],
+        ScheduleType.cuda_offload(TargetLevel.X_BLOCK, block),
+    )
+    rb = b.add_block()
+    mi = b.add_access(rb, "__daisy_dev_m")
+    xr = b.add_access(rb, "__daisy_dev_X")
+    mo = b.add_access(rb, "__daisy_dev_m")
+    mx = b.add_cmath(rb, CMathFunction.fmax, PrimitiveType.Float)
+    b.add_memlet(rb, mi, "", mx, "_in1", "row", dev)
+    b.add_memlet(rb, xr, "", mx, "_in2", f"row*{N} + jr", dev)
+    b.add_memlet(rb, mx, "_out", mo, "", "row", dev)
+    b.end_reduce()
+
+    b.add_barrier_local_block()
+
+    b.begin_reduce(
+        "js",
+        "0",
+        str(N),
+        "1",
+        [("add", "__daisy_dev_s")],
+        ScheduleType.cuda_offload(TargetLevel.X_BLOCK, block),
+    )
+    sb = b.add_block()
+    si = b.add_access(sb, "__daisy_dev_s")
+    xs = b.add_access(sb, "__daisy_dev_X")
+    so = b.add_access(sb, "__daisy_dev_s")
+    at = b.add_tasklet(sb, TaskletCode.fp_add, ["_in1", "_in2"], ["_out"])
+    b.add_memlet(sb, si, "", at, "_in1", "row", dev)
+    b.add_memlet(sb, xs, "", at, "_in2", f"row*{N} + js", dev)
+    b.add_memlet(sb, at, "_out", so, "", "row", dev)
+    b.end_reduce()
+
+    b.add_barrier_local_block()
+
+    b.begin_map(
+        "jn", "0", str(N), "1", ScheduleType.cuda_offload(TargetLevel.X_BLOCK, block)
+    )
+    nb = b.add_block()
+    xn = b.add_access(nb, "__daisy_dev_X")
+    mn = b.add_access(nb, "__daisy_dev_m")
+    tmp_o = b.add_access(nb, "tmp")
+    sub = b.add_tasklet(nb, TaskletCode.fp_sub, ["_in1", "_in2"], ["_out"])
+    b.add_memlet(nb, xn, "", sub, "_in1", f"row*{N} + jn", dev)
+    b.add_memlet(nb, mn, "", sub, "_in2", "row", dev)
+    b.add_memlet(nb, sub, "_out", tmp_o, "", "0", dev)
+    tmp_i = b.add_access(nb, "tmp")
+    sn = b.add_access(nb, "__daisy_dev_s")
+    yn = b.add_access(nb, "__daisy_dev_Y")
+    div = b.add_tasklet(nb, TaskletCode.fp_div, ["_in1", "_in2"], ["_out"])
+    b.add_memlet(nb, tmp_i, "", div, "_in1", "0", dev)
+    b.add_memlet(nb, sn, "", div, "_in2", "row", dev)
+    b.add_memlet(nb, div, "_out", yn, "", f"row*{N} + jn", dev)
+    b.end_map()
+
+    b.end_map()
+
+    off("Y", "__daisy_dev_Y", DataTransferDirection.D2H, BufferLifecycle.NO_CHANGE, nbX)
+    for dc in (
+        "__daisy_dev_X",
+        "__daisy_dev_Y",
+        "__daisy_dev_m",
+        "__daisy_dev_s",
+        "tmp",
+    ):
+        off(dc, dc, DataTransferDirection.NONE, BufferLifecycle.FREE, "0")
+
+    return b, row_map, xr
+
+
+@pytest.mark.parametrize(
+    "R,N,block",
+    [(4, 32, 32), (3, 50, 32), (5, 17, 16)],
+    ids=["4x32x32", "3x50x32", "5x17x16"],
+)
+def test_local_storage_fused_reduce(R, N, block, tmp_path):
+    builder, row_map, xr = _build_fused_reduce(R, N, block)
+
+    am = AnalysisManager(builder)
+    xform = LocalStorage(row_map, xr)
+    assert xform.can_be_applied(builder, am), "fused reduce staging should apply"
+    xform.apply(builder, am)
+    SyncConditionPropagation().run(builder, am)
+
+    sdfg = builder.move()
+    sdfg.validate()
+    output_dir = tmp_path / f"fused_{R}x{N}x{block}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lib_path = sdfg._compile(str(output_dir), "cuda")
+
+    generated = "\n".join(p.read_text() for p in output_dir.rglob("*.cu"))
+    # One staged row buffer, reused by both reduces and the normalize.
+    assert "__daisy_local_storage" in generated, "staged row buffer not emitted"
+    assert "__syncthreads" in generated, "barriers not emitted"
+
+    compiled = CompiledSDFG(lib_path, sdfg)
+
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((R, N)).astype(np.float32)
+    Y = np.zeros((R, N), dtype=np.float32)
+    m = np.full(R, -np.inf, dtype=np.float32)
+    s = np.zeros(R, dtype=np.float32)
+
+    compiled(X.reshape(-1), Y.reshape(-1), m, s)
+
+    expected = (X - X.max(axis=1, keepdims=True)) / X.sum(axis=1, keepdims=True)
+    np.testing.assert_allclose(Y, expected, rtol=1e-4, atol=1e-4)
