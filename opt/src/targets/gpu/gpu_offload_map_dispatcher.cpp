@@ -269,9 +269,11 @@ void GPUOffloadMapDispatcher::dispatch_kernel_body(
     // dispatcher via __shfl_xor_sync over the enclosing X_BLOCK lanes), so the
     // coverage loop must run once per iteration rather than once per warp_size.
     std::string coverage_count_dim = (target_level == TargetLevel::WARP) ? std::string("1") : coverage_dim;
+    // Cast the ceil-div to int: blockDim/gridDim are unsigned, and CUDA 12.9's max()
+    // overload set makes max(1, <unsigned>) ambiguous under clang-cuda.
     library_stream << "for (int " << coverage_loop_var << " = 0; " << coverage_loop_var << " < "
-                   << "max(1, (" << size << " + " << coverage_count_dim << " - 1) / " << coverage_count_dim << "); "
-                   << coverage_loop_var << "++) {" << std::endl;
+                   << "max(1, (int)((" << size << " + " << coverage_count_dim << " - 1) / " << coverage_count_dim
+                   << ")); " << coverage_loop_var << "++) {" << std::endl;
     library_stream.setIndent(library_stream.indent() + 4);
 
     if (target_level == TargetLevel::WARP) {
