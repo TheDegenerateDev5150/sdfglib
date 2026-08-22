@@ -1,7 +1,7 @@
 #pragma once
 
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/gpu/gpu_schedule_type.h"
+#include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
 #include "sdfg/targets/rocm/rocm_data_offloading_node.h"
 #include "sdfg/transformations/offloading/gpu_offload_transform.h"
 

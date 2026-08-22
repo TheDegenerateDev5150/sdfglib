@@ -4,7 +4,7 @@
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/gpu/gpu_schedule_type.h"
+#include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
 #include "sdfg/transformations/transformation.h"
 
 namespace sdfg {
