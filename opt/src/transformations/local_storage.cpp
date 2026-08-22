@@ -359,6 +359,12 @@ bool LocalStorage::has_side_effect(structured_control_flow::StructuredLoop& loop
             return;
         }
         for (auto* lib_node : block.dataflow().library_nodes()) {
+            // A __syncthreads barrier accesses no data (a control-only scheduling
+            // primitive), so it cannot reference the localized container and does
+            // not block staging — unlike genuine side effects (malloc/memset/…).
+            if (dynamic_cast<data_flow::BarrierLocalNode*>(lib_node)) {
+                continue;
+            }
             if (lib_node->side_effect()) {
                 found = true;
                 return;

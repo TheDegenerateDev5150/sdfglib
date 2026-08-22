@@ -7,7 +7,9 @@
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/access_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
+#include "sdfg/data_flow/library_nodes/math/cmath/cmath_node.h"
 #include "sdfg/data_flow/library_nodes/metadata_node.h"
+#include "sdfg/data_flow/library_nodes/stdlib/memset.h"
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/for.h"
 #include "sdfg/structured_control_flow/map.h"
@@ -1421,15 +1423,35 @@ TEST(LocalStorageTest, CanApply_SideEffect_Rejects) {
     builder.add_computational_memlet(block, a_in, t, "_in2", {i}, ptr);
     builder.add_computational_memlet(block, t, "_out", c_out, {}, elem);
 
-    // A side-effecting library node in the loop body.
+    // A genuine side-effecting library node (memset) in the loop body — unlike a
+    // bare __syncthreads barrier, which accesses no data and does not block staging.
     auto& se_block = builder.add_block(loop.root());
-    builder.add_library_node<data_flow::BarrierLocalNode>(se_block, DebugInfo());
+    builder.add_library_node<stdlib::MemsetNode>(se_block, DebugInfo(), symbolic::integer(0), symbolic::integer(4));
 
     EXPECT_TRUE(LocalStorage::has_side_effect(loop));
 
     analysis::AnalysisManager am(builder.subject());
     LocalStorage xform(loop, a_in);
     EXPECT_FALSE(xform.can_be_applied(builder, am));
+}
+
+// A __syncthreads barrier (no data connectors) is not a staging-blocking side
+// effect — needed so LocalStorage can stage a row across barrier-separated passes.
+TEST(LocalStorageTest, HasSideEffect_BarrierIgnored) {
+    builder::StructuredSDFGBuilder builder("ls_barrier_ok", FunctionType_CPU);
+    types::Scalar sym(types::PrimitiveType::UInt64);
+    auto i = symbolic::symbol("i");
+    auto& loop = builder.add_for(
+        builder.subject().root(),
+        i,
+        symbolic::Lt(i, symbolic::integer(8)),
+        symbolic::integer(0),
+        symbolic::add(i, symbolic::one())
+    );
+    auto& blk = builder.add_block(loop.root());
+    builder.add_library_node<data_flow::BarrierLocalNode>(blk, DebugInfo());
+
+    EXPECT_FALSE(LocalStorage::has_side_effect(loop));
 }
 
 /**
@@ -2066,6 +2088,106 @@ TEST(LocalStorageTest, Plan_GpuOffloadReduce_BlockLevel) {
 }
 
 // A reduction accumulator is owned by the Reduce node + reduce dispatcher;
+// A read-only row consumed by Reduce nodes (softmax-style: reduce-max via a
+// cmath fmax, reduce-sum, normalize) stages at the enclosing grid loop. The cmath
+// input must be no_capture, else the pointer analysis falsely flags X as aliased.
+TEST(LocalStorageTest, Gate_ReduceConsumerStaging_Accepts) {
+    builder::StructuredSDFGBuilder builder("ls_probe_reduce_consumer", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", elem);
+    auto row = symbolic::symbol("row");
+    auto jr = symbolic::symbol("jr");
+    auto jn = symbolic::symbol("jn");
+    auto R = symbolic::symbol("R");
+    auto Nc = symbolic::integer(32);
+    builder.add_container("R", loop_var, true);
+    builder.add_container("X", ptr, true);
+    builder.add_container("Y", ptr, true);
+    builder.add_container("m", ptr, true);
+    builder.add_container("row", loop_var);
+    builder.add_container("jr", loop_var);
+    builder.add_container("jn", loop_var);
+
+    auto grid = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_GRID, symbolic::integer(1));
+    auto block = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(32));
+
+    auto& map_row =
+        builder
+            .add_map(seq, row, symbolic::Lt(row, R), symbolic::integer(0), symbolic::add(row, symbolic::integer(1)), grid);
+    // reduce-max over the row into m[row], reading X[row*32 + jr]
+    auto& reduce = builder.add_reduce(
+        map_row.root(),
+        jr,
+        symbolic::Lt(jr, Nc),
+        symbolic::integer(0),
+        symbolic::add(jr, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Max, "m"}},
+        block
+    );
+    auto& rblk = builder.add_block(reduce.root());
+    auto& m_in = builder.add_access(rblk, "m");
+    auto& x_r = builder.add_access(rblk, "X");
+    auto& m_out = builder.add_access(rblk, "m");
+    auto& rt = builder.add_library_node<
+        math::cmath::CMathNode>(rblk, DebugInfo(), math::cmath::CMathFunction::fmax, types::PrimitiveType::Float);
+    builder.add_computational_memlet(rblk, m_in, rt, "_in1", {row}, ptr);
+    builder.add_computational_memlet(rblk, x_r, rt, "_in2", {symbolic::add(symbolic::mul(row, Nc), jr)}, ptr);
+    builder.add_computational_memlet(rblk, rt, "_out", m_out, {row}, ptr);
+    // second reduce: sum over the row into s[row], reading X[row*32 + js]
+    auto js = symbolic::symbol("js");
+    builder.add_container("js", loop_var);
+    builder.add_container("s", ptr);
+    auto& reduce2 = builder.add_reduce(
+        map_row.root(),
+        js,
+        symbolic::Lt(js, Nc),
+        symbolic::integer(0),
+        symbolic::add(js, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "s"}},
+        block
+    );
+    auto& r2blk = builder.add_block(reduce2.root());
+    auto& s_in = builder.add_access(r2blk, "s");
+    auto& x_s = builder.add_access(r2blk, "X");
+    auto& s_out = builder.add_access(r2blk, "s");
+    auto& st = builder.add_tasklet(r2blk, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(r2blk, s_in, st, "_in1", {row}, ptr);
+    builder.add_computational_memlet(r2blk, x_s, st, "_in2", {symbolic::add(symbolic::mul(row, Nc), js)}, ptr);
+    builder.add_computational_memlet(r2blk, st, "_out", s_out, {row}, ptr);
+    // normalize map reading X[row*32 + jn]
+    auto& map_n = builder.add_map(
+        map_row.root(), jn, symbolic::Lt(jn, Nc), symbolic::integer(0), symbolic::add(jn, symbolic::integer(1)), block
+    );
+    auto& nblk = builder.add_block(map_n.root());
+    auto& x_n = builder.add_access(nblk, "X");
+    auto& y_n = builder.add_access(nblk, "Y");
+    builder.add_container("tmp", ptr);
+    auto& tmp_o = builder.add_access(nblk, "tmp");
+    auto& sub = builder.add_tasklet(nblk, data_flow::TaskletCode::fp_sub, "_out", {"_in1", "_in2"});
+    auto& m_n = builder.add_access(nblk, "m");
+    builder.add_computational_memlet(nblk, x_n, sub, "_in1", {symbolic::add(symbolic::mul(row, Nc), jn)}, ptr);
+    builder.add_computational_memlet(nblk, m_n, sub, "_in2", {row}, ptr);
+    builder.add_computational_memlet(nblk, sub, "_out", tmp_o, {symbolic::integer(0)}, ptr);
+    auto& tmp_i = builder.add_access(nblk, "tmp");
+    auto& s_n = builder.add_access(nblk, "s");
+    auto& divt = builder.add_tasklet(nblk, data_flow::TaskletCode::fp_div, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(nblk, tmp_i, divt, "_in1", {symbolic::integer(0)}, ptr);
+    builder.add_computational_memlet(nblk, s_n, divt, "_in2", {row}, ptr);
+    builder.add_computational_memlet(nblk, divt, "_out", y_n, {symbolic::add(symbolic::mul(row, Nc), jn)}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+    auto plan = LocalStorage::build_locality_plan(map_row, LocalStorage::TileInfo{}, am);
+    EXPECT_TRUE(plan.enclosing_cooperative);
+    EXPECT_FALSE(LocalStorage::is_reduction_accumulator(map_row, "X", am));
+    // A cmath (fmax) reading X must not flag X as pointer-captured (no_capture).
+    LocalStorage xform(map_row, x_r);
+    EXPECT_TRUE(xform.can_be_applied(builder, am));
+}
+
 // is_reduction_accumulator detects it whether the Reduce is the loop itself, an
 // ancestor, or a descendant, so can_be_applied refuses to localize it.
 TEST(LocalStorageTest, IsReductionAccumulator_EnclosingAndNested) {
