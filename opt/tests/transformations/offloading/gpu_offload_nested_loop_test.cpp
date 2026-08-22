@@ -13,13 +13,14 @@
 
 namespace sdfg {
 
-using Transform = transformations::GPUOffloadNestedLoop<cuda::ScheduleType_CUDA>;
+using Transform = transformations::GPUOffloadNestedLoop<cuda::ScheduleType_CUDA_Offload>;
 
 namespace {
 
 // Build a GPU schedule for the given target level / parallel size.
 structured_control_flow::ScheduleType gpu_schedule(gpu::TargetLevel level, int64_t parallel_size) {
-    return cuda::ScheduleType_CUDA::create<cuda::ScheduleType_CUDA>(level, symbolic::integer(parallel_size));
+    return cuda::ScheduleType_CUDA_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(level, symbolic::integer(parallel_size));
 }
 
 // A simple loop condition `<indvar> < bound`.
@@ -94,9 +95,10 @@ TEST(GPUOffloadNestedLoopTest, XBlockNestedInXGridApplies) {
     EXPECT_TRUE(transformation.can_be_applied(builder, analysis_manager));
 
     transformation.apply(builder, analysis_manager);
-    EXPECT_EQ(block.schedule_type().value(), cuda::ScheduleType_CUDA::value());
-    EXPECT_EQ(cuda::ScheduleType_CUDA::target_level(block.schedule_type()), gpu::TargetLevel::X_BLOCK);
-    EXPECT_TRUE(symbolic::eq(cuda::ScheduleType_CUDA::parallel_size(block.schedule_type()), symbolic::integer(256)));
+    EXPECT_EQ(block.schedule_type().value(), cuda::ScheduleType_CUDA_Offload::value());
+    EXPECT_EQ(cuda::ScheduleType_CUDA_Offload::target_level(block.schedule_type()), gpu::TargetLevel::X_BLOCK);
+    EXPECT_TRUE(symbolic::eq(cuda::ScheduleType_CUDA_Offload::parallel_size(block.schedule_type()), symbolic::integer(256))
+    );
 }
 
 TEST(GPUOffloadNestedLoopTest, WarpNestedInXBlockApplies) {
@@ -142,7 +144,7 @@ TEST(GPUOffloadNestedLoopTest, WarpNestedInXBlockApplies) {
     EXPECT_TRUE(transformation.can_be_applied(builder, analysis_manager));
 
     transformation.apply(builder, analysis_manager);
-    EXPECT_EQ(cuda::ScheduleType_CUDA::target_level(warp.schedule_type()), gpu::TargetLevel::WARP);
+    EXPECT_EQ(cuda::ScheduleType_CUDA_Offload::target_level(warp.schedule_type()), gpu::TargetLevel::WARP);
 }
 
 TEST(GPUOffloadNestedLoopTest, ReduceWithSupportedOperationApplies) {

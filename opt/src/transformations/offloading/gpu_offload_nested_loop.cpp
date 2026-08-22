@@ -173,11 +173,12 @@ bool GPUOffloadNestedLoop<
                level == gpu::TargetLevel::Z_BLOCK;
     };
     int64_t block_product = 1;
-    if (is_block_level(target_level_)) {
+    // A WARP occupies threads within the block, so it counts toward the block thread budget.
+    if (is_block_level(target_level_) || target_level_ == gpu::TargetLevel::WARP) {
         block_product *= parallel_size_->as_int();
     }
     for (auto& [level, size] : ancestor_levels) {
-        if (is_block_level(level)) {
+        if (is_block_level(level) || level == gpu::TargetLevel::WARP) {
             block_product *= size;
         }
     }
