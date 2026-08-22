@@ -562,3 +562,107 @@ def test_local_storage_fused_reduce(R, N, block, tmp_path):
 
     expected = (X - X.max(axis=1, keepdims=True)) / X.sum(axis=1, keepdims=True)
     np.testing.assert_allclose(Y, expected, rtol=1e-4, atol=1e-4)
+
+
+def _build_gemm_regtile(M, N, K, TY, TX, CY, CX):
+    """Thread-coarsened GEMM ``C = A@B`` where each thread owns a CY*CX tile of C.
+
+    Loop nest: jO(X_BLOCK) iO(Y_BLOCK) over the thread-tile grid, then k, then the
+    per-thread micro-tile loops iI,jI:
+        C[(iO*CY+iI), (jO*CX+jI)] += A[(iO*CY+iI), k] * B[k, (jO*CX+jI)]
+    Localizing C at the k loop turns the CY*CX accumulator into a per-thread
+    register tile (C_reg), accumulated across k and written back once.
+    """
+    f = Scalar(PrimitiveType.Float)
+    host = Pointer(f)
+    dev = Pointer(f, StorageType.NV_Generic())
+    i32 = Scalar(PrimitiveType.Int32)
+
+    b = StructuredSDFGBuilder("ls_gemm_regtile")
+    for nm in ("A", "B", "C"):
+        b.add_container(nm, host, is_argument=True)
+    for nm in ("__daisy_dev_A", "__daisy_dev_B", "__daisy_dev_C"):
+        b.add_container(nm, dev, is_argument=False)
+    for nm in ("jO", "iO", "k", "iI", "jI"):
+        b.add_container(nm, i32)
+
+    def off(hc, dc, dirn, life, size):
+        b.add_cuda_offloading_block(hc, dc, dirn, life, dev, size)
+
+    nbA = f"{M * K} * {FLOAT_BYTES}"
+    nbB = f"{K * N} * {FLOAT_BYTES}"
+    nbC = f"{M * N} * {FLOAT_BYTES}"
+    for dc, sz in (
+        ("__daisy_dev_A", nbA),
+        ("__daisy_dev_B", nbB),
+        ("__daisy_dev_C", nbC),
+    ):
+        off(dc, dc, DataTransferDirection.NONE, BufferLifecycle.ALLOC, sz)
+    off("A", "__daisy_dev_A", DataTransferDirection.H2D, BufferLifecycle.NO_CHANGE, nbA)
+    off("B", "__daisy_dev_B", DataTransferDirection.H2D, BufferLifecycle.NO_CHANGE, nbB)
+    off("C", "__daisy_dev_C", DataTransferDirection.H2D, BufferLifecycle.NO_CHANGE, nbC)
+
+    b.begin_map(
+        "jO", "0", str(N // CX), "1", ScheduleType.cuda_offload(TargetLevel.X_BLOCK, TX)
+    )
+    b.begin_map(
+        "iO", "0", str(M // CY), "1", ScheduleType.cuda_offload(TargetLevel.Y_BLOCK, TY)
+    )
+    k_loop = b.begin_for("k", "0", str(K), "1")
+    b.begin_for("iI", "0", str(CY), "1")
+    b.begin_for("jI", "0", str(CX), "1")
+    blk = b.add_block()
+    a = b.add_access(blk, "__daisy_dev_A")
+    bb = b.add_access(blk, "__daisy_dev_B")
+    c_in = b.add_access(blk, "__daisy_dev_C")
+    c_out = b.add_access(blk, "__daisy_dev_C")
+    t = b.add_tasklet(blk, TaskletCode.fp_fma, ["_in1", "_in2", "_in3"], ["_out"])
+    b.add_memlet(blk, a, "", t, "_in1", f"(iO*{CY} + iI)*{K} + k", dev)
+    b.add_memlet(blk, bb, "", t, "_in2", f"k*{N} + jO*{CX} + jI", dev)
+    b.add_memlet(blk, c_in, "", t, "_in3", f"(iO*{CY} + iI)*{N} + jO*{CX} + jI", dev)
+    b.add_memlet(blk, t, "_out", c_out, "", f"(iO*{CY} + iI)*{N} + jO*{CX} + jI", dev)
+    b.end_for()
+    b.end_for()
+    b.end_for()
+    b.end_map()
+    b.end_map()
+
+    off("C", "__daisy_dev_C", DataTransferDirection.D2H, BufferLifecycle.NO_CHANGE, nbC)
+    for dc in ("__daisy_dev_A", "__daisy_dev_B", "__daisy_dev_C"):
+        off(dc, dc, DataTransferDirection.NONE, BufferLifecycle.FREE, "0")
+
+    return b, k_loop, c_out
+
+
+@pytest.mark.parametrize(
+    "M,N,K,TY,TX,CY,CX",
+    [(8, 8, 4, 2, 2, 2, 2), (16, 16, 8, 4, 4, 2, 2), (8, 8, 3, 2, 2, 2, 2)],
+    ids=["8x8x4", "16x16x8", "8x8x3"],
+)
+def test_local_storage_register_tile_gemm(M, N, K, TY, TX, CY, CX, tmp_path):
+    builder, k_loop, c_out = _build_gemm_regtile(M, N, K, TY, TX, CY, CX)
+
+    am = AnalysisManager(builder)
+    xform = LocalStorage(k_loop, c_out)
+    assert xform.can_be_applied(builder, am), "C register tile should apply"
+    xform.apply(builder, am)
+
+    sdfg = builder.move()
+    sdfg.validate()
+    output_dir = tmp_path / f"gemm_{M}x{N}x{K}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lib_path = sdfg._compile(str(output_dir), "cuda")
+
+    generated = "\n".join(p.read_text() for p in output_dir.rglob("*.cu"))
+    assert "__daisy_local_storage" in generated, "C register tile not emitted"
+
+    compiled = CompiledSDFG(lib_path, sdfg)
+
+    rng = np.random.default_rng(0)
+    A = rng.standard_normal((M, K)).astype(np.float32)
+    B = rng.standard_normal((K, N)).astype(np.float32)
+    C = np.zeros((M, N), dtype=np.float32)
+
+    compiled(A.reshape(-1), B.reshape(-1), C.reshape(-1))
+
+    np.testing.assert_allclose(C, A @ B, rtol=1e-3, atol=1e-3)
