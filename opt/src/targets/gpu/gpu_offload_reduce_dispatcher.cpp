@@ -44,14 +44,6 @@ namespace {
 
 using structured_control_flow::ReductionOperation;
 
-bool is_grid_level(TargetLevel level) {
-    return level == TargetLevel::X_GRID || level == TargetLevel::Y_GRID || level == TargetLevel::Z_GRID;
-}
-
-bool is_block_level(TargetLevel level) {
-    return level == TargetLevel::X_BLOCK || level == TargetLevel::Y_BLOCK || level == TargetLevel::Z_BLOCK;
-}
-
 std::string op_tag(ReductionOperation op) {
     switch (op) {
         case ReductionOperation::Add:
@@ -226,52 +218,6 @@ GPUOffloadReduceDispatcher::GPUOffloadReduceDispatcher(
       node_(node) {
 
       };
-
-symbolic::SymbolSet target_level_indvars(
-    structured_control_flow::StructuredLoop& node, analysis::AnalysisManager& analysis_manager, TargetLevel target_level
-) {
-    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
-    auto loops = loop_analysis.descendants(&node);
-    loops.insert(&node);
-    symbolic::SymbolSet indvars;
-    for (const auto& loop : loops) {
-        if (auto struc_loop = dyn_cast<structured_control_flow::StructuredLoop*>(loop)) {
-            if (struc_loop->schedule_type().category() == structured_control_flow::ScheduleTypeCategory::Offloader) {
-                if (cuda::ScheduleType_CUDA_Offload::target_level(struc_loop->schedule_type()) == target_level ||
-                    rocm::ScheduleType_ROCM_Offload::target_level(struc_loop->schedule_type()) == target_level) {
-                    indvars.insert(struc_loop->indvar());
-                }
-            }
-        }
-    }
-    return indvars;
-}
-
-void get_nested_schedule_types(
-    structured_control_flow::StructuredLoop& node,
-    analysis::AnalysisManager& analysis_manager,
-    std::unordered_map<TargetLevel, ScheduleType>& output
-) {
-    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
-    auto loops = loop_analysis.descendants(&node);
-    loops.insert(&node);
-    for (const auto& loop : loops) {
-        if (auto struc_loop = dyn_cast<structured_control_flow::StructuredLoop*>(loop)) {
-            if (struc_loop->schedule_type().category() == structured_control_flow::ScheduleTypeCategory::Offloader) {
-                auto level = gpu::ScheduleType_GPU_Offload::target_level(struc_loop->schedule_type());
-                auto it = output.find(level);
-                // Sibling offloaders can share a level with different parallel_size; keep the
-                // largest so the launch dimension covers every sibling.
-                if (it == output.end() ||
-                    symbolic::is_true(symbolic::
-                                          Gt(gpu::ScheduleType_GPU_Offload::parallel_size(struc_loop->schedule_type()),
-                                             gpu::ScheduleType_GPU_Offload::parallel_size(it->second)))) {
-                    output.insert_or_assign(level, struc_loop->schedule_type());
-                }
-            }
-        }
-    }
-}
 
 bool GPUOffloadReduceDispatcher::is_outermost_map(analysis::AnalysisManager& analysis_manager) {
     auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();

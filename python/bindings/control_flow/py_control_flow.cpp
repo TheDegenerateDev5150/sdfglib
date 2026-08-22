@@ -18,6 +18,7 @@
 #include <sdfg/targets/cuda/cuda.h>
 #include <sdfg/targets/gpu/gpu_offload_schedule_type.h>
 #include <sdfg/targets/offloading/data_offloading_node.h>
+#include <sdfg/targets/omp/schedule.h>
 #include <sdfg/targets/rocm/rocm.h>
 
 using namespace sdfg::structured_control_flow;
@@ -267,6 +268,19 @@ void register_control_flow(py::module& m) {
         )
         .def_static(
             "sequential", []() { return ScheduleType_Sequential::create(); }, "Create a sequential schedule type"
+        )
+        .def_static(
+            "omp",
+            [](py::object num_threads) {
+                auto schedule = sdfg::omp::ScheduleType_OMP::create();
+                if (!num_threads.is_none()) {
+                    sdfg::omp::ScheduleType_OMP::
+                        num_threads(schedule, sdfg::symbolic::integer(num_threads.cast<int64_t>()));
+                }
+                return schedule;
+            },
+            py::arg("num_threads") = py::none(),
+            "Create an OpenMP (CPU parallel) schedule type, optionally pinning the thread count"
         )
         .def_static(
             "cuda_offload",

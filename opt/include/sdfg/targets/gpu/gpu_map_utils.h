@@ -1,5 +1,6 @@
 #pragma once
 
+#include <unordered_map>
 #include <vector>
 
 #include "sdfg/analysis/analysis.h"
@@ -140,6 +141,26 @@ bool nested_parallelization_is_unsafe(
 symbolic::Expression get_target_level_dim(TargetLevel target_level, int warp_size);
 
 symbolic::Expression get_target_level_idx(TargetLevel target_level);
+
+// Coarse GPU cooperation level of a target axis.
+bool is_grid_level(TargetLevel target_level);
+bool is_block_level(TargetLevel target_level);
+bool is_warp_level(TargetLevel target_level);
+
+// Induction variables of every offloaded loop (Map or Reduce) at @p target_level
+// in @p node's subtree (including @p node itself).
+symbolic::SymbolSet target_level_indvars(
+    structured_control_flow::StructuredLoop& node, analysis::AnalysisManager& analysis_manager, TargetLevel target_level
+);
+
+// Per-level launch schedule for @p node's subtree: for each occupied target level,
+// the offloaded schedule with the largest parallel_size, so a single launch
+// dimension covers every sibling at that level.
+void get_nested_schedule_types(
+    structured_control_flow::StructuredLoop& node,
+    analysis::AnalysisManager& analysis_manager,
+    std::unordered_map<TargetLevel, structured_control_flow::ScheduleType>& output
+);
 
 bool nested_warp_dim(structured_control_flow::StructuredLoop& loop, analysis::AnalysisManager& analysis_manager);
 
