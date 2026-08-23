@@ -438,6 +438,9 @@ public:
     /// JSON serialization.
     void to_json(nlohmann::json& j) const override;
 
+    /// JSON deserialization.
+    static LocalStorage from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& j);
+
     /// Name of the created local buffer (valid after apply()).
     const std::string& local_container() const { return local_name_; }
 

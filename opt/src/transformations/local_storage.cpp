@@ -1049,5 +1049,30 @@ void LocalStorage::to_json(nlohmann::json& j) const {
     j["subgraph"]["1"]["type"] = "access_node";
 }
 
+LocalStorage LocalStorage::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
+    auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
+    auto element = builder.find_element_by_id(loop_id);
+    if (!element) {
+        throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
+    }
+    auto loop = dyn_cast<structured_control_flow::StructuredLoop*>(element);
+    if (!loop) {
+        throw InvalidTransformationDescriptionException(
+            "Element with ID " + std::to_string(loop_id) + " is not a structured loop."
+        );
+    }
+
+    auto access_node = dynamic_cast<
+        data_flow::AccessNode*>(builder.find_element_by_id(desc.at("subgraph").at("1").at("element_id").get<size_t>()));
+    if (!access_node) {
+        throw InvalidTransformationDescriptionException(
+            "Access node with ID " + std::to_string(desc.at("subgraph").at("1").at("element_id").get<size_t>()) +
+            " not found."
+        );
+    }
+
+    return LocalStorage(*loop, *access_node);
+}
+
 } // namespace transformations
 } // namespace sdfg
