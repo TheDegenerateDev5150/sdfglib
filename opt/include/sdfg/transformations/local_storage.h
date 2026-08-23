@@ -10,6 +10,7 @@
 #include "sdfg/data_flow/data_flow_graph.h"
 #include "sdfg/data_flow/memlet.h"
 #include "sdfg/structured_control_flow/control_flow_node.h"
+#include "sdfg/structured_control_flow/reduce.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
@@ -327,15 +328,35 @@ public:
      * @brief Whether @p container is the accumulator of a Reduce enclosing,
      *        nested within, or equal to @p loop.
      *
-     * Reduction accumulators are staged and combined by the Reduce node + reduce
-     * dispatcher (registers / shared / global partials, tree / shuffle / atomic
-     * combine). LocalStorage stages read-only operands only and must never also
-     * localize an accumulator, so it rejects any such container.
+     * Detects the reduction-accumulator relationship. Localizing such a
+     * container is permitted only for a *non-cooperative* (sequential /
+     * per-thread) Reduce at or below @p loop — see @ref collect_reduction_owners
+     * — where LocalStorage privatizes the accumulator and apply() retargets the
+     * Reduce's descriptor to the local buffer. A cooperatively-combined
+     * (GPU-offloaded) Reduce is owned by the reduce dispatcher and must not be
+     * localized here.
      */
     static bool is_reduction_accumulator(
         structured_control_flow::StructuredLoop& loop,
         const std::string& container,
         analysis::AnalysisManager& analysis_manager
+    );
+
+    /**
+     * @brief Collect the non-cooperative Reduce nodes (@p loop itself or a
+     *        descendant) that reduce into @p container, for accumulator
+     *        privatization.
+     *
+     * @return false if a *cooperative* (GPU-combined) Reduce or an *ancestor*
+     *         Reduce owns @p container — those cannot be safely localized at
+     *         @p loop and must reject. Otherwise fills @p out with the owning
+     *         non-cooperative Reduce nodes (possibly empty) and returns true.
+     */
+    static bool collect_reduction_owners(
+        structured_control_flow::StructuredLoop& loop,
+        const std::string& container,
+        analysis::AnalysisManager& analysis_manager,
+        std::vector<structured_control_flow::Reduce*>& out
     );
 
 private:
@@ -347,6 +368,8 @@ private:
     TileInfo tile_info_; ///< Populated by can_be_applied()
     LocalityPlan plan_; ///< Schedule classification (populated by can_be_applied)
     std::unordered_set<const data_flow::Memlet*> group_memlets_; ///< Memlets in the selected tile group
+    std::vector<structured_control_flow::Reduce*> reduce_retargets_; ///< non-cooperative Reduce nodes to retarget in
+                                                                     ///< apply()
     bool container_read_ = false; ///< Container is read in the loop (set by can_be_applied)
     bool container_written_ = false; ///< Container is written in the loop (set by can_be_applied)
 

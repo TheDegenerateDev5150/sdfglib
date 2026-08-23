@@ -544,6 +544,59 @@ bool LocalStorage::is_reduction_accumulator(
     return false;
 }
 
+bool LocalStorage::collect_reduction_owners(
+    structured_control_flow::StructuredLoop& loop,
+    const std::string& container,
+    analysis::AnalysisManager& analysis_manager,
+    std::vector<structured_control_flow::Reduce*>& out
+) {
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    auto owns = [&](structured_control_flow::ControlFlowNode* node) -> structured_control_flow::Reduce* {
+        auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(node);
+        if (!reduce) {
+            return nullptr;
+        }
+        for (const auto& r : reduce->reductions()) {
+            if (r.container == container) {
+                return reduce;
+            }
+        }
+        return nullptr;
+    };
+
+    // An ancestor Reduce accumulates across iterations *outside* the localized
+    // scope, so a buffer created at loop_ cannot span the accumulator's lifetime.
+    for (auto* node : loop_analysis.ancestors(&loop)) {
+        if (owns(node)) {
+            return false;
+        }
+    }
+
+    // loop_ itself or a descendant Reduce: privatizable only when the reduction is
+    // combined sequentially / per-thread. A GPU-offloaded Reduce is combined across
+    // threads by the reduce dispatcher, which owns the accumulator staging.
+    auto consider = [&](structured_control_flow::Reduce* reduce) -> bool {
+        if (gpu::is_gpu_schedule(reduce->schedule_type())) {
+            return false;
+        }
+        out.push_back(reduce);
+        return true;
+    };
+    if (auto* reduce = owns(&loop)) {
+        if (!consider(reduce)) {
+            return false;
+        }
+    }
+    for (auto* node : loop_analysis.descendants(&loop)) {
+        if (auto* reduce = owns(node)) {
+            if (!consider(reduce)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bool container_written) {
     using Level = LocalityPlan::Level;
     // A cooperative CPU-parallel dim would need threads to share a stack — impossible.
@@ -600,11 +653,16 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
         return false;
     }
 
-    // Reduction accumulators are staged and combined by the Reduce node + reduce
-    // dispatcher; LocalStorage stages read-only operands only and must not also
-    // localize an accumulator.
+    // A reduction accumulator may be localized only when the owning Reduce is
+    // non-cooperative (sequential / per-thread): LocalStorage privatizes the
+    // accumulator and apply() retargets the Reduce's descriptor to the local
+    // buffer. A cooperatively-combined (GPU-offloaded) Reduce, or one enclosing
+    // the localized scope, is left to the reduce dispatcher.
+    reduce_retargets_.clear();
     if (is_reduction_accumulator(loop_, container_, analysis_manager)) {
-        return false;
+        if (!collect_reduction_owners(loop_, container_, analysis_manager, reduce_retargets_)) {
+            return false;
+        }
     }
 
     // Classify the container's accesses directly from the dataflow.
@@ -822,6 +880,14 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     }
 
     rewrite_body(builder, analysis_manager, buffer, buffer_type, slot_indices);
+
+    // Privatized reduction accumulator: point each owning (non-cooperative) Reduce
+    // at the local buffer so its denormalized descriptor matches the rewritten
+    // dataflow. The copy-in seeds it from the original and the copy-out stores back.
+    for (auto* reduce : reduce_retargets_) {
+        reduce->replace_reduction_container(container_, local_name_);
+    }
+
     analysis_manager.invalidate_all();
 }
 

@@ -2230,6 +2230,220 @@ TEST(LocalStorageTest, IsReductionAccumulator_EnclosingAndNested) {
     EXPECT_FALSE(LocalStorage::is_reduction_accumulator(loop_k, "other", am));
 }
 
+// collect_reduction_owners: a sequential (non-cooperative) Reduce at the localized
+// loop is privatizable — it is returned so apply() can retarget its descriptor.
+TEST(LocalStorageTest, CollectReductionOwners_SequentialAccepts) {
+    builder::StructuredSDFGBuilder builder("ls_collect_seq", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto j = symbolic::symbol("j");
+    auto N = symbolic::symbol("N");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("j", loop_var);
+    builder.add_container("acc", ptr);
+
+    auto& reduce_j = builder.add_reduce(
+        seq,
+        j,
+        symbolic::Lt(j, N),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+
+    analysis::AnalysisManager am(builder.subject());
+    std::vector<structured_control_flow::Reduce*> owners;
+    EXPECT_TRUE(LocalStorage::collect_reduction_owners(reduce_j, "acc", am, owners));
+    ASSERT_EQ(owners.size(), 1u);
+    EXPECT_EQ(owners.front(), &reduce_j);
+}
+
+// collect_reduction_owners: a GPU-offloaded (cooperatively combined) Reduce is
+// owned by the reduce dispatcher — reject.
+TEST(LocalStorageTest, CollectReductionOwners_CooperativeRejects) {
+    builder::StructuredSDFGBuilder builder("ls_collect_coop", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto j = symbolic::symbol("j");
+    auto N = symbolic::symbol("N");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("j", loop_var);
+    builder.add_container("acc", ptr);
+
+    auto block = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(32));
+    auto& reduce_j = builder.add_reduce(
+        seq,
+        j,
+        symbolic::Lt(j, N),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        block
+    );
+
+    analysis::AnalysisManager am(builder.subject());
+    std::vector<structured_control_flow::Reduce*> owners;
+    EXPECT_FALSE(LocalStorage::collect_reduction_owners(reduce_j, "acc", am, owners));
+}
+
+// collect_reduction_owners: an *ancestor* Reduce accumulates across iterations
+// outside the localized scope — a buffer created at loop_ cannot span it — reject.
+TEST(LocalStorageTest, CollectReductionOwners_AncestorRejects) {
+    builder::StructuredSDFGBuilder builder("ls_collect_ancestor", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+    builder.add_container("acc", ptr);
+
+    auto& reduce_j = builder.add_reduce(
+        seq,
+        j,
+        symbolic::Lt(j, N),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& loop_k =
+        builder
+            .add_for(reduce_j.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+
+    analysis::AnalysisManager am(builder.subject());
+    std::vector<structured_control_flow::Reduce*> owners;
+    EXPECT_FALSE(LocalStorage::collect_reduction_owners(loop_k, "acc", am, owners));
+}
+
+// Accumulator privatization: a sequential Reduce over j accumulates y[iO*CY+iI]
+// (per-iO block). Localizing y at the Reduce loads the block once, accumulates in
+// a Private buffer, writes back once, and retargets the Reduce's descriptor to it
+// (gemv --target sequential: LocalStorage(j, y) then vectorize the inner loop).
+TEST(LocalStorageTest, Apply_ReductionAccumulator_Sequential) {
+    builder::StructuredSDFGBuilder builder("ls_reduce_priv", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", elem);
+    auto iO = symbolic::symbol("iO");
+    auto j = symbolic::symbol("j");
+    auto iI = symbolic::symbol("iI");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    auto CY = symbolic::integer(2);
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("x", ptr, true);
+    builder.add_container("y", ptr, true);
+    builder.add_container("iO", loop_var);
+    builder.add_container("j", loop_var);
+    builder.add_container("iI", loop_var);
+
+    auto& for_iO =
+        builder.add_for(seq, iO, symbolic::Lt(iO, N), symbolic::integer(0), symbolic::add(iO, symbolic::integer(1)));
+    auto& reduce_j = builder.add_reduce(
+        for_iO.root(),
+        j,
+        symbolic::Lt(j, K),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "y"}},
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& for_iI = builder.add_for(
+        reduce_j.root(), iI, symbolic::Lt(iI, CY), symbolic::integer(0), symbolic::add(iI, symbolic::integer(1))
+    );
+    // y[iO*CY + iI] += x[j]
+    auto idx = symbolic::add(symbolic::mul(iO, CY), iI);
+    auto& blk = builder.add_block(for_iI.root());
+    auto& y_in = builder.add_access(blk, "y");
+    auto& x_in = builder.add_access(blk, "x");
+    auto& y_out = builder.add_access(blk, "y");
+    auto& t = builder.add_tasklet(blk, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(blk, y_in, t, "_in1", {idx}, ptr);
+    builder.add_computational_memlet(blk, x_in, t, "_in2", {j}, ptr);
+    builder.add_computational_memlet(blk, t, "_out", y_out, {idx}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage xform(reduce_j, y_out); // localize the accumulator at the reduce loop
+    ASSERT_TRUE(xform.can_be_applied(builder, am));
+    EXPECT_TRUE(xform.storage_type().is_cpu_stack()); // per-thread / sequential private buffer
+    xform.apply(builder, am);
+
+    auto buf = xform.local_container();
+    ASSERT_TRUE(builder.subject().exists(buf));
+
+    // The Reduce descriptor now points at the local buffer, matching the rewritten
+    // dataflow (denormalized container kept consistent).
+    ASSERT_EQ(reduce_j.reductions().size(), 1u);
+    EXPECT_EQ(reduce_j.reductions().front().container, buf);
+
+    // The accumulation body reads/writes the buffer, not y; y appears only in the
+    // copy-in / writeback maps that now bracket the reduce.
+    auto* body = dyn_cast<structured_control_flow::Block*>(&for_iI.root().at(0));
+    ASSERT_NE(body, nullptr);
+    EXPECT_TRUE(block_uses(*body, buf));
+    EXPECT_FALSE(block_uses(*body, "y"));
+}
+
+// A cooperatively-combined (GPU-offloaded) reduction accumulator is left to the
+// reduce dispatcher — can_be_applied must refuse to localize it.
+TEST(LocalStorageTest, CanApply_CooperativeReductionAccumulator_Rejects) {
+    builder::StructuredSDFGBuilder builder("ls_reduce_coop_reject", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto row = symbolic::symbol("row");
+    auto j = symbolic::symbol("j");
+    auto R = symbolic::symbol("R");
+    auto Nc = symbolic::integer(32);
+    builder.add_container("R", loop_var, true);
+    builder.add_container("x", ptr, true);
+    builder.add_container("acc", ptr, true);
+    builder.add_container("row", loop_var);
+    builder.add_container("j", loop_var);
+
+    auto grid = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_GRID, symbolic::integer(1));
+    auto block = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(32));
+    auto& map_row =
+        builder
+            .add_map(seq, row, symbolic::Lt(row, R), symbolic::integer(0), symbolic::add(row, symbolic::integer(1)), grid);
+    // Cooperative block reduction acc[row] += x[row*32 + j].
+    auto& reduce_j = builder.add_reduce(
+        map_row.root(),
+        j,
+        symbolic::Lt(j, Nc),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        block
+    );
+    auto& blk = builder.add_block(reduce_j.root());
+    auto& acc_in = builder.add_access(blk, "acc");
+    auto& x_in = builder.add_access(blk, "x");
+    auto& acc_out = builder.add_access(blk, "acc");
+    auto& t = builder.add_tasklet(blk, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(blk, acc_in, t, "_in1", {row}, ptr);
+    builder.add_computational_memlet(blk, x_in, t, "_in2", {symbolic::add(symbolic::mul(row, Nc), j)}, ptr);
+    builder.add_computational_memlet(blk, t, "_out", acc_out, {row}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+    LocalStorage xform(reduce_j, acc_out);
+    EXPECT_FALSE(xform.can_be_applied(builder, am));
+}
+
 // =====================================================================
 // can_be_applied: schedule gate (end-to-end)
 // =====================================================================
