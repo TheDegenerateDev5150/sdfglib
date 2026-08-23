@@ -555,6 +555,9 @@ void GPUOffloadReduceDispatcher::dispatch_kernel_body(
     library_stream.setIndent(library_stream.indent() - 4);
     library_stream << "}" << std::endl;
 
+    // Publish per-thread register partials to their shared slots once, before the combine.
+    this->dispatch_reduction_publish(kernel_language_extension, library_stream, target_level);
+
     // Combine the per-thread / per-warp partials for this level into the accumulator.
     this->dispatch_reduction_combine(kernel_language_extension, library_stream, library_snippet_factory, target_level);
 }
@@ -797,6 +800,38 @@ std::string GPUOffloadReduceDispatcher::partials_buffer_name(const std::string& 
     return placed.empty() ? ("__daisy_reduce_smem_" + container) : placed;
 }
 
+bool GPUOffloadReduceDispatcher::uses_register_partial(TargetLevel target_level, const std::string& container) {
+    if (!is_block_level(target_level)) {
+        return false;
+    }
+    if (gpu::ScheduleType_GPU_Offload::partial_storage(node_.schedule_type()) != ReduceStrategy::Shared) {
+        return false;
+    }
+    // The register partial requires this to be the sole block level owning the container's
+    // body: no nested warp reduce (which emits the body itself), no nested block reduce (which
+    // owns the body and shadows the accumulator onto shared, leaving the register at identity
+    // so the publish would clobber the shared result), and no enclosing block reduce (which
+    // already declares the shared buffer, so a register partial here would redeclare it).
+    return !has_nested_warp_reduction(container) && !has_nested_block_reduction(container) &&
+           !has_enclosing_block_reduction(container);
+}
+
+void GPUOffloadReduceDispatcher::dispatch_reduction_publish(
+    codegen::LanguageExtension& language_extension, codegen::PrettyPrinter& stream, TargetLevel target_level
+) {
+    std::string lin_tid = reduce_linear_thread_index(language_extension);
+    for (const auto& r : node_.reductions()) {
+        if (!uses_register_partial(target_level, r.container)) {
+            continue;
+        }
+        std::string reg_name = "__daisy_reduce_reg_" + r.container;
+        std::string smem_name = partials_buffer_name(r.container);
+        stream << smem_name << "[" << lin_tid << "] = " << reg_name << ";" << std::endl;
+    }
+    // No sync here: the combine's leading __syncthreads() (emit_block_tree) makes every
+    // thread's published slot visible before any neighbour slot is read.
+}
+
 void GPUOffloadReduceDispatcher::dispatch_reduction_declarations(
     codegen::LanguageExtension& language_extension,
     codegen::PrettyPrinter& stream,
@@ -838,6 +873,13 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_declarations(
         if (strategy != ReduceStrategy::Shared) {
             // Register / Global: a per-thread (or per-lane) partial in a register.
             stream << ctype << " " << reg_name << " = " << identity << ";" << std::endl;
+        } else if (uses_register_partial(target_level, r.container)) {
+            // Block shared, but accumulate the body in a per-thread register partial and
+            // publish it to shared once after the coverage loop (dispatch_reduction_publish),
+            // so the FMA chain is not serialized through shared memory. No pre-coverage init
+            // or sync: the publish fills every slot and syncs before the combine reads them.
+            stream << ctype << " " << reg_name << " = " << identity << ";" << std::endl;
+            stream << "__shared__ " << ctype << " " << smem_name << "[" << block_size << "];" << std::endl;
         } else if (!has_enclosing_block_reduction(r.container)) {
             // Only the outermost block level owning this container declares the single shared
             // buffer; every inner block level folds into that same buffer. Declaring one per
@@ -880,8 +922,9 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_shadow(
         std::string reg_name = "__daisy_reduce_reg_" + r.container;
         std::string smem_name = partials_buffer_name(r.container);
 
-        std::string storage = (strategy == ReduceStrategy::Shared) ? ("&" + smem_name + "[" + lin_tid + "]")
-                                                                   : ("&" + reg_name);
+        std::string storage = (strategy == ReduceStrategy::Shared && !uses_register_partial(target_level, r.container))
+                                  ? ("&" + smem_name + "[" + lin_tid + "]")
+                                  : ("&" + reg_name);
 
         auto index = accumulator_index(node_.root(), r.container, node_.indvar());
         if (symbolic::eq(index, symbolic::zero())) {
