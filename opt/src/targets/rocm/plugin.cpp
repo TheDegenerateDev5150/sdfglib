@@ -1,5 +1,6 @@
 #include "sdfg/targets/rocm/plugin.h"
 
+#include "sdfg/passes/scheduler/rocm_offload_scheduler.h"
 #include "sdfg/targets/rocm/rocm.h"
 #include "sdfg/targets/rocm/rocm_offload_map_dispatcher.h"
 #include "sdfg/targets/rocm/rocm_offload_reduce_dispatcher.h"
@@ -223,8 +224,8 @@ void register_rocm_plugin(plugins::Context& context) {
     );
 
 
-    context.scheduler_registry
-        .register_loop_scheduler<passes::scheduler::ROCMScheduler>(passes::scheduler::ROCMScheduler::target());
+    context.scheduler_registry.register_loop_scheduler<
+        passes::scheduler::ROCMOffloadScheduler>(passes::scheduler::ROCMOffloadScheduler::target());
 }
 
 } // namespace sdfg::rocm

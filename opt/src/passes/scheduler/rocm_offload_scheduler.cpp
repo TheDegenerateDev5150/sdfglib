@@ -1,23 +1,32 @@
-#include "sdfg/passes/scheduler/cuda_offload_scheduler.h"
+#include "sdfg/passes/scheduler/rocm_offload_scheduler.h"
 
 #include "sdfg/passes/dataflow/dead_data_elimination.h"
 #include "sdfg/passes/dataflow/memlet_simplification.h"
-#include "sdfg/passes/offloading/cuda_library_node_transfer_extraction_pass.h"
 #include "sdfg/passes/offloading/gpu_nested_offload_pass.h"
 #include "sdfg/passes/offloading/gpu_nested_parallelization_pass.h"
+#include "sdfg/passes/offloading/rocm_library_node_transfer_extraction_pass.h"
 #include "sdfg/passes/scheduler/loop_scheduler.h"
 #include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
 #include "sdfg/passes/symbolic/symbol_propagation.h"
 #include "sdfg/passes/tiling_pass.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/transformations/offloading/cuda_offload_transform.h"
+#include "sdfg/transformations/offloading/rocm_offload_transform.h"
 
 namespace sdfg {
 namespace passes {
 namespace scheduler {
 
-SchedulerAction CUDAOffloadScheduler::find(
+symbolic::Integer ROCMOffloadScheduler::get_parallel_size(structured_control_flow::StructuredLoop& loop) {
+    auto iteration_count = loop.num_iterations();
+    if (SymEngine::is_a<SymEngine::Integer>(*iteration_count)) {
+        return symbolic::integer(SymEngine::rcp_static_cast<const SymEngine::Integer>(iteration_count)->as_int());
+    } else {
+        return symbolic::integer(128);
+    }
+}
+
+SchedulerAction ROCMOffloadScheduler::find(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     structured_control_flow::StructuredLoop& loop,
@@ -38,7 +47,7 @@ SchedulerAction CUDAOffloadScheduler::find(
     }
 }
 
-SchedulerAction CUDAOffloadScheduler::find(
+SchedulerAction ROCMOffloadScheduler::find(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     structured_control_flow::While& loop,
@@ -53,34 +62,25 @@ SchedulerAction CUDAOffloadScheduler::find(
     }
 }
 
-symbolic::Integer CUDAOffloadScheduler::get_parallel_size(structured_control_flow::StructuredLoop& loop) {
-    auto iteration_count = loop.num_iterations();
-    if (SymEngine::is_a<SymEngine::Integer>(*iteration_count)) {
-        return symbolic::integer(SymEngine::rcp_static_cast<const SymEngine::Integer>(iteration_count)->as_int());
-    } else {
-        return symbolic::integer(128);
-    }
-}
-
-bool CUDAOffloadScheduler::can_apply_schedule(
+bool ROCMOffloadScheduler::can_apply_schedule(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
-    cuda::CUDAOffloadTransform
-        cuda_transform(loop, get_parallel_size(loop), gpu::TargetLevel::X_GRID, offload_unknown_sizes);
-    return cuda_transform.can_be_applied(builder, analysis_manager);
+    rocm::ROCMOffloadTransform
+        rocm_transform(loop, get_parallel_size(loop), gpu::TargetLevel::X_GRID, offload_unknown_sizes);
+    return rocm_transform.can_be_applied(builder, analysis_manager);
 }
 
-void CUDAOffloadScheduler::apply_schedule(
+void ROCMOffloadScheduler::apply_schedule(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     structured_control_flow::StructuredLoop& loop,
     bool offload_unknown_sizes
 ) {
     if (recorder_ != nullptr) {
-        recorder_->apply<cuda::CUDAOffloadTransform>(
+        recorder_->apply<rocm::ROCMOffloadTransform>(
             builder,
             analysis_manager,
             false,
@@ -90,13 +90,13 @@ void CUDAOffloadScheduler::apply_schedule(
             offload_unknown_sizes
         );
     } else {
-        cuda::CUDAOffloadTransform
-            cuda_transform(loop, get_parallel_size(loop), gpu::TargetLevel::X_GRID, offload_unknown_sizes);
-        cuda_transform.apply(builder, analysis_manager);
+        rocm::ROCMOffloadTransform
+            rocm_transform(loop, get_parallel_size(loop), gpu::TargetLevel::X_GRID, offload_unknown_sizes);
+        rocm_transform.apply(builder, analysis_manager);
     }
 }
 
-void CUDAOffloadScheduler::pre_schedule(
+void ROCMOffloadScheduler::pre_schedule(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     std::vector<structured_control_flow::StructuredLoop*>& applicable_loops
@@ -142,7 +142,7 @@ void CUDAOffloadScheduler::pre_schedule(
     }
 }
 
-void CUDAOffloadScheduler::post_schedule(
+void ROCMOffloadScheduler::post_schedule(
     builder::StructuredSDFGBuilder& builder,
     analysis::AnalysisManager& analysis_manager,
     std::vector<structured_control_flow::StructuredLoop*>& scheduled_loops
@@ -155,17 +155,17 @@ void CUDAOffloadScheduler::post_schedule(
     }
 
     if (!gpu_loops.empty()) {
-        GPUNestedOffloadPass nested_offload_pass(gpu_loops, GPUTarget::CUDA);
+        GPUNestedOffloadPass nested_offload_pass(gpu_loops, GPUTarget::ROCM);
         nested_offload_pass.run(builder, analysis_manager);
         analysis_manager.invalidate_all();
     }
 
-    cuda::CudaLibraryNodeTransferExtractionPass transfer_extraction_pass;
+    rocm::RocmLibraryNodeTransferExtractionPass transfer_extraction_pass;
     transfer_extraction_pass.run(builder, analysis_manager);
     analysis_manager.invalidate_all();
 }
 
-std::unordered_set<ScheduleTypeCategory> CUDAOffloadScheduler::compatible_types() {
+std::unordered_set<ScheduleTypeCategory> ROCMOffloadScheduler::compatible_types() {
     return {ScheduleTypeCategory::None};
 }
 

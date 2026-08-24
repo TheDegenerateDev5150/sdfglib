@@ -8,7 +8,7 @@ namespace sdfg {
 namespace passes {
 namespace scheduler {
 
-class CUDAOffloadScheduler : public LoopScheduler {
+class ROCMOffloadScheduler : public LoopScheduler {
 public:
     SchedulerAction find(
         builder::StructuredSDFGBuilder& builder,
@@ -50,7 +50,7 @@ public:
         std::vector<structured_control_flow::StructuredLoop*>& scheduled_loops
     ) override;
 
-    static std::string target() { return "cuda"; };
+    static std::string target() { return "rocm"; };
 
     static symbolic::Integer get_parallel_size(structured_control_flow::StructuredLoop& loop);
 

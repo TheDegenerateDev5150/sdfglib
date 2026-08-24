@@ -62,6 +62,7 @@ set(SOURCE_FILES
     src/passes/scheduler/loop_scheduling_pass.cpp
     src/passes/scheduler/omp_scheduler.cpp
     src/passes/scheduler/rocm_scheduler.cpp
+    src/passes/scheduler/rocm_offload_scheduler.cpp
     src/passes/scheduler/scheduler_registry.cpp
     src/passes/scheduler/vectorize_scheduler.cpp
     src/passes/targets/device_residency.cpp

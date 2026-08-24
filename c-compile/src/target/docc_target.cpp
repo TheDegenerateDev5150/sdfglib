@@ -9,6 +9,7 @@
 #include "sdfg/passes/scheduler/cuda_offload_scheduler.h"
 #include "sdfg/passes/scheduler/cuda_scheduler.h"
 #include "sdfg/passes/scheduler/omp_scheduler.h"
+#include "sdfg/passes/scheduler/rocm_offload_scheduler.h"
 #include "sdfg/passes/scheduler/rocm_scheduler.h"
 #include "sdfg/passes/scheduler/vectorize_scheduler.h"
 
@@ -96,7 +97,7 @@ static DoccTarget rocm_target = {
     .get_target_loop_schedulers = [](const TargetOptions& options
                                   ) -> std::vector<std::shared_ptr<sdfg::passes::scheduler::LoopScheduler>> {
         std::vector<std::shared_ptr<sdfg::passes::scheduler::LoopScheduler>> schedulers;
-        schedulers.push_back(std::make_shared<sdfg::passes::scheduler::ROCMScheduler>());
+        schedulers.push_back(std::make_shared<sdfg::passes::scheduler::ROCMOffloadScheduler>());
         return schedulers;
     }
 };
