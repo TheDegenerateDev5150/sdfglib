@@ -6,6 +6,7 @@
 #include "sdfg/passes/offloading/cuda_library_node_rewriter_pass.h"
 #include "sdfg/passes/offloading/rocm_library_node_expansion_pass.h"
 #include "sdfg/passes/offloading/rocm_library_node_rewriter_pass.h"
+#include "sdfg/passes/scheduler/cuda_offload_scheduler.h"
 #include "sdfg/passes/scheduler/cuda_scheduler.h"
 #include "sdfg/passes/scheduler/omp_scheduler.h"
 #include "sdfg/passes/scheduler/rocm_scheduler.h"
@@ -45,7 +46,7 @@ static DoccTarget cuda_target = {
     .get_target_loop_schedulers = [](const TargetOptions& options
                                   ) -> std::vector<std::shared_ptr<sdfg::passes::scheduler::LoopScheduler>> {
         std::vector<std::shared_ptr<sdfg::passes::scheduler::LoopScheduler>> schedulers;
-        schedulers.push_back(std::make_shared<sdfg::passes::scheduler::CUDAScheduler>());
+        schedulers.push_back(std::make_shared<sdfg::passes::scheduler::CUDAOffloadScheduler>());
         return schedulers;
     }
 };

@@ -1,5 +1,6 @@
 #include "sdfg/targets/cuda/plugin.h"
 
+#include "sdfg/passes/scheduler/cuda_offload_scheduler.h"
 #include "sdfg/targets/cuda/cuda.h"
 #include "sdfg/targets/cuda/cuda_offload_map_dispatcher.h"
 #include "sdfg/targets/cuda/cuda_offload_reduce_dispatcher.h"
@@ -244,8 +245,8 @@ void register_cuda_plugin(plugins::Context& context) {
     );
 
 
-    context.scheduler_registry
-        .register_loop_scheduler<passes::scheduler::CUDAScheduler>(passes::scheduler::CUDAScheduler::target());
+    context.scheduler_registry.register_loop_scheduler<
+        passes::scheduler::CUDAOffloadScheduler>(passes::scheduler::CUDAOffloadScheduler::target());
 }
 
 } // namespace sdfg::cuda
