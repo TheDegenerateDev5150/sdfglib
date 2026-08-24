@@ -106,11 +106,13 @@ bool wants_to_replay(const std::string& F) {
 }
 
 void add_schedule_type_specific_linker_args(const ScheduleType& schedule_type, std::set<std::string>& linker_args) {
-    if (schedule_type.value() == sdfg::cuda::ScheduleType_CUDA::value()) {
+    if (schedule_type.value() == sdfg::cuda::ScheduleType_CUDA::value() ||
+        schedule_type.value() == sdfg::cuda::ScheduleType_CUDA_Offload::value()) {
         linker_args.emplace("/usr/local/cuda/lib64/libcudart.so");
         linker_args.emplace("/usr/local/cuda/lib64/libcublas.so");
 
-    } else if (schedule_type.value() == sdfg::rocm::ScheduleType_ROCM::value()) {
+    } else if (schedule_type.value() == sdfg::rocm::ScheduleType_ROCM::value() ||
+               schedule_type.value() == sdfg::rocm::ScheduleType_ROCM_Offload::value()) {
         linker_args.emplace("/opt/rocm/lib/libamdhip64.so");
         linker_args.emplace("/opt/rocm/lib/libhiprtc.so");
         linker_args.emplace("/opt/rocm/lib/libhipblas.so");
@@ -135,14 +137,16 @@ void add_schedule_type_specific_compile_args(
     std::vector<std::string>& compile_args,
     const util::DoccPaths& docc_paths
 ) {
-    if (schedule_type.value() == sdfg::rocm::ScheduleType_ROCM::value()) {
+    if (schedule_type.value() == sdfg::rocm::ScheduleType_ROCM::value() ||
+        schedule_type.value() == sdfg::rocm::ScheduleType_ROCM_Offload::value()) {
         compile_args.emplace_back("-x hip");
         compile_args.emplace_back("--offload-arch=gfx1201");
         compile_args.emplace_back("--offload-host-only");
         compile_args.emplace_back("--rocm-path=/opt/rocm");
         compile_args.emplace_back("-I/opt/rocm/include");
         language = llvm::dwarf::DW_LANG_C_plus_plus;
-    } else if (schedule_type.value() == sdfg::cuda::ScheduleType_CUDA::value()) {
+    } else if (schedule_type.value() == sdfg::cuda::ScheduleType_CUDA::value() ||
+               schedule_type.value() == sdfg::cuda::ScheduleType_CUDA_Offload::value()) {
         compile_args.emplace_back("-x cuda");
         compile_args.emplace_back("--cuda-gpu-arch=sm_70");
         compile_args.emplace_back("--cuda-host-only");
