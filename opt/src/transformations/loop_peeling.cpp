@@ -14,7 +14,8 @@
 namespace sdfg {
 namespace transformations {
 
-LoopPeeling::LoopPeeling(structured_control_flow::StructuredLoop& loop) : loop_(loop) {};
+LoopPeeling::LoopPeeling(structured_control_flow::StructuredLoop& loop, bool predicate)
+    : loop_(loop), predicate_(predicate) {};
 
 std::string LoopPeeling::name() const { return "LoopPeeling"; };
 
@@ -26,8 +27,8 @@ static bool is_positive_int(const symbolic::Expression& expr) {
 
 /// Applicable when the loop has a constant-trip overapproximation (so the nest
 /// can be fully unrolled) but a non-constant exact trip count (so there is a
-/// dynamic boundary worth predicating). Relies on the StructuredLoop trip-count
-/// helpers, which handle `<=`, offsets, strides and tile-style `min(...)` bounds.
+/// dynamic boundary to handle). Relies on the StructuredLoop trip-count helpers,
+/// which handle `<=`, offsets, strides and tile-style `min(...)` bounds.
 static bool has_predicable_boundary(structured_control_flow::StructuredLoop& loop) {
     if (!loop.is_monotonic()) {
         return false;
@@ -43,67 +44,134 @@ static bool has_predicable_boundary(structured_control_flow::StructuredLoop& loo
     return true;
 }
 
+/// Collect the perfectly nested chain of peelable loops starting at `loop`
+/// (each level's body being exactly the next peelable loop).
+static std::vector<structured_control_flow::StructuredLoop*> collect_nest(structured_control_flow::StructuredLoop& loop
+) {
+    std::vector<structured_control_flow::StructuredLoop*> nest{&loop};
+    auto* current = &loop;
+    while (true) {
+        auto& body = current->root();
+        if (body.size() != 1) {
+            break;
+        }
+        auto* inner = dynamic_cast<structured_control_flow::StructuredLoop*>(&body.at(0));
+        if (inner == nullptr || !has_predicable_boundary(*inner)) {
+            break;
+        }
+        nest.push_back(inner);
+        current = inner;
+    }
+    return nest;
+}
+
+/// Append a copy of `proto`'s loop header (same kind/schedule) into `parent`.
+static structured_control_flow::StructuredLoop& append_loop(
+    builder::StructuredSDFGBuilder& builder,
+    structured_control_flow::Sequence& parent,
+    structured_control_flow::StructuredLoop& proto,
+    const symbolic::Symbol& indvar,
+    const symbolic::Condition& condition,
+    const symbolic::Expression& init,
+    const symbolic::Expression& update
+) {
+    if (auto* map = dynamic_cast<structured_control_flow::Map*>(&proto)) {
+        return builder.add_map(parent, indvar, condition, init, update, map->schedule_type(), proto.debug_info());
+    }
+    if (auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(&proto)) {
+        return builder.add_reduce(
+            parent, indvar, condition, init, update, reduce->reductions(), reduce->schedule_type(), proto.debug_info()
+        );
+    }
+    return builder.add_for(parent, indvar, condition, init, update, proto.debug_info());
+}
+
 bool LoopPeeling::can_be_applied(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
     return has_predicable_boundary(loop_);
 };
 
 void LoopPeeling::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    auto indvar = loop_.indvar();
-    auto init = loop_.init();
-    auto update = loop_.update();
+    auto nest = collect_nest(loop_);
+    auto* innermost = nest.back();
+    auto zero = symbolic::integer(0);
 
-    // Shift the induction variable to `[0, trip*stride)` so the trip count is a
-    // literal constant. clang only fully unrolls (and thus scalarizes register
-    // tiles) 0-based constant-trip loops, not symbolic-offset ones such as
-    // `for (k = k_tile0; k < k_tile0 + 8; ...)`. The original induction value is
-    // `indvar + init`, substituted into both the guard and the body below.
-    auto trip = loop_.num_iterations_approx();
-    auto zero_init = symbolic::integer(0);
-    auto shifted_indvar = symbolic::add(indvar, init);
-    symbolic::Condition new_condition = symbolic::Lt(indvar, symbolic::mul(trip, loop_.stride()));
+    // Per-loop 0-based header + the shift `indvar -> indvar + init` that rewrites
+    // the shifted body back to original induction values. Also accumulate:
+    //  - combined_guard: dynamic bounds evaluated per iteration (predicate form);
+    //  - combined_fits:  dynamic bounds evaluated at each loop's last iteration,
+    //                    i.e. the whole tile is in bounds (hoisted form).
+    struct LoopInfo {
+        structured_control_flow::StructuredLoop* loop;
+        symbolic::Symbol indvar;
+        symbolic::Expression init;
+        symbolic::Condition zero_condition;
+        symbolic::Expression shifted;
+    };
+    std::vector<LoopInfo> infos;
+    symbolic::Condition combined_guard = SymEngine::boolTrue;
+    symbolic::Condition combined_fits = SymEngine::boolTrue;
+    for (auto* l : nest) {
+        auto indvar = l->indvar();
+        auto init = l->init();
+        auto stride = l->stride();
+        auto trip = l->num_iterations_approx();
+        auto shifted = symbolic::add(indvar, init);
+        symbolic::Condition zero_condition = symbolic::Lt(indvar, symbolic::mul(trip, stride));
+        combined_guard = symbolic::And(combined_guard, symbolic::subs(l->condition(), indvar, shifted));
+        auto last = symbolic::add(init, symbolic::mul(symbolic::sub(trip, symbolic::integer(1)), stride));
+        combined_fits = symbolic::And(combined_fits, symbolic::subs(l->condition(), indvar, last));
+        infos.push_back({l, indvar, init, zero_condition, shifted});
+    }
 
-    // The original condition guards the body (rewritten for the shifted indvar):
-    // the overapproximated range is a superset, so re-checking it reproduces
-    // exactly the iterations the original loop executed.
-    symbolic::Condition guard = symbolic::subs(loop_.condition(), indvar, shifted_indvar);
+    auto* parent = static_cast<structured_control_flow::Sequence*>(loop_.get_parent());
 
-    auto parent = static_cast<structured_control_flow::Sequence*>(loop_.get_parent());
-
-    // Replacement loop (same kind/indvar/init/update/schedule), inserted before the original.
-    structured_control_flow::StructuredLoop* new_loop = nullptr;
-    if (auto map = dynamic_cast<structured_control_flow::Map*>(&loop_)) {
-        new_loop = &builder.add_map_before(
-            *parent, loop_, indvar, new_condition, zero_init, update, map->schedule_type(), loop_.debug_info()
-        );
-    } else if (auto reduce = dynamic_cast<structured_control_flow::Reduce*>(&loop_)) {
-        new_loop = &builder.add_reduce_before(
-            *parent,
-            loop_,
-            indvar,
-            new_condition,
-            zero_init,
-            update,
-            reduce->reductions(),
-            reduce->schedule_type(),
-            loop_.debug_info()
-        );
+    if (predicate_) {
+        // 0-based nest; the whole boundary is re-checked once at the innermost body.
+        auto& holder = builder.add_sequence_before(*parent, loop_, loop_.debug_info());
+        structured_control_flow::Sequence* current = &holder;
+        for (auto& info : infos) {
+            auto& nl =
+                append_loop(builder, *current, *info.loop, info.indvar, info.zero_condition, zero, info.loop->update());
+            current = &nl.root();
+        }
+        auto& if_else = builder.add_if_else(*current, loop_.debug_info());
+        auto& body = builder.add_case(if_else, combined_guard, loop_.debug_info());
+        deepcopy::StructuredSDFGDeepCopy(builder, body, innermost->root()).insert();
+        for (auto& info : infos) {
+            if (!symbolic::eq(info.init, zero)) {
+                body.replace(info.indvar, info.shifted);
+            }
+        }
     } else {
-        new_loop =
-            &builder.add_for_before(*parent, loop_, indvar, new_condition, zero_init, update, loop_.debug_info());
+        // Hoisted: full clean tile in the "then" branch, original variable-trip
+        // remainder in the "else". The "then" micro-kernel is unguarded (vectorizes).
+        auto& if_else = builder.add_if_else_before(*parent, loop_, loop_.debug_info());
+
+        auto& then_branch = builder.add_case(if_else, combined_fits, loop_.debug_info());
+        structured_control_flow::Sequence* current = &then_branch;
+        for (auto& info : infos) {
+            auto& nl =
+                append_loop(builder, *current, *info.loop, info.indvar, info.zero_condition, zero, info.loop->update());
+            current = &nl.root();
+        }
+        deepcopy::StructuredSDFGDeepCopy(builder, *current, innermost->root()).insert();
+        for (auto& info : infos) {
+            if (!symbolic::eq(info.init, zero)) {
+                current->replace(info.indvar, info.shifted);
+            }
+        }
+
+        auto& else_branch = builder.add_case(if_else, symbolic::Not(combined_fits), loop_.debug_info());
+        current = &else_branch;
+        for (auto& info : infos) {
+            auto& nl = append_loop(
+                builder, *current, *info.loop, info.indvar, info.loop->condition(), info.init, info.loop->update()
+            );
+            current = &nl.root();
+        }
+        deepcopy::StructuredSDFGDeepCopy(builder, *current, innermost->root()).insert();
     }
 
-    // Guard the body: single-case IfElse(guard) holding a deep copy of the original body.
-    auto& if_else = builder.add_if_else(new_loop->root(), loop_.debug_info());
-    auto& case_branch = builder.add_case(if_else, guard, loop_.debug_info());
-    deepcopy::StructuredSDFGDeepCopy body_copier(builder, case_branch, loop_.root());
-    body_copier.insert();
-
-    // Rewrite induction-variable uses in the shifted body to the original value.
-    if (!symbolic::eq(init, zero_init)) {
-        case_branch.replace(indvar, shifted_indvar);
-    }
-
-    // Remove the original loop.
     builder.remove_child(*parent, parent->index(loop_));
 
     analysis_manager.invalidate_all();
@@ -112,6 +180,7 @@ void LoopPeeling::apply(builder::StructuredSDFGBuilder& builder, analysis::Analy
 void LoopPeeling::to_json(nlohmann::json& j) const {
     j["transformation_type"] = this->name();
     j["parameters"] = nlohmann::json::object();
+    j["parameters"]["predicate"] = predicate_;
 
     serializer::JSONSerializer ser_flat(false);
     j["subgraph"] = nlohmann::json::object();
@@ -131,7 +200,11 @@ LoopPeeling LoopPeeling::from_json(builder::StructuredSDFGBuilder& builder, cons
             "Element with ID " + std::to_string(loop_id) + " is not a structured loop."
         );
     }
-    return LoopPeeling(*loop);
+    bool predicate = false;
+    if (desc.contains("parameters") && desc["parameters"].contains("predicate")) {
+        predicate = desc["parameters"]["predicate"].get<bool>();
+    }
+    return LoopPeeling(*loop, predicate);
 };
 
 } // namespace transformations
