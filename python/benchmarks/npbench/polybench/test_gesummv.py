@@ -57,7 +57,7 @@ def test_gesummv(target):
         verifier = SDFGVerification(
             verification={
                 "GEMM": 2,
-                "CUDA": 5,
+                "CUDA_Offload": 5,
                 "MAP": 5,
                 "CUDAOffloading": 6,
             },
@@ -66,7 +66,7 @@ def test_gesummv(target):
         verifier = SDFGVerification(
             verification={
                 "GEMM": 2,
-                "ROCM": 5,
+                "ROCM_Offload": 5,
                 "MAP": 5,
                 "ROCMOffloading": 6,
             },

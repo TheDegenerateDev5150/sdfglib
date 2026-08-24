@@ -72,7 +72,7 @@ def test_trmm(target):
             verification={
                 "SEQUENTIAL": 1,
                 "REDUCE": 1,
-                "CUDA": 4,
+                "CUDA_Offload": 4,
                 "MAP": 4,
                 "CUDAOffloading": 2,
             },
@@ -83,7 +83,7 @@ def test_trmm(target):
             verification={
                 "SEQUENTIAL": 1,
                 "REDUCE": 1,
-                "CUDA": 4,
+                "CUDA_Offload": 4,
                 "MAP": 4,
                 "CUDAOffloading": 2,
             },

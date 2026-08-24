@@ -113,7 +113,7 @@ def test_correlation(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 17,
             "SEQUENTIAL": 13,
-            "ROCM": 12,
+            "ROCM_Offload": 12,
         },
     )
     test_case = benchmark_path / "correlation.c"
@@ -166,7 +166,7 @@ def test_covariance(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 13,
             "SEQUENTIAL": 11,
-            "ROCM": 9,
+            "ROCM_Offload": 9,
         },
     )
     test_case = benchmark_path / "covariance.c"
@@ -234,7 +234,7 @@ def test_gemm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 8,
             "SEQUENTIAL": 5,
-            "ROCM": 8,
+            "ROCM_Offload": 8,
         },
     )
     test_case = benchmark_path / "gemm.c"
@@ -292,7 +292,7 @@ def test_gemver(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 7,
             "SEQUENTIAL": 7,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "gemver.c"
@@ -349,7 +349,7 @@ def test_gesummv(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 1,
             "REDUCE": 4,
             "MAP": 5,
-            "ROCM": 5,
+            "ROCM_Offload": 5,
             "SEQUENTIAL": 5,
         },
     )
@@ -408,7 +408,7 @@ def test_symm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 7,
             "SEQUENTIAL": 10,
-            "ROCM": 4,
+            "ROCM_Offload": 4,
         },
     )
     test_case = benchmark_path / "symm.c"
@@ -466,7 +466,7 @@ def test_syr2k(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 8,
             "SEQUENTIAL": 8,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "syr2k.c"
@@ -524,7 +524,7 @@ def test_syrk(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 8,
             "SEQUENTIAL": 8,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "syrk.c"
@@ -588,7 +588,7 @@ def test_trmm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 9,
             "SEQUENTIAL": 7,
-            "ROCM": 8,
+            "ROCM_Offload": 8,
         },
     )
     test_case = benchmark_path / "trmm.c"
@@ -656,7 +656,7 @@ def test_2mm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 12,
             "SEQUENTIAL": 5,
-            "ROCM": 12,
+            "ROCM_Offload": 12,
         },
     )
     test_case = benchmark_path / "2mm.c"
@@ -724,7 +724,7 @@ def test_3mm(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 14,
             "SEQUENTIAL": 5,
-            "ROCM": 14,
+            "ROCM_Offload": 14,
         },
     )
     test_case = benchmark_path / "3mm.c"
@@ -782,7 +782,7 @@ def test_atax(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 7,
             "SEQUENTIAL": 7,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "atax.c"
@@ -846,7 +846,7 @@ def test_bicg(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 6,
             "SEQUENTIAL": 6,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "bicg.c"
@@ -904,7 +904,7 @@ def test_doitgen(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 10,
             "SEQUENTIAL": 18,
-            "ROCM": 4,
+            "ROCM_Offload": 4,
         },
     )
     test_case = benchmark_path / "doitgen.c"
@@ -962,7 +962,7 @@ def test_mvt(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 4,
             "SEQUENTIAL": 8,
-            "ROCM": 3,
+            "ROCM_Offload": 3,
         },
     )
     test_case = benchmark_path / "mvt.c"
@@ -1020,7 +1020,7 @@ def test_cholesky(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 6,
             "MAP": 11,
             "SEQUENTIAL": 12,
-            "ROCM": 9,
+            "ROCM_Offload": 9,
         },
     )
     test_case = benchmark_path / "cholesky.c"
@@ -1077,7 +1077,7 @@ def test_durbin(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 9,
             "MAP": 3,
             "SEQUENTIAL": 0,
-            "ROCM": 3,
+            "ROCM_Offload": 3,
         },
     )
     test_case = benchmark_path / "durbin.c"
@@ -1135,7 +1135,7 @@ def test_gramschmidt(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 19,
             "MAP": 9,
             "SEQUENTIAL": 3,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "gramschmidt.c"
@@ -1193,7 +1193,7 @@ def test_lu(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 6,
             "MAP": 12,
             "SEQUENTIAL": 13,
-            "ROCM": 9,
+            "ROCM_Offload": 9,
         },
     )
     test_case = benchmark_path / "lu.c"
@@ -1251,7 +1251,7 @@ def test_ludcmp(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 8,
             "MAP": 13,
             "SEQUENTIAL": 16,
-            "ROCM": 10,
+            "ROCM_Offload": 10,
         },
     )
     test_case = benchmark_path / "ludcmp.c"
@@ -1315,7 +1315,7 @@ def test_trisolv(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 4,
             "SEQUENTIAL": 6,
-            "ROCM": 3,
+            "ROCM_Offload": 3,
         },
     )
     test_case = benchmark_path / "trisolv.c"
@@ -1373,7 +1373,7 @@ def test_deriche(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 6,
             "REDUCE": 3,
             "MAP": 10,
-            "ROCM": 10,
+            "ROCM_Offload": 10,
         },
     )
     test_case = benchmark_path / "deriche.c"
@@ -1419,7 +1419,7 @@ def test_floyd_warshall(compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 2,
             "SEQUENTIAL": 8,
-            "ROCM": 2,
+            "ROCM_Offload": 2,
         },
     )
     test_case = benchmark_path / "floyd-warshall.c"
@@ -1461,7 +1461,7 @@ def test_nussinov(compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 3,
             "SEQUENTIAL": 7,
-            "ROCM": 3,
+            "ROCM_Offload": 3,
         },
     )
     test_case = benchmark_path / "nussinov.c"
@@ -1507,7 +1507,7 @@ def test_adi(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 7,
             "REDUCE": 3,
             "MAP": 10,
-            "ROCM": 10,
+            "ROCM_Offload": 10,
         },
     )
     test_case = benchmark_path / "adi.c"
@@ -1559,7 +1559,7 @@ def test_fdtd_2d(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 7,
             "REDUCE": 3,
             "MAP": 10,
-            "ROCM": 10,
+            "ROCM_Offload": 10,
         },
     )
     test_case = benchmark_path / "fdtd-2d.c"
@@ -1612,7 +1612,7 @@ def test_heat_3d(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 6,
             "SEQUENTIAL": 7,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "heat-3d.c"
@@ -1664,7 +1664,7 @@ def test_jacobi_1d(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 2,
             "REDUCE": 3,
             "MAP": 3,
-            "ROCM": 3,
+            "ROCM_Offload": 3,
         },
     )
     test_case = benchmark_path / "jacobi-1d.c"
@@ -1716,7 +1716,7 @@ def test_jacobi_2d(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "FOR": 3,
             "REDUCE": 3,
             "MAP": 6,
-            "ROCM": 6,
+            "ROCM_Offload": 6,
         },
     )
     test_case = benchmark_path / "jacobi-2d.c"
@@ -1769,7 +1769,7 @@ def test_seidel_2d(datatype, compiler="clang-19", size="MEDIUM_DATASET"):
             "REDUCE": 3,
             "MAP": 2,
             "SEQUENTIAL": 8,
-            "ROCM": 2,
+            "ROCM_Offload": 2,
         },
     )
     test_case = benchmark_path / "seidel-2d.c"

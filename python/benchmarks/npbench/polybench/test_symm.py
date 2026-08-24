@@ -78,7 +78,7 @@ def test_symm(target):
                 "REDUCE": 1,
                 "SEQUENTIAL": 8,
                 "FOR": 2,
-                "CUDA": 4,
+                "CUDA_Offload": 4,
                 "MAP": 9,
                 "CUDAOffloading": 4,
             }
@@ -89,7 +89,7 @@ def test_symm(target):
                 "REDUCE": 1,
                 "SEQUENTIAL": 8,
                 "FOR": 2,
-                "ROCM": 4,
+                "ROCM_Offload": 4,
                 "MAP": 9,
                 "ROCMOffloading": 4,
             }

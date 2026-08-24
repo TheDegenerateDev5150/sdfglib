@@ -53,11 +53,11 @@ def test_bicg(target):
         )
     elif target == "cuda":
         verifier = SDFGVerification(
-            verification={"CUDA": 2, "GEMM": 2, "MAP": 2, "CUDAOffloading": 4},
+            verification={"CUDA_Offload": 2, "GEMM": 2, "MAP": 2, "CUDAOffloading": 4},
         )
     elif target == "rocm":
         verifier = SDFGVerification(
-            verification={"ROCM": 2, "GEMM": 2, "MAP": 2, "ROCMOffloading": 4},
+            verification={"ROCM_Offload": 2, "GEMM": 2, "MAP": 2, "ROCMOffloading": 4},
         )
     run_pytest(initialize, kernel, PARAMETERS, target, verifier=verifier)
 

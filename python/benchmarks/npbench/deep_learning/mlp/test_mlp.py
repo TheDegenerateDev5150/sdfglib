@@ -86,7 +86,7 @@ def test_mlp(target):
             verification={
                 "SEQUENTIAL": 4,
                 "REDUCE": 2,
-                "CUDA": 10,
+                "CUDA_Offload": 10,
                 "GEMM": 3,
                 "MAP": 12,
                 "CUDAOffloading": 6,
@@ -97,7 +97,7 @@ def test_mlp(target):
             verification={
                 "SEQUENTIAL": 4,
                 "REDUCE": 2,
-                "ROCM": 10,
+                "ROCM_Offload": 10,
                 "GEMM": 3,
                 "MAP": 12,
                 "ROCMOffloading": 6,

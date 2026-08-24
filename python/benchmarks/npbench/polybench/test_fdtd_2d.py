@@ -54,7 +54,7 @@ def test_fdtd_2d(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 13,
+                "CUDA_Offload": 13,
                 "SEQUENTIAL": 1,
                 "MAP": 13,
                 "CUDAOffloading": 20,
@@ -64,7 +64,7 @@ def test_fdtd_2d(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 13,
+                "ROCM_Offload": 13,
                 "SEQUENTIAL": 1,
                 "MAP": 13,
                 "ROCMOffloading": 20,

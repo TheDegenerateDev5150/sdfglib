@@ -86,7 +86,7 @@ def test_gramschmidt(target):
         verifier = SDFGVerification(
             verification={
                 "GEMM": 1,
-                "CUDA": 5,
+                "CUDA_Offload": 5,
                 "MAP": 6,
                 "CUDAOffloading": 14,
                 "DOT": 0,
@@ -99,7 +99,7 @@ def test_gramschmidt(target):
         verifier = SDFGVerification(
             verification={
                 "GEMM": 1,
-                "ROCM": 5,
+                "ROCM_Offload": 5,
                 "MAP": 6,
                 "ROCMOffloading": 14,
                 "DOT": 0,

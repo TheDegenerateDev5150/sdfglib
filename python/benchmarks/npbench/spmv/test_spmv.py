@@ -82,7 +82,7 @@ def test_spmv(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 1,
+                "CUDA_Offload": 1,
                 "MAP": 4,
                 "REDUCE": 1,
                 "FOR": 1,
@@ -93,7 +93,7 @@ def test_spmv(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 1,
+                "ROCM_Offload": 1,
                 "MAP": 4,
                 "REDUCE": 1,
                 "FOR": 1,

@@ -69,7 +69,7 @@ def test_durbin(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 1,
+                "CUDA_Offload": 1,
                 "REDUCE": 1,
                 "CUDAOffloading": 4,
                 "MAP": 4,
@@ -80,7 +80,7 @@ def test_durbin(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 1,
+                "ROCM_Offload": 1,
                 "REDUCE": 1,
                 "ROCMOffloading": 4,
                 "MAP": 4,

@@ -54,7 +54,7 @@ def test_compute(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 2,
+                "CUDA_Offload": 2,
                 "MAP": 2,
             },
             device_resident=True,
@@ -62,7 +62,7 @@ def test_compute(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 2,
+                "ROCM_Offload": 2,
                 "MAP": 2,
             },
             device_resident=True,

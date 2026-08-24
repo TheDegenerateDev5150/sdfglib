@@ -43,7 +43,7 @@ def test_floyd_warshall(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 4,
+                "CUDA_Offload": 4,
                 "SEQUENTIAL": 1,
                 "MAP": 4,
                 "CUDAOffloading": 2,
@@ -54,7 +54,7 @@ def test_floyd_warshall(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 4,
+                "ROCM_Offload": 4,
                 "SEQUENTIAL": 1,
                 "MAP": 4,
                 "ROCMOffloading": 2,

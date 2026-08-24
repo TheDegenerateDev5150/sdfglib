@@ -68,7 +68,7 @@ def test_softmax(target):
                 "SEQUENTIAL": 6,
                 "MAP": 12,
                 "REDUCE": 2,
-                "CUDA": 6,
+                "CUDA_Offload": 6,
                 "CUDAOffloading": 7,
             }
         )
@@ -78,7 +78,7 @@ def test_softmax(target):
                 "SEQUENTIAL": 6,
                 "MAP": 12,
                 "REDUCE": 2,
-                "ROCM": 6,
+                "ROCM_Offload": 6,
                 "ROCMOffloading": 7,
             }
         )

@@ -63,7 +63,7 @@ def test_go_fast(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 2,
+                "CUDA_Offload": 2,
                 "MAP": 2,
                 "CUDAOffloading": 4,
                 "SEQUENTIAL": 1,
@@ -73,7 +73,7 @@ def test_go_fast(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 2,
+                "ROCM_Offload": 2,
                 "MAP": 2,
                 "ROCMOffloading": 4,
                 "SEQUENTIAL": 1,
