@@ -1,5 +1,7 @@
 #include "sdfg/transformations/local_storage.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <unordered_set>
 
@@ -224,6 +226,39 @@ bool same_tile_shape(const analysis::MemoryTile& a, const analysis::MemoryTile& 
         }
     }
     return true;
+}
+
+/// The enclosing block-level *_Offload Map along one of @p coop_dims — the axis
+/// whose threads cooperatively stage the shared tile. Unlike the immediate
+/// enclosing map, this is a *genuine* cooperative axis: in a mixed
+/// per-thread+cooperative tile the immediate parent is a per-thread axis, and
+/// parallelizing the copy along it would stride over the slot axis and leave each
+/// slot only partially filled. Returns nullptr if no cooperative dim resolves to
+/// an enclosing offload Map.
+structured_control_flow::Map* find_cooperative_offload_map(
+    structured_control_flow::StructuredLoop& loop, const std::vector<LocalStorage::LocalityPlan::Dim>& coop_dims
+) {
+    for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop)) {
+        auto* map = dynamic_cast<structured_control_flow::Map*>(node);
+        if (!map) {
+            continue;
+        }
+        const std::string& sched_value = map->schedule_type().value();
+        if (sched_value != "CUDA_Offload" && sched_value != "ROCM_Offload") {
+            continue;
+        }
+        // The cooperative copy is performed by the threads of a block, so only a
+        // block-level offload axis can drive it (a grid axis selects the block).
+        if (!gpu::is_block_level(gpu::gpu_target_level(map->schedule_type()))) {
+            continue;
+        }
+        for (const auto& d : coop_dims) {
+            if (symbolic::eq(map->indvar(), d.indvar)) {
+                return map;
+            }
+        }
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -477,6 +512,10 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
         d.indvar = sloop->indvar();
         d.is_gpu = is_gpu;
         d.cooperative = is_cooperative(d.indvar);
+        d.init = sloop->init();
+        if (auto s = sloop->stride(); !s.is_null()) {
+            d.stride = s;
+        }
         if (is_gpu) {
             const std::string& value = sched.value();
             if (value == "CUDA_Offload" || value == "ROCM_Offload") {
@@ -612,22 +651,42 @@ LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bo
         // A cooperative write across threads is a reduction: that is owned by the
         // Reduce node + reduce dispatcher, not LocalStorage.
         if (container_written) {
+            bool intra_block_coop = plan.has_cooperative_at(Level::Block) || plan.has_cooperative_at(Level::Warp);
+            bool owned_per_thread = false;
+            for (const auto& d : plan.gpu_per_thread_dims()) {
+                if (d.level == Level::Block || d.level == Level::Warp) {
+                    owned_per_thread = true;
+                    break;
+                }
+            }
+            // Reject a genuine intra-block/warp reduction (owned by Reduce), or a
+            // grid-cooperative write with no per-thread owner (a real cross-block
+            // reduction needing atomics/grid sync). But a grid-only "cooperative"
+            // write that a finer per-thread block dim already addresses is disjoint
+            // per-block output — a private per-thread register tile (fall through).
+            if (intra_block_coop || !owned_per_thread) {
+                return Locality::Reject;
+            }
+        } else {
+            // A cooperative buffer lives in a device scope inside the kernel, below
+            // the outermost loop.
+            if (!plan.inside_gpu_kernel() || plan.loop_is_outermost) {
+                return Locality::Reject;
+            }
+            // Storage follows the finest cooperative level that owns a real buffer.
+            // A read tile cooperative within a block lives in shared memory even when
+            // it is also grid-cooperative: each block redundantly stages its own copy
+            // (grid cooperation is replication, not a shared buffer). Only *pure* grid
+            // cooperation needs a grid-wide global buffer.
+            if (plan.has_cooperative_at(Level::Block)) {
+                return Locality::Shared;
+            }
+            if (plan.has_cooperative_at(Level::Grid)) {
+                return Locality::Global;
+            }
+            // Warp-only cooperation is served by shuffles, not a staged buffer.
             return Locality::Reject;
         }
-        // A cooperative buffer lives in a device scope inside the kernel, below
-        // the outermost loop.
-        if (!plan.inside_gpu_kernel() || plan.loop_is_outermost) {
-            return Locality::Reject;
-        }
-        // Storage follows the coarsest cooperative level.
-        if (plan.has_cooperative_at(Level::Grid)) {
-            return Locality::Global;
-        }
-        if (plan.has_cooperative_at(Level::Block)) {
-            return Locality::Shared;
-        }
-        // Warp-only cooperation is served by shuffles, not a staged buffer.
-        return Locality::Reject;
     }
     // No cooperative dims: a thread-private / sequential buffer. But a host-level
     // loop that is itself GPU-scheduled or wraps a GPU kernel is not a site for
@@ -789,30 +848,28 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
                 storage_type_ = types::StorageType::NV_Shared();
                 break;
             }
+            // v2: the tile is cooperative across >=1 block axis and may be
+            // per-thread across others (each per-thread axis owns a buffer slot,
+            // handled by apply()). Grid dims are permitted too: they select the
+            // block (fixed per block, folded into the tile bases), so a read tile
+            // that is grid-cooperative simply replicates its shared copy per block.
+            // At least one cooperative axis must resolve to an enclosing block-level
+            // *_Offload Map to drive the cooperative copy. The old v1 constraints
+            // (exactly one cooperative axis, and it being the immediate enclosing
+            // map) rejected 2D-block GEMM shared tiles.
             for (const auto& d : plan_.dims) {
-                if (!d.is_gpu || d.level != LocalityPlan::Level::Block) {
-                    return false; // no CPU / grid / warp dims in the mix
+                if (!d.is_gpu) {
+                    return false; // no CPU dims in the mix
+                }
+                if (d.level != LocalityPlan::Level::Block && d.level != LocalityPlan::Level::Grid) {
+                    return false; // no warp dims
                 }
             }
             auto coop_dims = plan_.gpu_cooperative_dims();
-            if (coop_dims.size() != 1) {
-                return false; // exactly one cooperative (copy) axis in v1
-            }
-            // The first loop ancestor must be the cooperative Map itself.
-            structured_control_flow::Map* coop_map = nullptr;
-            for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop_)) {
-                if (auto* enclosing = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
-                    coop_map = dynamic_cast<structured_control_flow::Map*>(enclosing);
-                    break;
-                }
-            }
-            if (!coop_map || !symbolic::eq(coop_map->indvar(), coop_dims.front().indvar)) {
+            if (coop_dims.empty()) {
                 return false;
             }
-            // The cooperative copy is lowered by the new offload dispatcher, so
-            // only the *_Offload schedules are supported (not the legacy ones).
-            const std::string& sched_value = coop_map->schedule_type().value();
-            if (sched_value != "CUDA_Offload" && sched_value != "ROCM_Offload") {
+            if (find_cooperative_offload_map(loop_, coop_dims) == nullptr) {
                 return false;
             }
             storage_type_ = types::StorageType::NV_Shared();
@@ -849,8 +906,20 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     std::vector<symbolic::Expression> slot_indices;
     if (storage_type_.is_nv_shared()) {
         for (const auto& d : plan_.gpu_per_thread_dims()) {
+            // Only block-level per-thread dims own a buffer slot. A grid per-thread
+            // dim selects the block (fixed for all its threads) and is already
+            // folded into the tile bases, so it carries no slot.
+            if (d.level != LocalityPlan::Level::Block) {
+                continue;
+            }
             slot_sizes.push_back(d.parallel_size);
-            slot_indices.push_back(symbolic::mod(d.indvar, d.parallel_size));
+            // Within-block thread index = (indvar - init) / stride, then wrapped by
+            // the block width. Tiled thread-tile offload maps are NOT normalized
+            // (init = per-block base, stride = tile step), so a raw indvar % width
+            // aliases distinct threads onto the same slot (e.g. stride 8, width 16
+            // over a 128-wide block collapses 16 threads to 2 slots).
+            symbolic::Expression tid = symbolic::div(symbolic::sub(d.indvar, d.init), d.stride);
+            slot_indices.push_back(symbolic::mod(tid, d.parallel_size));
         }
     }
 
@@ -956,15 +1025,13 @@ void LocalStorage::emit_cooperative_copy_in(
     const std::vector<symbolic::Expression>& slot_indices,
     bool leading_barrier
 ) {
-    // The cooperative dim's Map (immediate enclosing loop; verified in
-    // can_be_applied) supplies the offload schedule the copy is parallelized with.
-    structured_control_flow::Map* coop_map = nullptr;
-    for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop_)) {
-        if (auto* enclosing = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
-            coop_map = dynamic_cast<structured_control_flow::Map*>(enclosing);
-            break;
-        }
-    }
+    // Parallelize the copy over a genuine cooperative axis. In a mixed
+    // per-thread+cooperative tile the immediate enclosing map is a per-thread axis
+    // (the slot axis); striding the copy along it would leave each slot only
+    // partially filled. find_cooperative_offload_map picks the cooperative axis
+    // whose threads split the tile (guaranteed non-null by can_be_applied).
+    auto coop_dims = plan_.gpu_cooperative_dims();
+    structured_control_flow::Map* coop_map = find_cooperative_offload_map(loop_, coop_dims);
 
     // A leading barrier prevents a re-staged (per-thread) tile from being
     // overwritten while the previous coverage iteration's reads are outstanding.
