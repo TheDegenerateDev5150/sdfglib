@@ -139,6 +139,8 @@ public:
             gpu::TargetLevel target_level = gpu::TargetLevel::X_BLOCK; ///< GPU axis (for threadIdx slotting)
             symbolic::Integer parallel_size = symbolic::integer(0); ///< parallel width (0 on CPU)
             bool needs_sync = false; ///< schedule requires nested synchronization
+            symbolic::Expression init = symbolic::integer(0); ///< loop init (per-block base of the tiled dim)
+            symbolic::Integer stride = symbolic::integer(1); ///< loop stride (tile step)
         };
 
         std::vector<Dim> dims; ///< enclosing parallel loops, innermost-first
