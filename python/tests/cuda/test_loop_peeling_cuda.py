@@ -133,7 +133,8 @@ def _build(N, K, block):
     ],
     ids=["64x16", "64x20", "100x20", "33x10"],
 )
-def test_predicate_boundary_ragged_reduction(N, K, block, tile, tmp_path):
+@pytest.mark.parametrize("predicate", [False, True], ids=["hoist", "predicate"])
+def test_loop_peeling_ragged_reduction(N, K, block, tile, predicate, tmp_path):
     builder, inner = _build(N, K, block)
     am = AnalysisManager(builder)
 
@@ -144,7 +145,7 @@ def test_predicate_boundary_ragged_reduction(N, K, block, tile, tmp_path):
     tiling.apply(builder, am)
     tiled_inner = tiling.inner_loop
 
-    pb = LoopPeeling(tiled_inner)
+    pb = LoopPeeling(tiled_inner, predicate=predicate)
     assert pb.can_be_applied(
         builder, am
     ), "tiled inner loop should have a predicable compound boundary"
@@ -152,13 +153,13 @@ def test_predicate_boundary_ragged_reduction(N, K, block, tile, tmp_path):
 
     sdfg = builder.move()
     sdfg.validate()
-    output_dir = tmp_path / f"pb_{N}x{K}x{block}x{tile}"
+    output_dir = tmp_path / f"pb_{N}x{K}x{block}x{tile}_{int(predicate)}"
     output_dir.mkdir(parents=True, exist_ok=True)
     lib_path = sdfg._compile(str(output_dir), "cuda")
 
-    # A guard (if) must be emitted; the variable-trip remainder must be gone.
+    # Both modes emit a boundary check (hoisted then/else guard, or inner predicate).
     generated = "\n".join(p.read_text() for p in output_dir.rglob("*.cu"))
-    assert "if" in generated, "boundary predicate not emitted"
+    assert "if" in generated, "boundary check not emitted"
 
     compiled = CompiledSDFG(lib_path, sdfg)
 
