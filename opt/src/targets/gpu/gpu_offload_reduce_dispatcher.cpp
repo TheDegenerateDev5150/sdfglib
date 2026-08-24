@@ -4,6 +4,7 @@
 #include <sdfg/analysis/analysis.h>
 #include <sdfg/analysis/assumptions_analysis.h>
 #include <sdfg/analysis/loop_analysis.h>
+#include <sdfg/analysis/type_analysis.h>
 #include <sdfg/analysis/users.h>
 #include <sdfg/builder/structured_sdfg_builder.h>
 #include <sdfg/codegen/dispatchers/sequence_dispatcher.h>
@@ -36,6 +37,7 @@
 #include <sdfg/structured_control_flow/reduce.h>
 #include <sdfg/types/pointer.h>
 #include <sdfg/types/scalar.h>
+#include <sdfg/types/utils.h>
 
 namespace sdfg {
 namespace gpu {
@@ -106,26 +108,30 @@ std::string combine_expr(ReductionOperation op, const std::string& a, const std:
 }
 
 // Scalar element type of a reduction accumulator (device pointer to scalar, or scalar).
-types::PrimitiveType accumulator_primitive(const StructuredSDFG& sdfg, const std::string& container) {
-    auto& type = sdfg.type(container);
-    if (auto* ptr = dynamic_cast<const types::Pointer*>(&type)) {
-        if (!ptr->has_pointee_type()) {
-            throw InvalidSDFGException(
-                "GPUOffloadReduceDispatcher: reduction accumulator '" + container + "' has no pointee type"
-            );
+//
+// The accumulator's declared container type is often an opaque device pointer (a
+// `Pointer()` with no pointee) because the offload transform clones the host array's
+// pointer-like type without carrying its element type. In that case the element type is
+// not recoverable from the pointer itself; it lives on the memlets that access the
+// container. We therefore consult the type analysis, which reconstructs the outer type
+// from those memlets, and peel it down to the innermost scalar element.
+types::PrimitiveType
+accumulator_primitive(const StructuredSDFG& sdfg, analysis::TypeAnalysis& type_analysis, const std::string& container) {
+    const types::IType* type = &sdfg.type(container);
+
+    if (auto* ptr = dynamic_cast<const types::Pointer*>(type); ptr != nullptr && !ptr->has_pointee_type()) {
+        if (const types::IType* resolved = type_analysis.get_outer_type(container)) {
+            type = resolved;
         }
-        if (auto* scalar = dynamic_cast<const types::Scalar*>(&ptr->pointee_type())) {
-            return scalar->primitive_type();
-        }
-        throw InvalidSDFGException(
-            "GPUOffloadReduceDispatcher: reduction accumulator '" + container + "' must point to a scalar"
-        );
     }
-    if (auto* scalar = dynamic_cast<const types::Scalar*>(&type)) {
+
+    const types::IType& element = types::peel_to_innermost_element(*type);
+    if (auto* scalar = dynamic_cast<const types::Scalar*>(&element)) {
         return scalar->primitive_type();
     }
     throw InvalidSDFGException(
-        "GPUOffloadReduceDispatcher: reduction accumulator '" + container + "' must be a device pointer or scalar"
+        "GPUOffloadReduceDispatcher: could not resolve scalar element type for reduction accumulator '" + container +
+        "'"
     );
 }
 
@@ -780,8 +786,9 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_declarations(
     bool needs_cmath = false;
     bool declared_shared = false;
 
+    auto& type_analysis = analysis_manager_.get<analysis::TypeAnalysis>();
     for (const auto& r : node_.reductions()) {
-        auto prim = accumulator_primitive(sdfg_, r.container);
+        auto prim = accumulator_primitive(sdfg_, type_analysis, r.container);
         std::string ctype = language_extension.primitive_type(prim);
         std::string identity = identity_literal(r.operation, prim);
         if (types::is_floating_point(prim)) {
@@ -824,6 +831,7 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_shadow(
     const bool block = is_block_level(target_level);
     std::string lin_tid = reduce_linear_thread_index(language_extension);
 
+    auto& type_analysis = analysis_manager_.get<analysis::TypeAnalysis>();
     for (const auto& r : node_.reductions()) {
         // For warp-nested block reductions the accumulation is emitted by the nested
         // warp level, so the block level only owns the shared buffer, not the body.
@@ -831,7 +839,7 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_shadow(
             continue;
         }
 
-        auto prim = accumulator_primitive(sdfg_, r.container);
+        auto prim = accumulator_primitive(sdfg_, type_analysis, r.container);
         std::string ctype = language_extension.primitive_type(prim);
         std::string reg_name = "__daisy_reduce_reg_" + r.container;
         std::string smem_name = "__daisy_reduce_smem_" + r.container;
@@ -865,8 +873,9 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
     std::string lin_tid = reduce_linear_thread_index(language_extension);
     std::string warp_size = language_extension.expression(get_target_level_dim(TargetLevel::WARP, get_warp_size()));
 
+    auto& type_analysis = analysis_manager_.get<analysis::TypeAnalysis>();
     for (const auto& r : node_.reductions()) {
-        auto prim = accumulator_primitive(sdfg_, r.container);
+        auto prim = accumulator_primitive(sdfg_, type_analysis, r.container);
         std::string ctype = language_extension.primitive_type(prim);
         std::string reg_name = "__daisy_reduce_reg_" + r.container;
         std::string smem_name = "__daisy_reduce_smem_" + r.container;

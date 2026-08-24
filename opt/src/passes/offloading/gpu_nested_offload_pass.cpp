@@ -61,9 +61,6 @@ bool apply_offload(
             applied = true;
         }
     }
-    if (applied) {
-        analysis_manager.invalidate_all();
-    }
     return applied;
 }
 
@@ -83,6 +80,13 @@ single_child_loop(analysis::LoopAnalysis& loop_analysis, structured_control_flow
     return found;
 }
 
+// A single offload to apply during the sweep phase.
+struct PlannedOffload {
+    structured_control_flow::StructuredLoop* loop;
+    gpu::TargetLevel target_level;
+    symbolic::Integer parallel_size;
+};
+
 } // namespace
 
 GPUNestedOffloadPass::
@@ -94,9 +98,11 @@ bool GPUNestedOffloadPass::run_pass(builder::StructuredSDFGBuilder& builder, ana
         return false;
     }
 
-    bool applied = false;
+    // Mark phase: plan all offloads against a single LoopAnalysis, without mutating
+    // the SDFG. This avoids re-running the analysis for every loop nest.
+    std::vector<PlannedOffload> plan;
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
     for (auto* outer : loops_) {
-        auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
         size_t depth = loop_analysis.loop_info(outer).max_depth;
         if (depth < 2) {
             continue;
@@ -111,52 +117,25 @@ bool GPUNestedOffloadPass::run_pass(builder::StructuredSDFGBuilder& builder, ana
         }
 
         if (depth == 2 && chain.size() >= 1) {
-            applied |= apply_offload(
-                builder,
-                analysis_manager,
-                target_,
-                *chain[0],
-                gpu::TargetLevel::X_BLOCK,
-                parallel_size_for(chain[0], DEFAULT_X_BLOCK, true)
-            );
+            plan.push_back({chain[0], gpu::TargetLevel::X_BLOCK, parallel_size_for(chain[0], DEFAULT_X_BLOCK, true)});
         } else if (depth == 3 && chain.size() >= 2) {
-            applied |= apply_offload(
-                builder,
-                analysis_manager,
-                target_,
-                *chain[0],
-                gpu::TargetLevel::X_BLOCK,
-                parallel_size_for(chain[0], DEFAULT_X_BLOCK, true)
-            );
-            applied |= apply_offload(
-                builder, analysis_manager, target_, *chain[1], gpu::TargetLevel::WARP, symbolic::integer(WARP_SIZE)
-            );
+            plan.push_back({chain[0], gpu::TargetLevel::X_BLOCK, parallel_size_for(chain[0], DEFAULT_X_BLOCK, true)});
+            plan.push_back({chain[1], gpu::TargetLevel::WARP, symbolic::integer(WARP_SIZE)});
         } else if (depth >= 4 && chain.size() >= 3) {
-            applied |= apply_offload(
-                builder,
-                analysis_manager,
-                target_,
-                *chain[0],
-                gpu::TargetLevel::Y_GRID,
-                parallel_size_for(chain[0], DEFAULT_Y_GRID, false)
-            );
-            applied |= apply_offload(
-                builder,
-                analysis_manager,
-                target_,
-                *chain[1],
-                gpu::TargetLevel::X_BLOCK,
-                parallel_size_for(chain[1], DEFAULT_X_BLOCK, true)
-            );
-            applied |= apply_offload(
-                builder,
-                analysis_manager,
-                target_,
-                *chain[2],
-                gpu::TargetLevel::Y_BLOCK,
-                parallel_size_for(chain[2], DEFAULT_Y_BLOCK, true)
-            );
+            plan.push_back({chain[0], gpu::TargetLevel::Y_GRID, parallel_size_for(chain[0], DEFAULT_Y_GRID, false)});
+            plan.push_back({chain[1], gpu::TargetLevel::X_BLOCK, parallel_size_for(chain[1], DEFAULT_X_BLOCK, true)});
+            plan.push_back({chain[2], gpu::TargetLevel::Y_BLOCK, parallel_size_for(chain[2], DEFAULT_Y_BLOCK, true)});
         }
+    }
+
+    // Sweep phase: apply the planned offloads.
+    bool applied = false;
+    for (const auto& p : plan) {
+        applied |= apply_offload(builder, analysis_manager, target_, *p.loop, p.target_level, p.parallel_size);
+    }
+
+    if (applied) {
+        analysis_manager.invalidate_all();
     }
 
     return applied;
