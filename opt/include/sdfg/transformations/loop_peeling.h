@@ -8,27 +8,32 @@ namespace transformations {
 /**
  * @brief Loop peeling transformation for compound-condition loops
  *
- * This transformation splits a loop with a compound condition (conjunction)
- * into a main body with a simple constant-trip-count condition and a postamble
- * for the remainder case. The result is an IfElse node:
+ * This transformation targets a loop whose condition is a conjunction of
+ * a canonical (constant-trip) bound and one or more dynamic bounds, e.g.
  *
- *   if (canonical_bound <= min(dynamic_bounds)):
- *     loop(init, canonical_bound, step) { body }        // constant trip count
- *   else:
- *     loop(init, min(dynamic_bounds), step) { body }    // remainder
+ *   for (k = k0; k < TK + k0 && k < N; ++k) { body }
  *
- * The canonical bound is the conjunct that gives a constant trip count relative
- * to the init expression (e.g., `j < 8 + j_tile1` with init=j_tile1 → trip=8).
+ * Instead of splitting into a constant-trip main loop and a variable-trip
+ * remainder (which keeps a single shared accumulator addressable and therefore
+ * spilled to local memory), this transformation *over-approximates* the loop to
+ * its canonical constant-trip bound and moves the dropped dynamic bounds into a
+ * predicate guarding the body:
  *
- * This enables the compiler to vectorize the main body with a proven trip count.
+ *   for (k = k0; k < TK + k0; ++k) if (k < N) { body }
+ *
+ * The trip count is now a compile-time constant, so the compiler can fully
+ * unroll the nest and keep register-tile accumulators in registers, while the
+ * body predicate preserves the exact set of effectful iterations of the
+ * original loop. This works uniformly for parallel (map) and reduction loops and
+ * requires no neutral element: out-of-range iterations simply do not execute.
  */
 class LoopPeeling : public Transformation {
     structured_control_flow::StructuredLoop& loop_;
 
 public:
     /**
-     * @brief Construct a loop peeling transformation
-     * @param loop The loop with compound conditions to be peeled
+     * @brief Construct a predicated-boundary transformation
+     * @param loop The loop with compound conditions to over-approximate + guard
      */
     LoopPeeling(structured_control_flow::StructuredLoop& loop);
 
