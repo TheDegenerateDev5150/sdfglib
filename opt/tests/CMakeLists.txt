@@ -12,6 +12,7 @@ set(TEST_FILES
     cuda/blas/cublas_test.cpp
     cuda/cuda_kernel_test.cpp
     cuda/cuda_reduce_dispatcher_test.cpp
+    cuda/cuda_offload_reduce_dispatcher_test.cpp
     cuda/softmax_dispatcher_test.cpp
     rocm/blas/rocblas_test.cpp
     rocm/rocm_library_nodes_test.cpp

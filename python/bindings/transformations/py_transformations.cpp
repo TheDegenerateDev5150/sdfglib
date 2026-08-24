@@ -19,6 +19,7 @@
 #include <sdfg/transformations/offloading/cuda_parallelize_nested_map.h>
 #include <sdfg/transformations/offloading/cuda_transform.h>
 #include <sdfg/transformations/offloading/gpu_offload_nested_loop.h>
+#include <sdfg/transformations/omp_transform.h>
 #include <sdfg/transformations/out_local_storage.h>
 #include <sdfg/transformations/recorder.h>
 #include <sdfg/transformations/tile_fusion.h>
@@ -344,6 +345,21 @@ void register_transformations(py::module& m) {
         .def("__repr__", [](const VectorizeTransform& t) {
             std::ostringstream oss;
             oss << "<VectorizeTransform name='" << t.name() << "'>";
+            return oss.str();
+        });
+
+    // OMPTransform transformation
+    py::class_<OMPTransform, Transformation>(m, "OMPTransform")
+        .def(
+            py::init<Map&>(),
+            py::arg("loop"),
+            "Create an OpenMP transformation.\n\n"
+            "Args:\n"
+            "    loop: The sequential loop to parallelize with OpenMP"
+        )
+        .def("__repr__", [](const OMPTransform& t) {
+            std::ostringstream oss;
+            oss << "<OMPTransform name='" << t.name() << "'>";
             return oss.str();
         });
 
