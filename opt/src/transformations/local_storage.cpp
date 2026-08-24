@@ -815,6 +815,7 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
     auto& t = group->tile;
     tile_info_.dimensions = t.extents_approx();
     tile_info_.bases = t.min_subset;
+    tile_info_.maxes = t.max_subset;
     tile_info_.strides = std::vector<symbolic::Expression>(t.layout.strides().begin(), t.layout.strides().end());
     tile_info_.offset = t.layout.offset();
     group_memlets_.insert(group->memlets.begin(), group->memlets.end());
@@ -960,6 +961,23 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     analysis_manager.invalidate_all();
 }
 
+symbolic::Condition LocalStorage::boundary_guard(const data_flow::Subset& tile_indices) const {
+    // Compare each delinearized global index (base[d] + tile_index) against the
+    // tile's max valid index maxes[d]. tile_indices are per varying dim, aligned
+    // with varying_dims(); degenerate (extent-1) dims sit at their base <= max.
+    symbolic::Condition guard = SymEngine::boolTrue;
+    auto vdims = tile_info_.varying_dims();
+    for (size_t v = 0; v < vdims.size() && v < tile_indices.size(); ++v) {
+        size_t d = vdims[v];
+        if (d >= tile_info_.maxes.size() || tile_info_.maxes[d].is_null()) {
+            continue;
+        }
+        auto global_d = symbolic::add(tile_info_.bases[d], tile_indices[v]);
+        guard = symbolic::And(guard, symbolic::Le(global_d, tile_info_.maxes[d]));
+    }
+    return guard;
+}
+
 void LocalStorage::emit_private_copy(
     builder::StructuredSDFGBuilder& builder,
     structured_control_flow::Sequence& parent,
@@ -996,10 +1014,21 @@ void LocalStorage::emit_private_copy(
         current = &map.root();
     }
 
-    auto& block = builder.add_block(*current);
-    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
     data_flow::Subset original_subset = tile_info_.original_subset(indvars);
     data_flow::Subset buffer_subset = {buffer.linearize({}, indvars)};
+    // Element-predicate the global access: the over-approximated tile may address
+    // out-of-bounds global memory on ragged blocks. Skip those elements (the
+    // buffer slots they'd fill are never consumed — the compute's own boundary
+    // handling guards them).
+    auto guard = boundary_guard(indvars);
+    structured_control_flow::Sequence* body = current;
+    if (!symbolic::is_true(guard)) {
+        auto& if_else = builder.add_if_else(*current, loop_.debug_info());
+        body = &builder.add_case(if_else, guard, loop_.debug_info());
+    }
+
+    auto& block = builder.add_block(*body);
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
     if (writeback) {
         auto& src = builder.add_access(block, local_name_);
         auto& dst = builder.add_access(block, container_);
@@ -1059,13 +1088,23 @@ void LocalStorage::emit_cooperative_copy_in(
 
     auto decomp = buffer.delinearize_tile(c);
 
-    auto& block = builder.add_block(copy_map.root());
+    // Element-predicate the cooperative global read so ragged blocks never read
+    // out-of-bounds; skipped slots are never consumed (guarded by the compute).
+    data_flow::Subset coop_original = tile_info_.original_subset(decomp);
+    auto coop_guard = boundary_guard(decomp);
+    structured_control_flow::Sequence* coop_body = &copy_map.root();
+    if (!symbolic::is_true(coop_guard)) {
+        auto& if_else = builder.add_if_else(copy_map.root(), loop_.debug_info());
+        coop_body = &builder.add_case(if_else, coop_guard, loop_.debug_info());
+    }
+
+    auto& block = builder.add_block(*coop_body);
     auto& src = builder.add_access(block, container_);
     auto& dst = builder.add_access(block, local_name_);
     auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
     // Buffer slot offset (per-thread row) plus the flat tile index c.
     data_flow::Subset dst_subset = {symbolic::add(buffer.slot_offset(slot_indices), c)};
-    builder.add_computational_memlet(block, src, tasklet, "_in", tile_info_.original_subset(decomp), pointer_type);
+    builder.add_computational_memlet(block, src, tasklet, "_in", coop_original, pointer_type);
     builder.add_computational_memlet(block, tasklet, "_out", dst, dst_subset, buffer_type);
 
     // Barrier so every thread's load is visible before the tile is consumed.

@@ -1524,6 +1524,18 @@ bool block_uses(structured_control_flow::Block& block, const std::string& name) 
     }
     return false;
 }
+
+// The copy block may be wrapped in a boundary-guard IfElse (element predication
+// of the global access). Unwrap it to reach the underlying copy Block.
+structured_control_flow::Block* copy_block_of(structured_control_flow::ControlFlowNode& node) {
+    if (auto* blk = dynamic_cast<structured_control_flow::Block*>(&node)) {
+        return blk;
+    }
+    if (auto* ife = dynamic_cast<structured_control_flow::IfElse*>(&node)) {
+        return dynamic_cast<structured_control_flow::Block*>(&ife->at(0).first.at(0));
+    }
+    return nullptr;
+}
 } // namespace
 
 /**
@@ -1628,8 +1640,8 @@ TEST(LocalStorageTest, Apply_Out_WriteOnly) {
     auto* wb_loop = dyn_cast<structured_control_flow::Map*>(&root.at(1));
     ASSERT_NE(wb_loop, nullptr);
 
-    // Writeback reads the buffer and writes C.
-    auto* wb_block = dyn_cast<structured_control_flow::Block*>(&wb_loop->root().at(0));
+    // Writeback reads the buffer and writes C (copy may be boundary-guarded).
+    auto* wb_block = copy_block_of(wb_loop->root().at(0));
     ASSERT_NE(wb_block, nullptr);
     EXPECT_TRUE(block_uses(*wb_block, buf));
     EXPECT_TRUE(block_uses(*wb_block, "C"));
@@ -2638,7 +2650,7 @@ TEST(LocalStorageTest, Apply_RegisterTile_OperandReuse) {
     // The load is hoisted above jI: iI body is [copy-in(A->buf), jI-loop], and the
     // jI body reads the register, not A.
     ASSERT_EQ(loop_iI.root().size(), 2u);
-    auto* copy_block = dyn_cast<structured_control_flow::Block*>(&loop_iI.root().at(0));
+    auto* copy_block = copy_block_of(loop_iI.root().at(0));
     ASSERT_NE(copy_block, nullptr);
     EXPECT_TRUE(block_uses(*copy_block, "A"));
     EXPECT_TRUE(block_uses(*copy_block, buf));
