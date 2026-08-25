@@ -1,5 +1,7 @@
 #include "sdfg/transformations/local_storage.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <unordered_set>
 
@@ -141,6 +143,124 @@ public:
     }
 };
 
+/// First block-level GPU-offloaded loop in @p loop's body (a cooperative copy /
+/// consumer axis for enclosing-scope staging), or nullptr.
+structured_control_flow::StructuredLoop* find_block_scheduled_descendant(
+    structured_control_flow::StructuredLoop& loop, analysis::AnalysisManager& analysis_manager
+) {
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    for (auto* desc : loop_analysis.descendants(&loop)) {
+        auto* sl = dynamic_cast<structured_control_flow::StructuredLoop*>(desc);
+        if (!sl) {
+            continue;
+        }
+        auto& sched = sl->schedule_type();
+        if (sched.category() != structured_control_flow::ScheduleTypeCategory::Offloader) {
+            continue;
+        }
+        if (gpu::is_block_level(gpu::gpu_target_level(sched))) {
+            return sl;
+        }
+    }
+    return nullptr;
+}
+
+/// True if @p scope's body reads @p container in any block.
+bool scope_reads_container(structured_control_flow::ControlFlowNode& scope, const std::string& container) {
+    bool reads = false;
+    for_each_block(scope, [&](structured_control_flow::Block& block) {
+        for (auto* access : block.dataflow().data_nodes()) {
+            if (access->data() == container) {
+                reads = true;
+            }
+        }
+    });
+    return reads;
+}
+
+/// Block-level GPU-offloaded loops in @p loop's body that access @p container.
+std::vector<structured_control_flow::StructuredLoop*> block_scheduled_consumers(
+    structured_control_flow::StructuredLoop& loop,
+    const std::string& container,
+    analysis::AnalysisManager& analysis_manager
+) {
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    std::vector<structured_control_flow::StructuredLoop*> consumers;
+    for (auto* desc : loop_analysis.descendants(&loop)) {
+        auto* sl = dynamic_cast<structured_control_flow::StructuredLoop*>(desc);
+        if (!sl) {
+            continue;
+        }
+        auto& sched = sl->schedule_type();
+        if (sched.category() != structured_control_flow::ScheduleTypeCategory::Offloader) {
+            continue;
+        }
+        if (gpu::is_block_level(gpu::gpu_target_level(sched)) && scope_reads_container(sl->root(), container)) {
+            consumers.push_back(sl);
+        }
+    }
+    return consumers;
+}
+
+/// True if two tiles have the same per-dimension base and extent.
+bool same_tile_shape(const analysis::MemoryTile& a, const analysis::MemoryTile& b) {
+    if (a.min_subset.size() != b.min_subset.size()) {
+        return false;
+    }
+    for (size_t d = 0; d < a.min_subset.size(); d++) {
+        if (!symbolic::eq(a.min_subset[d], b.min_subset[d])) {
+            return false;
+        }
+    }
+    auto ea = a.extents_approx();
+    auto eb = b.extents_approx();
+    if (ea.size() != eb.size()) {
+        return false;
+    }
+    for (size_t d = 0; d < ea.size(); d++) {
+        if (ea[d].is_null() != eb[d].is_null()) {
+            return false;
+        }
+        if (!ea[d].is_null() && !symbolic::eq(ea[d], eb[d])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// The enclosing block-level *_Offload Map along one of @p coop_dims — the axis
+/// whose threads cooperatively stage the shared tile. Unlike the immediate
+/// enclosing map, this is a *genuine* cooperative axis: in a mixed
+/// per-thread+cooperative tile the immediate parent is a per-thread axis, and
+/// parallelizing the copy along it would stride over the slot axis and leave each
+/// slot only partially filled. Returns nullptr if no cooperative dim resolves to
+/// an enclosing offload Map.
+structured_control_flow::Map* find_cooperative_offload_map(
+    structured_control_flow::StructuredLoop& loop, const std::vector<LocalStorage::LocalityPlan::Dim>& coop_dims
+) {
+    for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop)) {
+        auto* map = dynamic_cast<structured_control_flow::Map*>(node);
+        if (!map) {
+            continue;
+        }
+        const std::string& sched_value = map->schedule_type().value();
+        if (sched_value != "CUDA_Offload" && sched_value != "ROCM_Offload") {
+            continue;
+        }
+        // The cooperative copy is performed by the threads of a block, so only a
+        // block-level offload axis can drive it (a grid axis selects the block).
+        if (!gpu::is_block_level(gpu::gpu_target_level(map->schedule_type()))) {
+            continue;
+        }
+        for (const auto& d : coop_dims) {
+            if (symbolic::eq(map->indvar(), d.indvar)) {
+                return map;
+            }
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 std::vector<size_t> LocalStorage::TileInfo::varying_dims() const {
@@ -274,6 +394,12 @@ bool LocalStorage::has_side_effect(structured_control_flow::StructuredLoop& loop
             return;
         }
         for (auto* lib_node : block.dataflow().library_nodes()) {
+            // A __syncthreads barrier accesses no data (a control-only scheduling
+            // primitive), so it cannot reference the localized container and does
+            // not block staging — unlike genuine side effects (malloc/memset/…).
+            if (dynamic_cast<data_flow::BarrierLocalNode*>(lib_node)) {
+                continue;
+            }
             if (lib_node->side_effect()) {
                 found = true;
                 return;
@@ -386,6 +512,10 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
         d.indvar = sloop->indvar();
         d.is_gpu = is_gpu;
         d.cooperative = is_cooperative(d.indvar);
+        d.init = sloop->init();
+        if (auto s = sloop->stride(); !s.is_null()) {
+            d.stride = s;
+        }
         if (is_gpu) {
             const std::string& value = sched.value();
             if (value == "CUDA_Offload" || value == "ROCM_Offload") {
@@ -407,6 +537,15 @@ LocalStorage::LocalityPlan LocalStorage::build_locality_plan(
         }
         plan.dims.push_back(d);
     }
+
+    // Enclosing-scope cooperative staging: the localized loop is itself a GPU map
+    // with no enclosing parallel context, and a block-scheduled loop in its body
+    // consumes the tile. The tile is staged once per block into shared and reused
+    // by every (sibling) consumer below.
+    if (plan.dims.empty() && plan.loop_is_gpu && find_block_scheduled_descendant(loop, analysis_manager) != nullptr) {
+        plan.enclosing_cooperative = true;
+    }
+
     return plan;
 }
 
@@ -444,32 +583,110 @@ bool LocalStorage::is_reduction_accumulator(
     return false;
 }
 
+bool LocalStorage::collect_reduction_owners(
+    structured_control_flow::StructuredLoop& loop,
+    const std::string& container,
+    analysis::AnalysisManager& analysis_manager,
+    std::vector<structured_control_flow::Reduce*>& out
+) {
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    auto owns = [&](structured_control_flow::ControlFlowNode* node) -> structured_control_flow::Reduce* {
+        auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(node);
+        if (!reduce) {
+            return nullptr;
+        }
+        for (const auto& r : reduce->reductions()) {
+            if (r.container == container) {
+                return reduce;
+            }
+        }
+        return nullptr;
+    };
+
+    // An ancestor Reduce accumulates across iterations *outside* the localized
+    // scope, so a buffer created at loop_ cannot span the accumulator's lifetime.
+    for (auto* node : loop_analysis.ancestors(&loop)) {
+        if (owns(node)) {
+            return false;
+        }
+    }
+
+    // loop_ itself or a descendant Reduce: privatizable only when the reduction is
+    // combined sequentially / per-thread. A GPU-offloaded Reduce is combined across
+    // threads by the reduce dispatcher, which owns the accumulator staging.
+    auto consider = [&](structured_control_flow::Reduce* reduce) -> bool {
+        if (gpu::is_gpu_schedule(reduce->schedule_type())) {
+            return false;
+        }
+        out.push_back(reduce);
+        return true;
+    };
+    if (auto* reduce = owns(&loop)) {
+        if (!consider(reduce)) {
+            return false;
+        }
+    }
+    for (auto* node : loop_analysis.descendants(&loop)) {
+        if (auto* reduce = owns(node)) {
+            if (!consider(reduce)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bool container_written) {
     using Level = LocalityPlan::Level;
     // A cooperative CPU-parallel dim would need threads to share a stack — impossible.
     if (plan.has_cpu_cooperative()) {
         return Locality::Reject;
     }
+    // Enclosing-scope staging: a per-block shared row loaded once, reused by the
+    // block consumers below. A cooperative write is a reduction (Reduce owns it).
+    if (plan.enclosing_cooperative) {
+        return container_written ? Locality::Reject : Locality::Shared;
+    }
     if (plan.has_gpu_cooperative()) {
         // A cooperative write across threads is a reduction: that is owned by the
         // Reduce node + reduce dispatcher, not LocalStorage.
         if (container_written) {
+            bool intra_block_coop = plan.has_cooperative_at(Level::Block) || plan.has_cooperative_at(Level::Warp);
+            bool owned_per_thread = false;
+            for (const auto& d : plan.gpu_per_thread_dims()) {
+                if (d.level == Level::Block || d.level == Level::Warp) {
+                    owned_per_thread = true;
+                    break;
+                }
+            }
+            // Reject a genuine intra-block/warp reduction (owned by Reduce), or a
+            // grid-cooperative write with no per-thread owner (a real cross-block
+            // reduction needing atomics/grid sync). But a grid-only "cooperative"
+            // write that a finer per-thread block dim already addresses is disjoint
+            // per-block output — a private per-thread register tile (fall through).
+            if (intra_block_coop || !owned_per_thread) {
+                return Locality::Reject;
+            }
+        } else {
+            // A cooperative buffer lives in a device scope inside the kernel, below
+            // the outermost loop.
+            if (!plan.inside_gpu_kernel() || plan.loop_is_outermost) {
+                return Locality::Reject;
+            }
+            // Storage follows the finest cooperative level that owns a real buffer.
+            // A read tile cooperative within a block lives in shared memory even when
+            // it is also grid-cooperative: each block redundantly stages its own copy
+            // (grid cooperation is replication, not a shared buffer). Only *pure* grid
+            // cooperation needs a grid-wide global buffer.
+            if (plan.has_cooperative_at(Level::Block)) {
+                return Locality::Shared;
+            }
+            if (plan.has_cooperative_at(Level::Grid)) {
+                return Locality::Global;
+            }
+            // Warp-only cooperation is served by shuffles, not a staged buffer.
             return Locality::Reject;
         }
-        // A cooperative buffer lives in a device scope inside the kernel, below
-        // the outermost loop.
-        if (!plan.inside_gpu_kernel() || plan.loop_is_outermost) {
-            return Locality::Reject;
-        }
-        // Storage follows the coarsest cooperative level.
-        if (plan.has_cooperative_at(Level::Grid)) {
-            return Locality::Global;
-        }
-        if (plan.has_cooperative_at(Level::Block)) {
-            return Locality::Shared;
-        }
-        // Warp-only cooperation is served by shuffles, not a staged buffer.
-        return Locality::Reject;
     }
     // No cooperative dims: a thread-private / sequential buffer. But a host-level
     // loop that is itself GPU-scheduled or wraps a GPU kernel is not a site for
@@ -495,11 +712,16 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
         return false;
     }
 
-    // Reduction accumulators are staged and combined by the Reduce node + reduce
-    // dispatcher; LocalStorage stages read-only operands only and must not also
-    // localize an accumulator.
+    // A reduction accumulator may be localized only when the owning Reduce is
+    // non-cooperative (sequential / per-thread): LocalStorage privatizes the
+    // accumulator and apply() retargets the Reduce's descriptor to the local
+    // buffer. A cooperatively-combined (GPU-offloaded) Reduce, or one enclosing
+    // the localized scope, is left to the reduce dispatcher.
+    reduce_retargets_.clear();
     if (is_reduction_accumulator(loop_, container_, analysis_manager)) {
-        return false;
+        if (!collect_reduction_owners(loop_, container_, analysis_manager, reduce_retargets_)) {
+            return false;
+        }
     }
 
     // Classify the container's accesses directly from the dataflow.
@@ -519,6 +741,53 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
     // Nothing to localize unless the container is actually used.
     if (!container_read_ && !container_written_) {
         return false;
+    }
+
+    // Enclosing-scope cooperative staging: a read-only tile localized at a GPU map
+    // whose body has block-scheduled consumers. The tile is per-block (the map's own
+    // indvar is fixed per instance), so resolve its shape from the consumers — where
+    // that indvar is opaque — rather than at loop_, where it would unfold across the
+    // whole grid. Stage once, reuse across every sibling consumer below.
+    if (container_read_ && !container_written_) {
+        LocalityPlan topo = build_locality_plan(loop_, TileInfo{}, analysis_manager);
+        if (topo.enclosing_cooperative) {
+            auto consumers = block_scheduled_consumers(loop_, container_, analysis_manager);
+            if (consumers.empty()) {
+                return false;
+            }
+            const std::string& sched_value = consumers.front()->schedule_type().value();
+            if (sched_value != "CUDA_Offload" && sched_value != "ROCM_Offload") {
+                return false;
+            }
+            const analysis::MemoryTileGroup* ref = tile(*consumers.front(), container_, analysis_manager);
+            if (!ref || !is_constant_bounded(ref)) {
+                return false;
+            }
+            auto count = tile_element_count(ref);
+            auto budget = symbolic::integer(static_cast<int64_t>(max_tile_elements()));
+            if (count.is_null() || !symbolic::is_true(symbolic::Le(count, budget))) {
+                return false;
+            }
+            // Every block consumer must localize the same per-block tile; union their
+            // memlets so rewrite_body repoints all of them to the shared buffer.
+            group_memlets_.clear();
+            for (auto* c : consumers) {
+                const analysis::MemoryTileGroup* g = tile(*c, container_, analysis_manager);
+                if (!g || !same_tile_shape(g->tile, ref->tile)) {
+                    return false;
+                }
+                group_memlets_.insert(g->memlets.begin(), g->memlets.end());
+            }
+            auto& rt = ref->tile;
+            tile_info_.dimensions = rt.extents_approx();
+            tile_info_.bases = rt.min_subset;
+            tile_info_.strides =
+                std::vector<symbolic::Expression>(rt.layout.strides().begin(), rt.layout.strides().end());
+            tile_info_.offset = rt.layout.offset();
+            plan_ = topo;
+            storage_type_ = types::StorageType::NV_Shared();
+            return true;
+        }
     }
 
     // Resolve the single localizable tile for the whole container.
@@ -546,6 +815,7 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
     auto& t = group->tile;
     tile_info_.dimensions = t.extents_approx();
     tile_info_.bases = t.min_subset;
+    tile_info_.maxes = t.max_subset;
     tile_info_.strides = std::vector<symbolic::Expression>(t.layout.strides().begin(), t.layout.strides().end());
     tile_info_.offset = t.layout.offset();
     group_memlets_.insert(group->memlets.begin(), group->memlets.end());
@@ -564,30 +834,43 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
             if (container_written_) {
                 return false;
             }
+            if (plan_.enclosing_cooperative) {
+                // Enclosing-scope staging: the localized GPU map's body has a
+                // block-scheduled consumer supplying the copy schedule; the buffer is
+                // per-block shared, loaded once and reused by every sibling below.
+                auto* coop = find_block_scheduled_descendant(loop_, analysis_manager);
+                if (!coop) {
+                    return false;
+                }
+                const std::string& sched_value = coop->schedule_type().value();
+                if (sched_value != "CUDA_Offload" && sched_value != "ROCM_Offload") {
+                    return false;
+                }
+                storage_type_ = types::StorageType::NV_Shared();
+                break;
+            }
+            // v2: the tile is cooperative across >=1 block axis and may be
+            // per-thread across others (each per-thread axis owns a buffer slot,
+            // handled by apply()). Grid dims are permitted too: they select the
+            // block (fixed per block, folded into the tile bases), so a read tile
+            // that is grid-cooperative simply replicates its shared copy per block.
+            // At least one cooperative axis must resolve to an enclosing block-level
+            // *_Offload Map to drive the cooperative copy. The old v1 constraints
+            // (exactly one cooperative axis, and it being the immediate enclosing
+            // map) rejected 2D-block GEMM shared tiles.
             for (const auto& d : plan_.dims) {
-                if (!d.is_gpu || d.level != LocalityPlan::Level::Block) {
-                    return false; // no CPU / grid / warp dims in the mix
+                if (!d.is_gpu) {
+                    return false; // no CPU dims in the mix
+                }
+                if (d.level != LocalityPlan::Level::Block && d.level != LocalityPlan::Level::Grid) {
+                    return false; // no warp dims
                 }
             }
             auto coop_dims = plan_.gpu_cooperative_dims();
-            if (coop_dims.size() != 1) {
-                return false; // exactly one cooperative (copy) axis in v1
-            }
-            // The first loop ancestor must be the cooperative Map itself.
-            structured_control_flow::Map* coop_map = nullptr;
-            for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop_)) {
-                if (auto* enclosing = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
-                    coop_map = dynamic_cast<structured_control_flow::Map*>(enclosing);
-                    break;
-                }
-            }
-            if (!coop_map || !symbolic::eq(coop_map->indvar(), coop_dims.front().indvar)) {
+            if (coop_dims.empty()) {
                 return false;
             }
-            // The cooperative copy is lowered by the new offload dispatcher, so
-            // only the *_Offload schedules are supported (not the legacy ones).
-            const std::string& sched_value = coop_map->schedule_type().value();
-            if (sched_value != "CUDA_Offload" && sched_value != "ROCM_Offload") {
+            if (find_cooperative_offload_map(loop_, coop_dims) == nullptr) {
                 return false;
             }
             storage_type_ = types::StorageType::NV_Shared();
@@ -624,8 +907,20 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     std::vector<symbolic::Expression> slot_indices;
     if (storage_type_.is_nv_shared()) {
         for (const auto& d : plan_.gpu_per_thread_dims()) {
+            // Only block-level per-thread dims own a buffer slot. A grid per-thread
+            // dim selects the block (fixed for all its threads) and is already
+            // folded into the tile bases, so it carries no slot.
+            if (d.level != LocalityPlan::Level::Block) {
+                continue;
+            }
             slot_sizes.push_back(d.parallel_size);
-            slot_indices.push_back(symbolic::mod(d.indvar, d.parallel_size));
+            // Within-block thread index = (indvar - init) / stride, then wrapped by
+            // the block width. Tiled thread-tile offload maps are NOT normalized
+            // (init = per-block base, stride = tile step), so a raw indvar % width
+            // aliases distinct threads onto the same slot (e.g. stride 8, width 16
+            // over a 128-wide block collapses 16 threads to 2 slots).
+            symbolic::Expression tid = symbolic::div(symbolic::sub(d.indvar, d.init), d.stride);
+            slot_indices.push_back(symbolic::mod(tid, d.parallel_size));
         }
     }
 
@@ -634,11 +929,17 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     builder.add_container(local_name_, buffer_type);
 
     if (storage_type_.is_nv_shared()) {
-        // Read-only cooperative tile: cooperative copy-in + barrier(s), no writeback.
-        // A per-thread slot prefix means the shared row is re-staged per kernel
-        // coverage iteration, so guard it with a leading barrier too.
-        bool leading_barrier = !slot_indices.empty();
-        emit_cooperative_copy_in(builder, *parent, buffer, buffer_type, pointer_type, slot_indices, leading_barrier);
+        if (plan_.enclosing_cooperative) {
+            // Stage the row once at the top of the localized GPU map's body; the
+            // (sibling) block consumers below read the shared buffer.
+            emit_enclosing_cooperative_copy_in(builder, analysis_manager, buffer, buffer_type, pointer_type);
+        } else {
+            // Read-only cooperative tile: cooperative copy-in + barrier(s), no writeback.
+            // A per-thread slot prefix means the shared row is re-staged per kernel
+            // coverage iteration, so guard it with a leading barrier too.
+            bool leading_barrier = !slot_indices.empty();
+            emit_cooperative_copy_in(builder, *parent, buffer, buffer_type, pointer_type, slot_indices, leading_barrier);
+        }
     } else {
         if (needs_copy_in()) {
             emit_private_copy(builder, *parent, buffer, buffer_type, pointer_type, /*writeback=*/false);
@@ -649,7 +950,32 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     }
 
     rewrite_body(builder, analysis_manager, buffer, buffer_type, slot_indices);
+
+    // Privatized reduction accumulator: point each owning (non-cooperative) Reduce
+    // at the local buffer so its denormalized descriptor matches the rewritten
+    // dataflow. The copy-in seeds it from the original and the copy-out stores back.
+    for (auto* reduce : reduce_retargets_) {
+        reduce->replace_reduction_container(container_, local_name_);
+    }
+
     analysis_manager.invalidate_all();
+}
+
+symbolic::Condition LocalStorage::boundary_guard(const data_flow::Subset& tile_indices) const {
+    // Compare each delinearized global index (base[d] + tile_index) against the
+    // tile's max valid index maxes[d]. tile_indices are per varying dim, aligned
+    // with varying_dims(); degenerate (extent-1) dims sit at their base <= max.
+    symbolic::Condition guard = SymEngine::boolTrue;
+    auto vdims = tile_info_.varying_dims();
+    for (size_t v = 0; v < vdims.size() && v < tile_indices.size(); ++v) {
+        size_t d = vdims[v];
+        if (d >= tile_info_.maxes.size() || tile_info_.maxes[d].is_null()) {
+            continue;
+        }
+        auto global_d = symbolic::add(tile_info_.bases[d], tile_indices[v]);
+        guard = symbolic::And(guard, symbolic::Le(global_d, tile_info_.maxes[d]));
+    }
+    return guard;
 }
 
 void LocalStorage::emit_private_copy(
@@ -688,10 +1014,21 @@ void LocalStorage::emit_private_copy(
         current = &map.root();
     }
 
-    auto& block = builder.add_block(*current);
-    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
     data_flow::Subset original_subset = tile_info_.original_subset(indvars);
     data_flow::Subset buffer_subset = {buffer.linearize({}, indvars)};
+    // Element-predicate the global access: the over-approximated tile may address
+    // out-of-bounds global memory on ragged blocks. Skip those elements (the
+    // buffer slots they'd fill are never consumed — the compute's own boundary
+    // handling guards them).
+    auto guard = boundary_guard(indvars);
+    structured_control_flow::Sequence* body = current;
+    if (!symbolic::is_true(guard)) {
+        auto& if_else = builder.add_if_else(*current, loop_.debug_info());
+        body = &builder.add_case(if_else, guard, loop_.debug_info());
+    }
+
+    auto& block = builder.add_block(*body);
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
     if (writeback) {
         auto& src = builder.add_access(block, local_name_);
         auto& dst = builder.add_access(block, container_);
@@ -717,15 +1054,13 @@ void LocalStorage::emit_cooperative_copy_in(
     const std::vector<symbolic::Expression>& slot_indices,
     bool leading_barrier
 ) {
-    // The cooperative dim's Map (immediate enclosing loop; verified in
-    // can_be_applied) supplies the offload schedule the copy is parallelized with.
-    structured_control_flow::Map* coop_map = nullptr;
-    for (auto* node : structured_control_flow::ControlFlowNode::parent_chain(loop_)) {
-        if (auto* enclosing = dynamic_cast<structured_control_flow::StructuredLoop*>(node)) {
-            coop_map = dynamic_cast<structured_control_flow::Map*>(enclosing);
-            break;
-        }
-    }
+    // Parallelize the copy over a genuine cooperative axis. In a mixed
+    // per-thread+cooperative tile the immediate enclosing map is a per-thread axis
+    // (the slot axis); striding the copy along it would leave each slot only
+    // partially filled. find_cooperative_offload_map picks the cooperative axis
+    // whose threads split the tile (guaranteed non-null by can_be_applied).
+    auto coop_dims = plan_.gpu_cooperative_dims();
+    structured_control_flow::Map* coop_map = find_cooperative_offload_map(loop_, coop_dims);
 
     // A leading barrier prevents a re-staged (per-thread) tile from being
     // overwritten while the previous coverage iteration's reads are outstanding.
@@ -753,17 +1088,72 @@ void LocalStorage::emit_cooperative_copy_in(
 
     auto decomp = buffer.delinearize_tile(c);
 
-    auto& block = builder.add_block(copy_map.root());
+    // Element-predicate the cooperative global read so ragged blocks never read
+    // out-of-bounds; skipped slots are never consumed (guarded by the compute).
+    data_flow::Subset coop_original = tile_info_.original_subset(decomp);
+    auto coop_guard = boundary_guard(decomp);
+    structured_control_flow::Sequence* coop_body = &copy_map.root();
+    if (!symbolic::is_true(coop_guard)) {
+        auto& if_else = builder.add_if_else(copy_map.root(), loop_.debug_info());
+        coop_body = &builder.add_case(if_else, coop_guard, loop_.debug_info());
+    }
+
+    auto& block = builder.add_block(*coop_body);
     auto& src = builder.add_access(block, container_);
     auto& dst = builder.add_access(block, local_name_);
     auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
     // Buffer slot offset (per-thread row) plus the flat tile index c.
     data_flow::Subset dst_subset = {symbolic::add(buffer.slot_offset(slot_indices), c)};
-    builder.add_computational_memlet(block, src, tasklet, "_in", tile_info_.original_subset(decomp), pointer_type);
+    builder.add_computational_memlet(block, src, tasklet, "_in", coop_original, pointer_type);
     builder.add_computational_memlet(block, tasklet, "_out", dst, dst_subset, buffer_type);
 
     // Barrier so every thread's load is visible before the tile is consumed.
     auto& barrier_block = builder.add_block_before(parent, loop_, loop_.debug_info());
+    builder.add_library_node<data_flow::BarrierLocalNode>(barrier_block, DebugInfo());
+}
+
+void LocalStorage::emit_enclosing_cooperative_copy_in(
+    builder::StructuredSDFGBuilder& builder,
+    analysis::AnalysisManager& analysis_manager,
+    const TileBuffer& buffer,
+    const types::IType& buffer_type,
+    const types::IType& pointer_type
+) {
+    // A block-scheduled consumer in the body supplies the copy schedule (verified in
+    // can_be_applied). The staged row is loaded once at the top of the body, then a
+    // barrier makes it visible before the sibling consumers read it.
+    auto* coop = find_block_scheduled_descendant(loop_, analysis_manager);
+    auto& body = loop_.root();
+    auto& first = body.at(0);
+
+    auto c_name = builder.find_new_name("__daisy_ls_coop_" + container_);
+    builder.add_container(c_name, types::Scalar(types::PrimitiveType::UInt64));
+    auto c = symbolic::symbol(c_name);
+
+    // Copy map: the block cooperatively splits the tile (one shared row, no slots).
+    auto& copy_map = builder.add_map_before(
+        body,
+        first,
+        c,
+        symbolic::Lt(c, buffer.tile_total_size()),
+        symbolic::integer(0),
+        symbolic::add(c, symbolic::integer(1)),
+        coop->schedule_type(),
+        loop_.debug_info()
+    );
+
+    auto decomp = buffer.delinearize_tile(c);
+    auto& block = builder.add_block(copy_map.root());
+    auto& src = builder.add_access(block, container_);
+    auto& dst = builder.add_access(block, local_name_);
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    data_flow::Subset dst_subset = {c};
+    builder.add_computational_memlet(block, src, tasklet, "_in", tile_info_.original_subset(decomp), pointer_type);
+    builder.add_computational_memlet(block, tasklet, "_out", dst, dst_subset, buffer_type);
+
+    // Trailing barrier (after the copy, before the consumers) — no leading barrier,
+    // the shared row is loaded once per block at body entry.
+    auto& barrier_block = builder.add_block_before(body, first, loop_.debug_info());
     builder.add_library_node<data_flow::BarrierLocalNode>(barrier_block, DebugInfo());
 }
 
@@ -829,6 +1219,31 @@ void LocalStorage::to_json(nlohmann::json& j) const {
     j["subgraph"]["1"] = nlohmann::json::object();
     j["subgraph"]["1"]["element_id"] = access_node_.element_id();
     j["subgraph"]["1"]["type"] = "access_node";
+}
+
+LocalStorage LocalStorage::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
+    auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
+    auto element = builder.find_element_by_id(loop_id);
+    if (!element) {
+        throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
+    }
+    auto loop = dyn_cast<structured_control_flow::StructuredLoop*>(element);
+    if (!loop) {
+        throw InvalidTransformationDescriptionException(
+            "Element with ID " + std::to_string(loop_id) + " is not a structured loop."
+        );
+    }
+
+    auto access_node = dynamic_cast<
+        data_flow::AccessNode*>(builder.find_element_by_id(desc.at("subgraph").at("1").at("element_id").get<size_t>()));
+    if (!access_node) {
+        throw InvalidTransformationDescriptionException(
+            "Access node with ID " + std::to_string(desc.at("subgraph").at("1").at("element_id").get<size_t>()) +
+            " not found."
+        );
+    }
+
+    return LocalStorage(*loop, *access_node);
 }
 
 } // namespace transformations
