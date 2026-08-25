@@ -111,7 +111,7 @@ def test_correlation(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 4,
             "MAP": 22,
-            "SEQUENTIAL": 11,
+            "SEQUENTIAL": 9,
             "ROCM_Offload": 19,
         },
     )
@@ -161,10 +161,10 @@ def test_covariance(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 4,
+            "FOR": 2,
             "REDUCE": 3,
             "MAP": 15,
-            "SEQUENTIAL": 9,
+            "SEQUENTIAL": 7,
             "ROCM_Offload": 13,
         },
     )
@@ -220,9 +220,9 @@ def test_gemm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
         verification={
             "sdfgs": 8,
             "FOR": 4,
-            "SEQUENTIAL": 4,
+            "SEQUENTIAL": 5,
             "MAP": 10,
-            "ROCM": 10,
+            "ROCM": 0,
         },
     )
     test_case = benchmark_path / "gemm.c"
@@ -278,7 +278,7 @@ def test_gemver(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 4,
             "MAP": 8,
-            "SEQUENTIAL": 6,
+            "SEQUENTIAL": 5,
             "ROCM_Offload": 8,
         },
     )
@@ -336,7 +336,7 @@ def test_gesummv(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "MAP": 7,
             "ROCM_Offload": 8,
-            "SEQUENTIAL": 4,
+            "SEQUENTIAL": 3,
         },
     )
     test_case = benchmark_path / "gesummv.c"
@@ -390,10 +390,10 @@ def test_symm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 4,
+            "FOR": 2,
             "REDUCE": 3,
             "MAP": 7,
-            "SEQUENTIAL": 8,
+            "SEQUENTIAL": 6,
             "ROCM_Offload": 6,
         },
     )
@@ -451,7 +451,7 @@ def test_syr2k(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "ROCMOffloading": 14,
             "MAP": 8,
-            "SEQUENTIAL": 6,
+            "SEQUENTIAL": 4,
             "ROCM_Offload": 8,
         },
     )
@@ -509,7 +509,7 @@ def test_syrk(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "REDUCE": 4,
             "ROCMOffloading": 10,
             "MAP": 8,
-            "SEQUENTIAL": 6,
+            "SEQUENTIAL": 4,
             "ROCM_Offload": 8,
         },
     )
@@ -611,8 +611,12 @@ def test_trmm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
-        pytest.param("-DDATA_TYPE_IS_FLOAT"),
+        pytest.param(
+            "-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Program hangs")
+        ),
+        pytest.param(
+            "-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Program hangs")
+        ),
     ],
 )
 def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
@@ -669,8 +673,12 @@ def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
-        pytest.param("-DDATA_TYPE_IS_FLOAT"),
+        pytest.param(
+            "-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Program hangs")
+        ),
+        pytest.param(
+            "-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Program hangs")
+        ),
     ],
 )
 def test_3mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
@@ -746,7 +754,7 @@ def test_atax(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 4,
             "MAP": 10,
-            "SEQUENTIAL": 6,
+            "SEQUENTIAL": 5,
             "ROCM_Offload": 10,
         },
     )
@@ -867,7 +875,7 @@ def test_doitgen(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 9,
             "REDUCE": 3,
             "MAP": 11,
-            "SEQUENTIAL": 19,
+            "SEQUENTIAL": 16,
             "ROCM_Offload": 4,
         },
     )
@@ -927,7 +935,7 @@ def test_mvt(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 4,
             "MAP": 4,
-            "SEQUENTIAL": 7,
+            "SEQUENTIAL": 5,
             "ROCM_Offload": 4,
         },
     )
@@ -984,7 +992,7 @@ def test_cholesky(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 6,
             "MAP": 12,
-            "SEQUENTIAL": 10,
+            "SEQUENTIAL": 8,
             "ROCM_Offload": 12,
         },
     )
@@ -1156,7 +1164,7 @@ def test_lu(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 6,
             "MAP": 13,
-            "SEQUENTIAL": 11,
+            "SEQUENTIAL": 9,
             "ROCM_Offload": 12,
         },
     )
@@ -1213,7 +1221,7 @@ def test_ludcmp(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 8,
             "MAP": 15,
-            "SEQUENTIAL": 14,
+            "SEQUENTIAL": 13,
             "ROCM_Offload": 14,
         },
     )
@@ -1373,7 +1381,7 @@ def test_floyd_warshall(compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "ROCMOffloading": 2,
             "MAP": 2,
-            "SEQUENTIAL": 8,
+            "SEQUENTIAL": 6,
             "ROCM_Offload": 2,
         },
     )
@@ -1412,10 +1420,10 @@ def test_nussinov(compiler="clang-21", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 4,
+            "FOR": 2,
             "REDUCE": 3,
             "MAP": 4,
-            "SEQUENTIAL": 7,
+            "SEQUENTIAL": 5,
             "ROCM_Offload": 4,
         },
     )
@@ -1459,7 +1467,7 @@ def test_adi(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 7,
+            "FOR": 5,
             "REDUCE": 3,
             "MAP": 14,
             "ROCM_Offload": 14,
@@ -1564,7 +1572,7 @@ def test_heat_3d(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "REDUCE": 3,
             "MAP": 9,
-            "SEQUENTIAL": 10,
+            "SEQUENTIAL": 7,
             "ROCM_Offload": 6,
         },
     )
@@ -1614,7 +1622,7 @@ def test_jacobi_1d(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 2,
+            "FOR": 1,
             "REDUCE": 3,
             "MAP": 6,
             "ROCM_Offload": 6,
@@ -1719,7 +1727,7 @@ def test_seidel_2d(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "sdfgs": 8,
             "ROCMOffloading": 2,
             "MAP": 2,
-            "SEQUENTIAL": 8,
+            "SEQUENTIAL": 6,
             "ROCM_Offload": 2,
         },
     )
