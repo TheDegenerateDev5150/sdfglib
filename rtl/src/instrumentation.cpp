@@ -44,6 +44,16 @@ static inline pid_t gettid() { return syscall(SYS_gettid); }
 
 #define REGION_CACHE_SIZE 10
 
+#ifndef DEBUG_RTL
+#define DEBUG_PRINTLN(...) ((void) 0)
+#else
+#define DEBUG_PRINTLN(...)                     \
+    do {                                       \
+        std::cerr << __VA_ARGS__ << std::endl; \
+    } while (0)
+#endif
+
+
 // -----------------------------------------------------------------------------
 //  Dynamic PAPI loading – we avoid a hard dependency on the library at link time
 // -----------------------------------------------------------------------------
@@ -200,6 +210,9 @@ private:
         cuEventDestroy_ = reinterpret_cast<int (*)(void*)>(dlsym(cudart_handle_, "cudaEventDestroy"));
         cuda_events_available_ = cuEventCreate_ && cuEventRecord_ && cuEventSynchronize_ && cuEventElapsedTime_ &&
                                  cuEventDestroy_;
+        if (!cuda_events_available_) {
+            std::cerr << "[daisy-rtl] Failed to load CUDA event functions from libcudart.so\n";
+        }
         return cuda_events_available_;
     }
 
@@ -237,15 +250,30 @@ private:
     // elapsed times into its aggregate runtime stats. Events are returned to the
     // pool for reuse. Called from the stats accessors (once per batch).
     void resolve_cuda_pending(DaisyRegion& region) {
-        for (auto& [start, stop] : region.cuda_pending) {
-            cuEventSynchronize_(stop);
-            float ms = 0.0f;
-            cuEventElapsedTime_(&ms, start, stop);
-            accumulate_runtime(region, static_cast<long long>(static_cast<double>(ms) * 1.0e6));
-            cuda_event_pool_.push_back(start);
-            cuda_event_pool_.push_back(stop);
+        if (!region.cuda_pending.empty()) {
+            for (auto& [start, stop] : region.cuda_pending) {
+                cuEventSynchronize_(stop);
+                float ms = 0.0f;
+                cuEventElapsedTime_(&ms, start, stop);
+                DEBUG_PRINTLN(
+                    "[daisy-rtl] CUDA region " << region.metadata.region_uuid << " elapsed time: " << ms << " ms"
+                );
+                if (this->aggregate_events) {
+                    accumulate_runtime(region, static_cast<long long>(static_cast<double>(ms) * 1.0e6));
+                }
+                cuda_event_pool_.push_back(start);
+                cuda_event_pool_.push_back(stop);
+            }
+            region.cuda_pending.clear();
         }
-        region.cuda_pending.clear();
+    }
+
+    void post_process_region(DaisyRegion& region) { resolve_cuda_pending(region); }
+
+    void post_process_regions() {
+        for (auto& [region_id, region] : regions) {
+            post_process_region(region);
+        }
     }
 
     double ns_to_us(double ns) { return ns / 1000; }
@@ -640,6 +668,8 @@ public:
 
         this->region_name_to_id.clear();
 
+        post_process_regions();
+
         // Write output file
         FILE* f = std::fopen(this->output_file.c_str(), "w");
         if (!f) {
@@ -755,15 +785,17 @@ public:
                 }
                 if (region.event_set == __DAISY_EVENT_SET_CPU) {
                     for (const auto& ev : this->event_names_cpu) {
-                        if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                        auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                        if (papi_result != 0) {
+                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                             exit(EXIT_FAILURE);
                         }
                     }
                 } else if (region.event_set == __DAISY_EVENT_SET_CUDA) {
                     for (const auto& ev : this->event_names_cuda) {
-                        if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                        auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                        if (papi_result != 0) {
+                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                             exit(EXIT_FAILURE);
                         }
                     }
@@ -787,15 +819,17 @@ public:
             }
             if (region.event_set == __DAISY_EVENT_SET_CPU) {
                 for (const auto& ev : this->event_names_cpu) {
-                    if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                    auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                    if (papi_result != 0) {
+                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                         exit(EXIT_FAILURE);
                     }
                 }
             } else if (region.event_set == __DAISY_EVENT_SET_CUDA) {
                 for (const auto& ev : this->event_names_cuda) {
-                    if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                    auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                    if (papi_result != 0) {
+                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                         exit(EXIT_FAILURE);
                     }
                 }
@@ -854,6 +888,7 @@ public:
             region.last_cuda_start = acquire_cuda_event();
             if (region.last_cuda_start) {
                 cuEventRecord_(region.last_cuda_start, nullptr);
+                DEBUG_PRINTLN("[daisy-rtl] CUDA region " << region.metadata.region_uuid << " start event recorded.");
             }
         }
     }
@@ -881,8 +916,13 @@ public:
             void* stop = acquire_cuda_event();
             if (stop) {
                 cuEventRecord_(stop, nullptr);
+                DEBUG_PRINTLN("[daisy-rtl] CUDA region " << region.metadata.region_uuid << " stop event recorded.");
                 region.cuda_pending.emplace_back(region.last_cuda_start, stop);
             } else {
+                DEBUG_PRINTLN(
+                    "[daisy-rtl] CUDA region " << region.metadata.region_uuid
+                                               << " stop event failed to acquire; dropping start event."
+                );
                 cuda_event_pool_.push_back(region.last_cuda_start);
             }
             region.last_cuda_start = nullptr;
