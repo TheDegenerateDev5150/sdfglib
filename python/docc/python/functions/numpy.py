@@ -8,10 +8,8 @@ from docc.sdfg import (
     CMathFunction,
     Tensor,
 )
-from docc.python.types import (
+from docc.python.type_system import (
     element_type_from_ast_node,
-    promote_element_types,
-    numpy_promote_types,
 )
 from docc.python.ast_utils import get_debug_info
 from docc.python.memory import ManagedMemoryHandler
@@ -1349,19 +1347,9 @@ class NumPyHandler:
         return tmp_name
 
     def handle_array_binary_op(self, op_type, left, right):
-        # Determine if operands are arrays or scalars
-        # NumPy 0-d arrays (shape=[]) ARE arrays for promotion purposes
-        # Only literals and Python scalars (not in tensor_table) are treated as scalars
-        left_is_array = left in self.tensor_table
-        right_is_array = right in self.tensor_table
-
-        dtype_left = self._ev._element_type(left)
-        dtype_right = self._ev._element_type(right)
-
-        # Use NumPy promotion rules: scalars adapt to arrays
-        dtype = numpy_promote_types(
-            dtype_left, left_is_array, dtype_right, right_is_array
-        )
+        # NumPy promotion (scalars adapt to arrays) via the shared TypeSystem.
+        # 0-d arrays count as arrays; only literals/Python scalars adapt.
+        dtype = self._ev.type_system.array_result_type(left, right)
 
         # Cast operands to result type if needed
         real_left = self._cast_to_type(left, dtype)
@@ -2361,9 +2349,7 @@ class NumPyHandler:
                 f"Matmul with ranks {ndim_a} and {ndim_b} not supported"
             )
 
-        dtype_a = self._ev._element_type(name_a)
-        dtype_b = self._ev._element_type(name_b)
-        dtype = promote_element_types(dtype_a, dtype_b)
+        dtype = self._ev.type_system.promote(name_a, name_b)
 
         if is_scalar:
             tmp_name = f"_tmp_{self._get_unique_id()}"
@@ -2467,9 +2453,7 @@ class NumPyHandler:
         m_expr = get_flattened_size_expr(name_a, indices_a, shape_a)
         n_expr = get_flattened_size_expr(name_b, indices_b, shape_b)
 
-        dtype_a = self._ev._element_type(name_a)
-        dtype_b = self._ev._element_type(name_b)
-        dtype = promote_element_types(dtype_a, dtype_b)
+        dtype = self._ev.type_system.promote(name_a, name_b)
 
         tmp_name = self._create_array_temp([m_expr, n_expr], dtype)
 
@@ -2535,9 +2519,7 @@ class NumPyHandler:
         m_expr = get_flattened_size_expr(shape_a)
         n_expr = get_flattened_size_expr(shape_b)
 
-        dtype_left = self._ev._element_type(name_a)
-        dtype_right = self._ev._element_type(name_b)
-        dtype = promote_element_types(dtype_left, dtype_right)
+        dtype = self._ev.type_system.promote(name_a, name_b)
 
         is_int = dtype.primitive_type in [
             PrimitiveType.Int64,
@@ -2920,10 +2902,7 @@ class NumPyHandler:
         output_shape = [str(index_to_dim[idx]) for idx in output_subscripts]
 
         # Determine element type (promote from inputs)
-        dtypes = [self._ev._element_type(name) for name in operand_names]
-        dtype = dtypes[0]
-        for dt in dtypes[1:]:
-            dtype = promote_element_types(dtype, dt)
+        dtype = self._ev.type_system.promote_many(operand_names)
 
         # Create output container
         if output_shape:

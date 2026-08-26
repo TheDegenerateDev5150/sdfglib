@@ -5,6 +5,7 @@ from docc.sdfg import (
     TaskletCode,
     CMathFunction,
 )
+from docc.python.type_system import FLOAT_PRIMITIVE_TYPES
 
 
 class PythonHandler:
@@ -54,51 +55,23 @@ class PythonHandler:
         if len(args) != 2:
             raise NotImplementedError(f"{func_name} only supported with 2 arguments")
 
-        # Check types
-        is_float = False
-        arg_types = []
-
-        for arg in args:
-            name = arg
-            if "(" in arg and arg.endswith(")"):
-                name = arg.split("(")[0]
-
-            if name in self.container_table:
-                t = self.container_table[name]
-                if isinstance(t, Pointer):
-                    t = t.base_type
-
-                if t.primitive_type == PrimitiveType.Double:
-                    is_float = True
-                    arg_types.append(PrimitiveType.Double)
-                else:
-                    arg_types.append(PrimitiveType.Int64)
-            elif self._is_int(arg):
-                arg_types.append(PrimitiveType.Int64)
-            else:
-                # Assume float constant
-                is_float = True
-                arg_types.append(PrimitiveType.Double)
-
-        dtype = Scalar(PrimitiveType.Double if is_float else PrimitiveType.Int64)
+        # Result type follows the same promotion rules as arithmetic ops.
+        ts = self._ev.type_system
+        dtype = ts.result_type(args[0], args[1], func_name)
+        is_float = dtype.primitive_type in FLOAT_PRIMITIVE_TYPES
 
         tmp_name = self.builder.find_new_name("_tmp_")
         self.builder.add_container(tmp_name, dtype, False)
         self.container_table[tmp_name] = dtype
 
         if is_float:
-            # Cast args if necessary
+            # Cast operands whose precision differs from the result type.
             casted_args = []
-            for i, arg in enumerate(args):
-                if arg_types[i] != PrimitiveType.Double:
-                    # Create temp double
+            for arg in args:
+                if ts.element_type(arg).primitive_type != dtype.primitive_type:
                     tmp_cast = self.builder.find_new_name("_cast_")
-                    self.builder.add_container(
-                        tmp_cast, Scalar(PrimitiveType.Double), False
-                    )
-                    self.container_table[tmp_cast] = Scalar(PrimitiveType.Double)
-
-                    # Assign int to double (implicit cast)
+                    self.builder.add_container(tmp_cast, dtype, False)
+                    self.container_table[tmp_cast] = dtype
                     self.builder.add_assignment(tmp_cast, arg)
                     casted_args.append(tmp_cast)
                 else:

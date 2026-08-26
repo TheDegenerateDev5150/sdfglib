@@ -26,7 +26,7 @@ from docc.sdfg import (
 from docc.compiler.docc_program import DoccProgram
 from docc.compiler.compiled_sdfg import CompiledSDFG
 from docc.python.ast_parser import ASTParser
-from docc.python.types import element_type_from_sdfg_type
+from docc.python.type_system import element_type_from_sdfg_type, scalar_type_for_dtype
 
 
 def _compile_wrapper(self, output_folder=None):
@@ -77,29 +77,10 @@ def _map_python_type(dtype):
         if inner:
             return _map_python_type(inner[0])
 
-    # Simple mapping for python types
-    if dtype is float or dtype is np.float64:
-        return Scalar(PrimitiveType.Double)
-    elif dtype is np.float32:
-        return Scalar(PrimitiveType.Float)
-    elif dtype is bool or dtype is np.bool_:
-        return Scalar(PrimitiveType.Bool)
-    elif dtype is int or dtype is np.int64:
-        return Scalar(PrimitiveType.Int64)
-    elif dtype is np.int32:
-        return Scalar(PrimitiveType.Int32)
-    elif dtype is np.int16:
-        return Scalar(PrimitiveType.Int16)
-    elif dtype is np.int8:
-        return Scalar(PrimitiveType.Int8)
-    elif dtype is np.uint64:
-        return Scalar(PrimitiveType.UInt64)
-    elif dtype is np.uint32:
-        return Scalar(PrimitiveType.UInt32)
-    elif dtype is np.uint16:
-        return Scalar(PrimitiveType.UInt16)
-    elif dtype is np.uint8:
-        return Scalar(PrimitiveType.UInt8)
+    # Simple mapping for python/numpy scalar types via the shared dtype table.
+    scalar = scalar_type_for_dtype(dtype)
+    if scalar is not None:
+        return scalar
 
     # Handle Python classes - map to Structure type
     if inspect.isclass(dtype):
@@ -494,69 +475,24 @@ class PythonProgram(DoccProgram):
         return str(t)
 
     def _infer_type(self, arg):
-        if isinstance(arg, (float, np.float64)):
-            return Scalar(PrimitiveType.Double)
-        elif isinstance(arg, np.float32):
-            return Scalar(PrimitiveType.Float)
-        elif isinstance(arg, (bool, np.bool_)):
-            return Scalar(PrimitiveType.Bool)
-        elif isinstance(arg, (int, np.int64)):
-            return Scalar(PrimitiveType.Int64)
-        elif isinstance(arg, np.int32):
-            return Scalar(PrimitiveType.Int32)
-        elif isinstance(arg, np.int16):
-            return Scalar(PrimitiveType.Int16)
-        elif isinstance(arg, np.int8):
-            return Scalar(PrimitiveType.Int8)
-        elif isinstance(arg, np.uint64):
-            return Scalar(PrimitiveType.UInt64)
-        elif isinstance(arg, np.uint32):
-            return Scalar(PrimitiveType.UInt32)
-        elif isinstance(arg, np.uint16):
-            return Scalar(PrimitiveType.UInt16)
-        elif isinstance(arg, np.uint8):
-            return Scalar(PrimitiveType.UInt8)
-        elif isinstance(arg, np.ndarray):
-            # Map dtype
-            if arg.dtype == np.float64:
-                elem_type = Scalar(PrimitiveType.Double)
-            elif arg.dtype == np.float32:
-                elem_type = Scalar(PrimitiveType.Float)
-            elif arg.dtype == np.float16:
-                elem_type = Scalar(PrimitiveType.Half)
-            elif arg.dtype == ml_dtypes.bfloat16:
-                elem_type = Scalar(PrimitiveType.BFloat)
-            elif arg.dtype == np.bool_:
-                elem_type = Scalar(PrimitiveType.Bool)
-            elif arg.dtype == np.int64:
-                elem_type = Scalar(PrimitiveType.Int64)
-            elif arg.dtype == np.int32:
-                elem_type = Scalar(PrimitiveType.Int32)
-            elif arg.dtype == np.int16:
-                elem_type = Scalar(PrimitiveType.Int16)
-            elif arg.dtype == np.int8:
-                elem_type = Scalar(PrimitiveType.Int8)
-            elif arg.dtype == np.uint64:
-                elem_type = Scalar(PrimitiveType.UInt64)
-            elif arg.dtype == np.uint32:
-                elem_type = Scalar(PrimitiveType.UInt32)
-            elif arg.dtype == np.uint16:
-                elem_type = Scalar(PrimitiveType.UInt16)
-            elif arg.dtype == np.uint8:
-                elem_type = Scalar(PrimitiveType.UInt8)
-            else:
+        if isinstance(arg, np.ndarray):
+            elem_type = scalar_type_for_dtype(arg.dtype)
+            if elem_type is None:
                 raise ValueError(f"Unsupported numpy dtype: {arg.dtype}")
-
             return Pointer(elem_type)
-        elif isinstance(arg, str):
+        if isinstance(arg, str):
             # Explicitly reject strings - they are not supported
             raise ValueError(f"Unsupported argument type: {type(arg)}")
-        else:
-            # Check if it's a class instance
-            if hasattr(arg, "__class__") and not isinstance(arg, type):
-                # It's an instance of a class, return pointer to Structure
-                return Pointer(Structure(arg.__class__.__name__))
-            raise ValueError(f"Unsupported argument type: {type(arg)}")
+
+        scalar = scalar_type_for_dtype(type(arg))
+        if scalar is not None:
+            return scalar
+
+        # Check if it's a class instance
+        if hasattr(arg, "__class__") and not isinstance(arg, type):
+            # It's an instance of a class, return pointer to Structure
+            return Pointer(Structure(arg.__class__.__name__))
+        raise ValueError(f"Unsupported argument type: {type(arg)}")
 
     def _build_sdfg(
         self,
