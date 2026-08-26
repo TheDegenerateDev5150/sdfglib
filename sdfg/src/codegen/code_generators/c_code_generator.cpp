@@ -218,6 +218,7 @@ void CCodeGenerator::dispatch_schedule() {
                 }
             }
         }
+        instrumentation_plan_.leaving_instrumentation_function(this->main_stream_, language_extension_);
     }
     this->main_stream_.changeIndent(-4);
 };
