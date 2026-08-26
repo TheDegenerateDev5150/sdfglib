@@ -383,6 +383,17 @@ void GPUOffloadReduceDispatcher::dispatch_node(
 
         this->dispatch_kernel_preamble(library_stream, analysis_manager, kernel_name, arguments_declaration);
 
+        // Every device-pointer argument is a full cudaMalloc/hipMalloc allocation,
+        // which is guaranteed >=256-byte aligned. Asserting 16-byte alignment lets
+        // clang's load-store vectorizer widen contiguous copies to 128-bit
+        // (LDG/STG.128); decltype keeps it agnostic to element type / constness.
+        for (auto& container : arguments) {
+            if (this->is_device_pointer_storage(sdfg_.type(container).storage_type())) {
+                library_stream << container << " = reinterpret_cast<decltype(" << container
+                               << ")>(__builtin_assume_aligned(" << container << ", 16));" << std::endl;
+            }
+        }
+
         this->dispatch_kernel_body(library_snippet_factory, library_stream, node_.indvar(), scope_variables, num_iters);
 
         library_stream.setIndent(library_stream.indent() - 4);
@@ -1122,6 +1133,17 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
                 stream << "}" << std::endl;
             }
         } else if (strategy == ReduceStrategy::Global) {
+            // A grid level nested inside another grid reduction of the same accumulator folds
+            // into the enclosing level's shadowed *thread-local* register, not the real global
+            // slot. Its target lives in local memory, where atomics are illegal (NVPTX cannot
+            // select an atomic in address space 5) and unnecessary — only the outermost grid
+            // level races across blocks. Combine plainly into that register; the outermost
+            // level then atomically commits the folded result to global memory.
+            if (is_grid_level(target_level) && has_enclosing_grid_reduction(r.container)) {
+                stream << target << " = " << combine_expr(r.operation, target, reg_name) << ";" << std::endl;
+                continue;
+            }
+
             // Atomic commit of each thread's register straight to the global accumulator.
             // At a grid level with no nested block/warp reduce, the reduce body is replicated
             // verbatim across all block threads and each holds an identical partial; committing
