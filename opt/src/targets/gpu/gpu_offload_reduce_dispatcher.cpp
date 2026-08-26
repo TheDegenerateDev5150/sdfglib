@@ -1204,9 +1204,8 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
             // The outermost block level commits to the global accumulator. The writer is the
             // leader across every reduced block axis (this level plus all nested block
             // reduces), so exactly one thread per remaining (mapped) slot commits
-            // smem[lin_tid]. When the block result is folded into an enclosing grid register
-            // / persists across grid coverage tiles it is combined into the target rather
-            // than overwritten, otherwise the last tile would win.
+            // smem[lin_tid]. The block result is always combined into the accumulator's
+            // current value rather than overwriting it (see the non-colliding branch below).
             if (is_scalar_accumulator(r.container)) {
                 // Scalar accumulator: broadcast the block-reduced value from flat slot 0 of
                 // each reduced group to every thread's private scalar, so the by-name reads
@@ -1233,9 +1232,15 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
                         stream << helper << "(&" << target << ", " << block_src << ");" << std::endl;
                     }
                 } else {
-                    std::string block_write = enclosed_by_reduction ? combine_expr(r.operation, target, block_src)
-                                                                    : block_src;
-                    stream << target << " = " << block_write << ";" << std::endl;
+                    // Always fold the block result into the accumulator's existing value
+                    // instead of overwriting it. The partials are seeded with the operator
+                    // identity, so when the source intends to overwrite, the SDFG initialises
+                    // the accumulator before the reduce (target holds the identity) and
+                    // combine(identity, block_src) == block_src. When the accumulator is a
+                    // genuine live-in (read-modify-write, e.g. x[i] = x[i] + sum(...)), this
+                    // preserves the incoming value rather than dropping it. The leader is the
+                    // sole writer of this non-colliding slot, so no atomic is required.
+                    stream << target << " = " << combine_expr(r.operation, target, block_src) << ";" << std::endl;
                 }
                 stream.setIndent(stream.indent() - 4);
                 stream << "}" << std::endl;

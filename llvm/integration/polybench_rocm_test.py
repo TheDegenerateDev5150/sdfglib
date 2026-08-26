@@ -905,10 +905,7 @@ def test_doitgen(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param(
-            "-DDATA_TYPE_IS_DOUBLE",
-            marks=pytest.mark.xfail(reason="Output incorrect"),
-        ),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
         pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
