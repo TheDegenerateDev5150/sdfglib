@@ -4,9 +4,14 @@
 #include <utility>
 #include <vector>
 
+#include <list>
+
 #include <sdfg/analysis/loop_analysis.h>
+#include "sdfg/data_flow/access_node.h"
 #include "sdfg/exceptions.h"
+#include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/reduce.h"
+#include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
@@ -32,6 +37,42 @@ int64_t gpu_warp_size<cuda::ScheduleType_CUDA_Offload>() {
 template<>
 int64_t gpu_warp_size<rocm::ScheduleType_ROCM_Offload>() {
     return rocm::ROCM_WARP_SIZE;
+}
+
+// Whether @p container is accessed in @p root with a single-dimensional subset
+// (`container[index]`) somewhere in the reduce body. The GPU offload reduce
+// dispatchers stage the accumulator through a pointer and address it as
+// `acc[index]`, so they require exactly that indexed form (see
+// accumulator_index() in gpu_offload_reduce_dispatcher.cpp). A bare scalar
+// accumulator (empty subset), such as the one the pooling library node emits,
+// has no such index and cannot be cooperatively combined; folding it into a GPU
+// level would make the dispatcher throw, so it must stay sequential.
+bool accumulator_is_indexed(structured_control_flow::Sequence& root, const std::string& container) {
+    std::list<structured_control_flow::ControlFlowNode*> queue = {&root};
+    while (!queue.empty()) {
+        auto* current = queue.front();
+        queue.pop_front();
+
+        if (auto* block = dynamic_cast<structured_control_flow::Block*>(current)) {
+            auto& dfg = block->dataflow();
+            for (auto& memlet : dfg.edges()) {
+                const auto* src = dynamic_cast<const data_flow::AccessNode*>(&memlet.src());
+                const auto* dst = dynamic_cast<const data_flow::AccessNode*>(&memlet.dst());
+                const bool accesses_container = (src != nullptr && src->data() == container) ||
+                                                (dst != nullptr && dst->data() == container);
+                if (accesses_container && memlet.subset().size() == 1) {
+                    return true;
+                }
+            }
+        } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(current)) {
+            for (size_t i = 0; i < seq->size(); ++i) {
+                queue.push_back(&seq->at(i));
+            }
+        } else if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(current)) {
+            queue.push_back(&loop->root());
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -204,6 +245,27 @@ bool GPUOffloadNestedLoop<
                     break;
                 default:
                     return false;
+            }
+
+            // Condition: the accumulator must be an indexed `acc[index]` container. The
+            // offload reduce dispatcher stages the accumulator through a pointer and
+            // addresses it as acc[index]; a bare scalar accumulator (empty subset, e.g.
+            // the pooling library node's per-thread accumulator) has no such index and
+            // cannot be cooperatively combined. Leave such reductions sequential.
+            if (!accumulator_is_indexed(reduce->root(), reduction.container)) {
+                // A bare scalar accumulator is still supported as a thread-private target at
+                // block/warp levels (aliased onto the level's partial, then broadcast to
+                // every thread after the combine), but not at grid levels: there is no global
+                // slot and a cross-block combine is meaningless. Keep grid-level scalar
+                // reductions sequential.
+                const bool block_or_warp = target_level_ == gpu::TargetLevel::X_BLOCK ||
+                                           target_level_ == gpu::TargetLevel::Y_BLOCK ||
+                                           target_level_ == gpu::TargetLevel::Z_BLOCK ||
+                                           target_level_ == gpu::TargetLevel::WARP;
+                const bool is_scalar = builder.subject().type(reduction.container).type_id() == types::TypeID::Scalar;
+                if (!is_scalar || !block_or_warp) {
+                    return false;
+                }
             }
         }
     }
