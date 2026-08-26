@@ -380,6 +380,13 @@ symbolic::Expression LocalStorage::TileBuffer::linearize(
 }
 
 std::vector<symbolic::Expression> LocalStorage::TileBuffer::axes() const {
+    if (bank_padded) {
+        // [slot dims][padded per-slot block]: the inner block is one flat, padded
+        // dimension so its stride (inner_stride) is coprime with 32.
+        std::vector<symbolic::Expression> out = slot_sizes;
+        out.push_back(inner_stride());
+        return out;
+    }
     std::vector<symbolic::Expression> out = slot_sizes;
     out.insert(out.end(), tile_sizes.begin(), tile_sizes.end());
     return out;
@@ -389,13 +396,45 @@ data_flow::Subset LocalStorage::TileBuffer::multi_subset(
     const std::vector<symbolic::Expression>& slot_indices, const std::vector<symbolic::Expression>& tile_indices
 ) const {
     data_flow::Subset subset = slot_indices;
-    subset.insert(subset.end(), tile_indices.begin(), tile_indices.end());
+    if (bank_padded) {
+        // Flatten the tile indices into the single padded inner dimension.
+        subset.push_back(tile_linearize(tile_indices));
+    } else {
+        subset.insert(subset.end(), tile_indices.begin(), tile_indices.end());
+    }
     // A degenerate (all extent-1, no-slot) tile has no axes; the buffer is a
     // single [1] element addressed at index 0.
     if (subset.empty()) {
         subset.push_back(symbolic::integer(0));
     }
     return subset;
+}
+
+symbolic::Expression LocalStorage::TileBuffer::tile_linearize(const std::vector<symbolic::Expression>& tile_indices
+) const {
+    symbolic::Expression linear = symbolic::integer(0);
+    symbolic::Expression stride = symbolic::integer(1);
+    for (int i = static_cast<int>(tile_indices.size()) - 1; i >= 0; i--) {
+        linear = symbolic::add(linear, symbolic::mul(tile_indices[i], stride));
+        if (i < static_cast<int>(tile_sizes.size())) {
+            stride = symbolic::mul(stride, tile_sizes[i]);
+        }
+    }
+    return linear;
+}
+
+symbolic::Expression LocalStorage::TileBuffer::inner_stride() const {
+    auto total = tile_total_size();
+    // Pad only a constant block to the next odd size (coprime with 32); a
+    // symbolic block cannot be safely padded, so leave it unpadded.
+    if (!SymEngine::is_a<SymEngine::Integer>(*total)) {
+        return total;
+    }
+    auto n = SymEngine::rcp_static_cast<const SymEngine::Integer>(total)->as_int();
+    if (n % 2 == 0) {
+        return symbolic::integer(n + 1);
+    }
+    return total;
 }
 
 std::vector<symbolic::Expression> LocalStorage::TileBuffer::delinearize_tile(const symbolic::Expression& flat) const {
@@ -963,6 +1002,10 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     }
 
     TileBuffer buffer{slot_sizes, tile_info_.varying_sizes()};
+    // GPU shared buffers with a per-thread slot prefix pad the inner block stride
+    // to be coprime with 32, so a warp's per-slot accesses hit distinct banks (no
+    // bank conflicts). CPU/private buffers keep the dense multi-dim layout.
+    buffer.bank_padded = storage_type_.is_nv_shared() && !slot_sizes.empty();
     // Multi-dimensional (nested-array) buffer: one array level per [slot ++ tile]
     // axis, so every access is a clean per-axis subset and clang recovers the
     // strides from each level's num_elements (instead of a single collapsed
@@ -1145,8 +1188,14 @@ void LocalStorage::emit_cooperative_copy_in(
     auto& src = builder.add_access(block, container_);
     auto& dst = builder.add_access(block, local_name_);
     auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
-    // Per-thread slot row followed by the delinearized tile indices.
-    data_flow::Subset dst_subset = buffer.multi_subset(slot_indices, decomp);
+    // Per-thread slot row followed by the (flat, when bank-padded) tile offset.
+    data_flow::Subset dst_subset;
+    if (buffer.bank_padded) {
+        dst_subset = slot_indices;
+        dst_subset.push_back(c);
+    } else {
+        dst_subset = buffer.multi_subset(slot_indices, decomp);
+    }
     builder.add_computational_memlet(block, src, tasklet, "_in", coop_original, pointer_type);
     builder.add_computational_memlet(block, tasklet, "_out", dst, dst_subset, buffer_type);
 

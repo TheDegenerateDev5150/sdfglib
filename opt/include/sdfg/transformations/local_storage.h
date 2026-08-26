@@ -113,6 +113,19 @@ public:
         /// Decompose a flat tile index (0..product(tile_sizes)) into per-tile-dim
         /// indices (row-major).
         std::vector<symbolic::Expression> delinearize_tile(const symbolic::Expression& flat) const;
+
+        /// GPU-shared only: pad the per-slot inner block stride to be coprime with
+        /// 32 so a warp's per-slot accesses land on distinct banks (no bank
+        /// conflicts). When set, the buffer is laid out `[slot dims][inner_stride]`
+        /// with a flat per-slot block, and axes()/multi_subset() switch to that
+        /// form. Set by apply() for an NV_Shared buffer that owns a slot prefix.
+        bool bank_padded = false;
+        /// Per-slot inner block stride: tile_total_size() bumped to the next value
+        /// coprime with 32 (i.e. odd) when bank_padded and the size is a constant;
+        /// tile_total_size() otherwise.
+        symbolic::Expression inner_stride() const;
+        /// Flat row-major offset of @p tile_indices within one per-slot block.
+        symbolic::Expression tile_linearize(const std::vector<symbolic::Expression>& tile_indices) const;
     };
 
     /// How a container is accessed within a loop, read straight off the
