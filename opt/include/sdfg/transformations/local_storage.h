@@ -99,6 +99,17 @@ public:
         symbolic::Expression linearize(
             const std::vector<symbolic::Expression>& slot_indices, const std::vector<symbolic::Expression>& tile_indices
         ) const;
+        /// Ordered buffer axes, outermost-first: [slot_sizes ++ tile_sizes]. Each
+        /// axis becomes one dimension of the nested-array buffer type, so the
+        /// per-axis stride is recoverable from that array level's num_elements.
+        /// Empty for a degenerate (all extent-1, no-slot) tile.
+        std::vector<symbolic::Expression> axes() const;
+        /// Multi-dimensional buffer subset [slot_indices ++ tile_indices], one
+        /// index per axis, matching the nested-array buffer type. A degenerate
+        /// (no-axis) buffer is addressed with the single index {0}.
+        data_flow::Subset multi_subset(
+            const std::vector<symbolic::Expression>& slot_indices, const std::vector<symbolic::Expression>& tile_indices
+        ) const;
         /// Decompose a flat tile index (0..product(tile_sizes)) into per-tile-dim
         /// indices (row-major).
         std::vector<symbolic::Expression> delinearize_tile(const symbolic::Expression& flat) const;
