@@ -621,12 +621,8 @@ def test_trmm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param(
-            "-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
-        pytest.param(
-            "-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
+        pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
 def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
@@ -643,9 +639,10 @@ def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
         verification={
             "sdfgs": 8,
             "FOR": 3,
-            "CUDAOffloading": 24,
+            "REDUCE": 2,
             "MAP": 16,
-            "CUDA_Offload": 16,
+            "SEQUENTIAL": 7,
+            "CUDA_Offload": 14,
         },
     )
     test_case = benchmark_path / "2mm.c"
@@ -682,12 +679,8 @@ def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param(
-            "-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
-        pytest.param(
-            "-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
+        pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
 def test_3mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
@@ -706,7 +699,7 @@ def test_3mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             "FOR": 3,
             "CUDAOffloading": 32,
             "MAP": 20,
-            "CUDA_Offload": 20,
+            "CUDA_Offload": 17,
         },
     )
     test_case = benchmark_path / "3mm.c"

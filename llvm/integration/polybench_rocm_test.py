@@ -611,12 +611,8 @@ def test_trmm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param(
-            "-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
-        pytest.param(
-            "-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
+        pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
 def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
@@ -632,11 +628,11 @@ def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 2,
-            "REDUCE": 3,
-            "MAP": 12,
-            "SEQUENTIAL": 5,
-            "ROCM_Offload": 12,
+            "FOR": 3,
+            "REDUCE": 2,
+            "MAP": 16,
+            "SEQUENTIAL": 7,
+            "ROCM_Offload": 14,
         },
     )
     test_case = benchmark_path / "2mm.c"
@@ -673,12 +669,8 @@ def test_2mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
 @pytest.mark.parametrize(
     "datatype",
     [
-        pytest.param(
-            "-DDATA_TYPE_IS_DOUBLE", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
-        pytest.param(
-            "-DDATA_TYPE_IS_FLOAT", marks=pytest.mark.xfail(reason="Program hangs")
-        ),
+        pytest.param("-DDATA_TYPE_IS_DOUBLE"),
+        pytest.param("-DDATA_TYPE_IS_FLOAT"),
     ],
 )
 def test_3mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
@@ -694,11 +686,11 @@ def test_3mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 8,
-            "FOR": 2,
+            "FOR": 3,
             "REDUCE": 3,
-            "MAP": 14,
-            "SEQUENTIAL": 5,
-            "ROCM_Offload": 14,
+            "MAP": 20,
+            "SEQUENTIAL": 9,
+            "ROCM_Offload": 17,
         },
     )
     test_case = benchmark_path / "3mm.c"

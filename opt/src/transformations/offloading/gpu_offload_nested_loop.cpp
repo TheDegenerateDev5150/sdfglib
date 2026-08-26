@@ -4,10 +4,10 @@
 #include <utility>
 #include <vector>
 
-#include <list>
-
 #include <sdfg/analysis/loop_analysis.h>
+#include "sdfg/analysis/base_user_visitor.h"
 #include "sdfg/data_flow/access_node.h"
+#include "sdfg/data_flow/memlet.h"
 #include "sdfg/exceptions.h"
 #include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/reduce.h"
@@ -39,41 +39,62 @@ int64_t gpu_warp_size<rocm::ScheduleType_ROCM_Offload>() {
     return rocm::ROCM_WARP_SIZE;
 }
 
-// Whether @p container is accessed in @p root with a single-dimensional subset
-// (`container[index]`) somewhere in the reduce body. The GPU offload reduce
-// dispatchers stage the accumulator through a pointer and address it as
-// `acc[index]`, so they require exactly that indexed form (see
-// accumulator_index() in gpu_offload_reduce_dispatcher.cpp). A bare scalar
-// accumulator (empty subset), such as the one the pooling library node emits,
-// has no such index and cannot be cooperatively combined; folding it into a GPU
-// level would make the dispatcher throw, so it must stay sequential.
-bool accumulator_is_indexed(structured_control_flow::Sequence& root, const std::string& container) {
-    std::list<structured_control_flow::ControlFlowNode*> queue = {&root};
-    while (!queue.empty()) {
-        auto* current = queue.front();
-        queue.pop_front();
+// Probes how a reduction accumulator is accessed across a reduce body. It reuses the
+// shared user-visitor traversal, which descends into IfElse branches, While/loop and
+// library-node bodies, so no access is missed. (An ad-hoc walk over only
+// Block/Sequence/Loop silently skips IfElse and While bodies, which is where a guarded
+// accumulator access can live.) For the target container it reads the memlet subset:
+// a size > 1 subset (`acc[i][j]...`) is unsupported by the offload reduce dispatcher
+// (it only linearizes scalar or 1-D accumulators); a size == 1 subset is the indexed
+// `acc[index]` form the dispatcher requires.
+class AccumulatorSubsetProbe : public analysis::BaseUserVisitor {
+public:
+    explicit AccumulatorSubsetProbe(std::string container) : container_(std::move(container)) {}
 
-        if (auto* block = dynamic_cast<structured_control_flow::Block*>(current)) {
-            auto& dfg = block->dataflow();
-            for (auto& memlet : dfg.edges()) {
-                const auto* src = dynamic_cast<const data_flow::AccessNode*>(&memlet.src());
-                const auto* dst = dynamic_cast<const data_flow::AccessNode*>(&memlet.dst());
-                const bool accesses_container = (src != nullptr && src->data() == container) ||
-                                                (dst != nullptr && dst->data() == container);
-                if (accesses_container && memlet.subset().size() == 1) {
-                    return true;
-                }
-            }
-        } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(current)) {
-            for (size_t i = 0; i < seq->size(); ++i) {
-                queue.push_back(&seq->at(i));
-            }
-        } else if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(current)) {
-            queue.push_back(&loop->root());
+    bool has_multidim() const { return has_multidim_; }
+    bool has_indexed() const { return has_indexed_; }
+
+    void
+    use_as_src_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+    void
+    use_as_dst_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+
+    void use_as_symbol_read(
+        const std::string&,
+        const structured_control_flow::ControlFlowNode*,
+        const Element*,
+        SymbolReadLocation,
+        int,
+        symbolic::Expression
+    ) override {}
+    void use_as_symbol_write(
+        const symbolic::Symbol&, const structured_control_flow::ControlFlowNode*, const Element*, SymbolWriteLocation
+    ) override {}
+    void use_as_return_src(const std::string&, const structured_control_flow::Return&) override {}
+
+private:
+    void record(const std::string& container, const data_flow::Memlet& edge) {
+        if (container != container_) {
+            return;
+        }
+        const size_t dims = edge.subset().size();
+        if (dims > 1) {
+            has_multidim_ = true;
+        } else if (dims == 1) {
+            has_indexed_ = true;
         }
     }
-    return false;
-}
+
+    std::string container_;
+    bool has_multidim_ = false;
+    bool has_indexed_ = false;
+};
 
 } // namespace
 
@@ -247,12 +268,22 @@ bool GPUOffloadNestedLoop<
                     return false;
             }
 
+            AccumulatorSubsetProbe probe(reduction.container);
+            probe.visit(reduce->root());
+
+            // Condition: multi-dimensional accumulators (`acc[i][j]...`) are unsupported by the
+            // offload reduce dispatcher (it only linearizes scalar or 1-D `acc[index]` accesses).
+            // Disable them for now and keep such reductions sequential.
+            if (probe.has_multidim()) {
+                return false;
+            }
+
             // Condition: the accumulator must be an indexed `acc[index]` container. The
             // offload reduce dispatcher stages the accumulator through a pointer and
             // addresses it as acc[index]; a bare scalar accumulator (empty subset, e.g.
             // the pooling library node's per-thread accumulator) has no such index and
             // cannot be cooperatively combined. Leave such reductions sequential.
-            if (!accumulator_is_indexed(reduce->root(), reduction.container)) {
+            if (!probe.has_indexed()) {
                 // A bare scalar accumulator is still supported as a thread-private target at
                 // block/warp levels (aliased onto the level's partial, then broadcast to
                 // every thread after the combine), but not at grid levels: there is no global
