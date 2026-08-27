@@ -27,10 +27,8 @@
 #include "sdfg/analysis/arguments_analysis.h"
 #include "sdfg/element.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
-#include "sdfg/targets/cuda/cuda.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
 #include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
-#include "sdfg/targets/rocm/rocm.h"
 
 #include <algorithm>
 #include <sdfg/data_flow/access_node.h>
