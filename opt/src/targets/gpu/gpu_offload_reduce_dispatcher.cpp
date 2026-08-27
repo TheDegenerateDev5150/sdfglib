@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sdfg/analysis/analysis.h>
 #include <sdfg/analysis/assumptions_analysis.h>
+#include <sdfg/analysis/base_user_visitor.h>
 #include <sdfg/analysis/loop_analysis.h>
 #include <sdfg/analysis/type_analysis.h>
 #include <sdfg/analysis/users.h>
@@ -12,7 +13,9 @@
 #include <sdfg/helpers/helpers.h>
 #include <sdfg/serializer/json_serializer.h>
 #include <sdfg/structured_control_flow/control_flow_node.h>
+#include <sdfg/structured_control_flow/if_else.h>
 #include <sdfg/structured_control_flow/map.h>
+#include <sdfg/structured_control_flow/while.h>
 #include <sdfg/symbolic/symbolic.h>
 #include <sdfg/types/type.h>
 #include <sdfg/visitor/structured_sdfg_visitor.h>
@@ -30,7 +33,6 @@
 #include "sdfg/targets/rocm/rocm.h"
 
 #include <algorithm>
-#include <list>
 #include <sdfg/data_flow/access_node.h>
 #include <sdfg/data_flow/memlet.h>
 #include <sdfg/structured_control_flow/block.h>
@@ -151,67 +153,86 @@ bool has_native_atomic_add(types::PrimitiveType prim) {
 }
 
 // Single, indvar-invariant index with which `container` is accessed in the reduce body.
-symbolic::Expression accumulator_index(
-    structured_control_flow::Sequence& root, const std::string& container, const symbolic::Symbol& indvar
-) {
-    symbolic::Expression index = SymEngine::null;
-    bool found = false;
+//
+// The body is walked with the shared user-visitor so every control-flow construct is
+// covered (IfElse branches, While/loop bodies, nested loops); a hand-rolled walk is
+// easy to leave incomplete, and a missed access spuriously reports "not accessed"
+// (e.g. maxpool's guarded `if (x > acc) acc = x`).
+class AccumulatorIndexCollector : public analysis::BaseUserVisitor {
+public:
+    explicit AccumulatorIndexCollector(std::string container) : container_(std::move(container)) {}
 
-    std::list<structured_control_flow::ControlFlowNode*> queue = {&root};
-    while (!queue.empty()) {
-        auto* current = queue.front();
-        queue.pop_front();
+    bool found() const { return found_; }
+    symbolic::Expression index() const { return index_; }
 
-        if (auto* block = dynamic_cast<structured_control_flow::Block*>(current)) {
-            auto& dfg = block->dataflow();
-            for (auto& memlet : dfg.edges()) {
-                const auto* src = dynamic_cast<const data_flow::AccessNode*>(&memlet.src());
-                const auto* dst = dynamic_cast<const data_flow::AccessNode*>(&memlet.dst());
-                const data_flow::AccessNode* access = nullptr;
-                if (src != nullptr && src->data() == container) {
-                    access = src;
-                } else if (dst != nullptr && dst->data() == container) {
-                    access = dst;
-                }
-                if (access == nullptr) {
-                    continue;
-                }
-                // A scalar accumulator is accessed by name (empty subset); treat it as a
-                // single slot at index 0. An array accumulator is accessed as container[i]
-                // (subset size 1). Anything else (multi-dimensional) is not a single-slot
-                // reduction target.
-                symbolic::Expression candidate;
-                if (memlet.subset().empty()) {
-                    candidate = symbolic::zero();
-                } else if (memlet.subset().size() == 1) {
-                    candidate = memlet.subset()[0];
-                } else {
-                    continue;
-                }
-                if (!found) {
-                    index = candidate;
-                    found = true;
-                } else if (!symbolic::eq(index, candidate)) {
-                    throw InvalidSDFGException(
-                        "GPUOffloadReduceDispatcher: accumulator '" + container +
-                        "' is accessed with inconsistent indices in the reduce body"
-                    );
-                }
-            }
-        } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(current)) {
-            for (size_t i = 0; i < seq->size(); ++i) {
-                queue.push_back(&seq->at(i));
-            }
-        } else if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(current)) {
-            queue.push_back(&loop->root());
+    void
+    use_as_src_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+    void
+    use_as_dst_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+
+    void use_as_symbol_read(
+        const std::string&,
+        const structured_control_flow::ControlFlowNode*,
+        const Element*,
+        SymbolReadLocation,
+        int,
+        symbolic::Expression
+    ) override {}
+    void use_as_symbol_write(
+        const symbolic::Symbol&, const structured_control_flow::ControlFlowNode*, const Element*, SymbolWriteLocation
+    ) override {}
+    void use_as_return_src(const std::string&, const structured_control_flow::Return&) override {}
+
+private:
+    void record(const std::string& container, const data_flow::Memlet& edge) {
+        if (container != container_) {
+            return;
+        }
+        // A scalar accumulator is accessed by name (empty subset); treat it as a single slot
+        // at index 0. An array accumulator is accessed as container[i] (subset size 1).
+        // Anything else (multi-dimensional) is not a single-slot reduction target.
+        symbolic::Expression candidate;
+        if (edge.subset().empty()) {
+            candidate = symbolic::zero();
+        } else if (edge.subset().size() == 1) {
+            candidate = edge.subset()[0];
+        } else {
+            return;
+        }
+        if (!found_) {
+            index_ = candidate;
+            found_ = true;
+        } else if (!symbolic::eq(index_, candidate)) {
+            throw InvalidSDFGException(
+                "GPUOffloadReduceDispatcher: accumulator '" + container_ +
+                "' is accessed with inconsistent indices in the reduce body"
+            );
         }
     }
 
-    if (!found) {
+    std::string container_;
+    bool found_ = false;
+    symbolic::Expression index_ = SymEngine::null;
+};
+
+symbolic::Expression accumulator_index(
+    structured_control_flow::Sequence& root, const std::string& container, const symbolic::Symbol& indvar
+) {
+    AccumulatorIndexCollector collector(container);
+    collector.visit(root);
+
+    if (!collector.found()) {
         throw InvalidSDFGException(
             "GPUOffloadReduceDispatcher: accumulator '" + container + "' is not accessed in the reduce body"
         );
     }
+    auto index = collector.index();
     if (symbolic::uses(index, indvar)) {
         throw InvalidSDFGException(
             "GPUOffloadReduceDispatcher: accumulator '" + container + "' index depends on the reduction variable '" +
