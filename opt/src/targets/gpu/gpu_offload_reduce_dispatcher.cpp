@@ -74,13 +74,22 @@ std::string identity_literal(ReductionOperation op, types::PrimitiveType prim) {
         return op == ReductionOperation::Min ? "INFINITY" : "-INFINITY";
     }
 
+    // Bool is neither is_signed nor is_unsigned; OR(max)/AND(min) identities are false/true.
+    if (prim == types::PrimitiveType::Bool) {
+        return op == ReductionOperation::Min ? "1" : "0";
+    }
+
     const size_t width = types::bit_width(prim);
     const bool is_unsigned = types::is_unsigned(prim);
     if (op == ReductionOperation::Min) {
         if (is_unsigned) {
+            if (width == 8) return "UINT8_MAX";
+            if (width == 16) return "UINT16_MAX";
             if (width == 32) return "UINT32_MAX";
             if (width == 64) return "UINT64_MAX";
         } else {
+            if (width == 8) return "INT8_MAX";
+            if (width == 16) return "INT16_MAX";
             if (width == 32) return "INT32_MAX";
             if (width == 64) return "INT64_MAX";
         }
@@ -88,6 +97,8 @@ std::string identity_literal(ReductionOperation op, types::PrimitiveType prim) {
         if (is_unsigned) {
             return "0";
         }
+        if (width == 8) return "INT8_MIN";
+        if (width == 16) return "INT16_MIN";
         if (width == 32) return "INT32_MIN";
         if (width == 64) return "INT64_MIN";
     }
