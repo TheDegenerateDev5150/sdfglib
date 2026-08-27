@@ -3077,9 +3077,12 @@ TEST(LocalStorageTest, Apply_Cooperative_Mixed) {
 
     auto buf = xform.local_container();
     ASSERT_TRUE(builder.subject().exists(buf));
-    // Buffer = [slot(BM=8)] x [tile(16)] = 128 shared elements.
+    // Buffer = [slot(BM=8)] x [padded per-slot block]: tile 16 -> 17 (coprime with
+    // 32) to avoid shared-memory bank conflicts.
     EXPECT_TRUE(builder.subject().type(buf).storage_type().is_nv_shared());
-    EXPECT_TRUE(builder.subject().type(buf) == types::Array(elem, symbolic::integer(128)));
+    EXPECT_TRUE(
+        builder.subject().type(buf) == types::Array(types::Array(elem, symbolic::integer(17)), symbolic::integer(8))
+    );
 
     // The cooperative map body is [leading barrier, copy_map, trailing barrier, k-loop].
     ASSERT_EQ(map_j.root().size(), 4u);
@@ -3164,9 +3167,12 @@ TEST(LocalStorageTest, Apply_Cooperative_Mixed_CoopOuter) {
 
     auto buf = xform.local_container();
     ASSERT_TRUE(builder.subject().exists(buf));
-    // Buffer = [slot(i width = 8)] x [tile(16)] = 128 shared elements.
+    // Buffer = [slot(i width = 8)] x [padded per-slot block]: tile 16 -> 17 (coprime
+    // with 32) to avoid shared-memory bank conflicts.
     EXPECT_TRUE(builder.subject().type(buf).storage_type().is_nv_shared());
-    EXPECT_TRUE(builder.subject().type(buf) == types::Array(elem, symbolic::integer(128)));
+    EXPECT_TRUE(
+        builder.subject().type(buf) == types::Array(types::Array(elem, symbolic::integer(17)), symbolic::integer(8))
+    );
 
     // The copy sits in the immediately-enclosing (per-thread) map's body:
     // [leading barrier, copy_map, trailing barrier, k-loop].
