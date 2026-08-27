@@ -293,6 +293,33 @@ void GPUOffloadReduceDispatcher::dispatch_node(
     auto& used_arguments = arguments_analysis.arguments(analysis_manager, node_);
     auto& locals = arguments_analysis.locals(analysis_manager, node_);
 
+    // The per-thread reduction model holds a single partial per accumulator, addressed by
+    // a thread-invariant (enclosing) index. An accumulator indexed by the induction
+    // variable of a loop nested INSIDE the reduce body would need one partial per
+    // inner-loop value, which the shadow/combine cannot represent -- the shadow subtracts
+    // that index once (a sequential inner var is not yet its final value; a nested block
+    // map's var is out of scope at the shadow/combine points). Reject it here rather than
+    // emit a silently wrong (sequential) or uncompilable (nested map) kernel.
+    auto& index_loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    for (const auto& r : node_.reductions()) {
+        auto index = accumulator_index(node_.root(), r.container, node_.indvar());
+        for (auto* descendant : index_loop_analysis.descendants(&node_)) {
+            auto* inner = dynamic_cast<structured_control_flow::StructuredLoop*>(descendant);
+            if (inner == nullptr) {
+                continue;
+            }
+            if (symbolic::uses(index, inner->indvar())) {
+                throw InvalidSDFGException(
+                    "GPUOffloadReduceDispatcher: accumulator '" + r.container + "' is indexed by '" +
+                    inner->indvar()->get_name() +
+                    "', the induction variable of a loop nested inside the reduce body; the per-thread "
+                    "reduction model holds a single partial per accumulator, not one per inner-loop index. "
+                    "Parallelize the inner loop as an enclosing map, or reduce into a scalar."
+                );
+            }
+        }
+    }
+
     // filter indvar
     auto indvar = node_.indvar();
 
