@@ -1,5 +1,6 @@
 #include "sdfg/transformations/local_storage.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -431,6 +432,16 @@ symbolic::Expression LocalStorage::TileBuffer::inner_stride() const {
         return total;
     }
     auto n = SymEngine::rcp_static_cast<const SymEngine::Integer>(total)->as_int();
+    // Cooperative-store conflict avoidance: pad the per-slot stride to be congruent
+    // to the coop warp span (mod 32). A warp writes `[slot][coop]`; making adjacent
+    // slots exactly `coop_warp_span` banks apart tiles the per-slot coop ranges onto
+    // distinct banks for both slot-fast and slot-slow tiles. Loads only vary the
+    // slot (broadcasts), so any non-zero-mod-32 stride keeps them conflict-free.
+    if (coop_warp_span > 0) {
+        long target = static_cast<long>(coop_warp_span % 32);
+        long add = ((target - (n % 32)) % 32 + 32) % 32;
+        return symbolic::integer(n + add);
+    }
     if (n % 2 == 0) {
         return symbolic::integer(n + 1);
     }
@@ -1006,6 +1017,47 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     // to be coprime with 32, so a warp's per-slot accesses hit distinct banks (no
     // bank conflicts). CPU/private buffers keep the dense multi-dim layout.
     buffer.bank_padded = storage_type_.is_nv_shared() && !slot_sizes.empty();
+    // Cooperative-store conflict avoidance: pad the inner stride to the coop axis's
+    // per-warp thread count (mod 32). Compute it from the block dims + the coop
+    // copy's axis (A tiles are coop over X, B over Y -> different spans, so a single
+    // odd stride leaves one of them 2-way conflicted; this makes both conflict-free).
+    if (buffer.bank_padded) {
+        if (auto* coop_map = find_cooperative_offload_map(loop_, plan_.gpu_cooperative_dims())) {
+            auto block_width = [&](gpu::TargetLevel lvl) -> size_t {
+                for (const auto& d : plan_.dims) {
+                    if (d.level == LocalityPlan::Level::Block && d.target_level == lvl &&
+                        SymEngine::is_a<SymEngine::Integer>(*d.parallel_size)) {
+                        return static_cast<size_t>(SymEngine::rcp_static_cast<const SymEngine::Integer>(d.parallel_size)
+                                                       ->as_int());
+                    }
+                }
+                return 1;
+            };
+            const size_t warp = static_cast<size_t>(gpu::gpu_warp_size(coop_map->schedule_type()));
+            const size_t bx = block_width(gpu::TargetLevel::X_BLOCK);
+            const size_t by = block_width(gpu::TargetLevel::Y_BLOCK);
+            const size_t bz = block_width(gpu::TargetLevel::Z_BLOCK);
+            // Per-warp thread counts, x fastest in the flat thread index.
+            const size_t x_per = std::min(bx, warp);
+            const size_t rem_y = std::max<size_t>(1, warp / std::max<size_t>(1, x_per));
+            const size_t y_per = std::min(by, rem_y);
+            const size_t rem_z = std::max<size_t>(1, rem_y / std::max<size_t>(1, y_per));
+            const size_t z_per = std::min(bz, rem_z);
+            switch (gpu::gpu_target_level(coop_map->schedule_type())) {
+                case gpu::TargetLevel::X_BLOCK:
+                    buffer.coop_warp_span = x_per;
+                    break;
+                case gpu::TargetLevel::Y_BLOCK:
+                    buffer.coop_warp_span = y_per;
+                    break;
+                case gpu::TargetLevel::Z_BLOCK:
+                    buffer.coop_warp_span = z_per;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
     // Multi-dimensional (nested-array) buffer: one array level per [slot ++ tile]
     // axis, so every access is a clean per-axis subset and clang recovers the
     // strides from each level's num_elements (instead of a single collapsed

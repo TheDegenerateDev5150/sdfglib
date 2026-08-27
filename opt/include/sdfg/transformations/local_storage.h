@@ -120,6 +120,12 @@ public:
         /// with a flat per-slot block, and axes()/multi_subset() switch to that
         /// form. Set by apply() for an NV_Shared buffer that owns a slot prefix.
         bool bank_padded = false;
+        /// GPU-shared cooperative stores: the number of distinct cooperative-copy
+        /// indices a warp writes (the coop axis's per-warp thread count). When >0,
+        /// inner_stride() is padded to be congruent to this modulo 32 so a warp's
+        /// `[slot][coop]` stores land on distinct banks for both slot-fast and
+        /// slot-slow tiles; 0 falls back to the next-odd (coprime-with-32) stride.
+        size_t coop_warp_span = 0;
         /// Per-slot inner block stride: tile_total_size() bumped to the next value
         /// coprime with 32 (i.e. odd) when bank_padded and the size is a constant;
         /// tile_total_size() otherwise.
