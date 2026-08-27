@@ -1022,6 +1022,36 @@ Reduce& StructuredSDFGBuilder::convert_for_to_reduce(
     return reduce;
 };
 
+Map& StructuredSDFGBuilder::convert_reduce_to_map(Sequence& parent, Reduce& reduce) {
+    int index = parent.index(reduce);
+    if (index == -1) {
+        throw InvalidSDFGException("StructuredSDFGBuilder: Child not found");
+    }
+
+    auto iter = parent.children_.begin() + index;
+    auto& new_iter = *parent.children_.insert(
+        iter + 1,
+        std::unique_ptr<Map>(new Map(
+            this->new_element_id_batch(Map::REQUIRED_ELEMENT_IDS),
+            reduce.debug_info(),
+            &parent,
+            reduce.indvar(),
+            reduce.init(),
+            reduce.update(),
+            reduce.condition(),
+            reduce.schedule_type()
+        ))
+    );
+
+    auto& map = dynamic_cast<Map&>(*new_iter);
+    this->move_children(reduce.root(), map.root());
+
+    // Remove reduce
+    parent.children_.erase(parent.children_.begin() + index);
+
+    return map;
+};
+
 void StructuredSDFGBuilder::update_if_else_condition(IfElse& if_else, size_t index, const symbolic::Condition condition) {
     if (index >= if_else.conditions_.size()) {
         throw InvalidSDFGException("StructuredSDFGBuilder: Index out of range");

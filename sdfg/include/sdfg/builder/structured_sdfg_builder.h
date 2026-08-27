@@ -367,6 +367,10 @@ public:
         Sequence& parent, For& loop, const std::vector<structured_control_flow::ReductionInfo>& reductions
     );
 
+    // Demotes a Reduce to a plain Map, preserving its schedule (e.g. a grid-parallel
+    // reduction whose merge is taken over by an atomic writeback).
+    Map& convert_reduce_to_map(Sequence& parent, Reduce& reduce);
+
     void update_if_else_condition(IfElse& if_else, size_t branch, const symbolic::Condition cond);
 
     void update_loop(

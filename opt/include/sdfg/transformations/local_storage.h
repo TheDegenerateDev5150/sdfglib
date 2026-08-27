@@ -395,6 +395,20 @@ public:
         std::vector<structured_control_flow::Reduce*>& out
     );
 
+    /**
+     * @brief Collect grid-parallel (GPU-offloaded) *ancestor* Reduce nodes that
+     *        reduce into @p container.
+     *
+     * Their cross-block merge is taken over by an atomic writeback (LocalStorage
+     * privatizes the per-block partial into a register tile), so apply() demotes
+     * them to plain Map nodes and emits an atomic copy-out.
+     */
+    static std::vector<structured_control_flow::Reduce*> collect_grid_reduction_owners(
+        structured_control_flow::StructuredLoop& loop,
+        const std::string& container,
+        analysis::AnalysisManager& analysis_manager
+    );
+
 private:
     structured_control_flow::StructuredLoop& loop_;
     const data_flow::AccessNode& access_node_;
@@ -406,6 +420,9 @@ private:
     std::unordered_set<const data_flow::Memlet*> group_memlets_; ///< Memlets in the selected tile group
     std::vector<structured_control_flow::Reduce*> reduce_retargets_; ///< non-cooperative Reduce nodes to retarget in
                                                                      ///< apply()
+    std::vector<structured_control_flow::Reduce*> grid_reduce_owners_; ///< grid-parallel ancestor Reduce nodes to
+                                                                       ///< demote to Map (atomic merge)
+    bool atomic_merge_ = false; ///< copy-out atomically merges the per-block partial into the global accumulator
     bool container_read_ = false; ///< Container is read in the loop (set by can_be_applied)
     bool container_written_ = false; ///< Container is written in the loop (set by can_be_applied)
 
