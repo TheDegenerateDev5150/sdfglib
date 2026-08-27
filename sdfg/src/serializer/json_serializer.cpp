@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "sdfg/data_flow/library_nodes/atomic_accumulate_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/data_flow/library_nodes/call_node.h"
 #include "sdfg/data_flow/library_nodes/invoke_node.h"
@@ -1459,6 +1460,12 @@ void register_default_serializers() {
     LibraryNodeSerializerRegistry::instance()
         .register_library_node_serializer(data_flow::LibraryNodeType_BarrierLocal.value(), []() {
             return std::make_unique<data_flow::BarrierLocalNodeSerializer>();
+        });
+
+    // AtomicAccumulate
+    LibraryNodeSerializerRegistry::instance()
+        .register_library_node_serializer(data_flow::LibraryNodeType_AtomicAccumulate.value(), []() {
+            return std::make_unique<data_flow::AtomicAccumulateNodeSerializer>();
         });
 
     // Call Node

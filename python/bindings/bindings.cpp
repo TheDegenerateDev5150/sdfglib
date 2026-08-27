@@ -984,6 +984,15 @@ PYBIND11_MODULE(_sdfg, m) {
             "Add a block-local thread barrier (__syncthreads) to the current sequence"
         )
         .def(
+            "add_atomic_accumulate",
+            &PyStructuredSDFGBuilder::add_atomic_accumulate,
+            py::arg("block"),
+            py::arg("implementation_type"),
+            py::arg("debug_info") = sdfg::DebugInfo(),
+            py::return_value_policy::reference,
+            "Add an atomic-accumulate library node; implementation_type is 'CUDA', 'ROCm', or 'CPU'"
+        )
+        .def(
             "add_cuda_offloading_block",
             &PyStructuredSDFGBuilder::add_cuda_offloading_block,
             py::arg("host_container"),
