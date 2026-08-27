@@ -63,7 +63,7 @@ def test_k3mm(target):
         verifier = SDFGVerification(
             verification={
                 "MAP": 2,
-                "CUDA": 2,
+                "CUDA_Offload": 2,
                 "CUDAOffloading": 4,
                 "GEMM": 3,
             },
@@ -73,7 +73,7 @@ def test_k3mm(target):
         verifier = SDFGVerification(
             verification={
                 "MAP": 2,
-                "ROCM": 2,
+                "ROCM_Offload": 2,
                 "ROCMOffloading": 4,
                 "GEMM": 3,
             },

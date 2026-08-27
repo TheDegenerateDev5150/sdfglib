@@ -71,7 +71,7 @@ def test_nussinov(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 2,
+                "CUDA_Offload": 2,
                 "SEQUENTIAL": 3,
                 "FOR": 3,
                 "MAP": 2,
@@ -81,7 +81,7 @@ def test_nussinov(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 2,
+                "ROCM_Offload": 2,
                 "SEQUENTIAL": 3,
                 "FOR": 3,
                 "MAP": 2,

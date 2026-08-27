@@ -191,7 +191,6 @@ def test_bplustree(compiler="clang-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_backprop(compiler="clang-21"):
     test_case = (
         Path(__file__).parent
@@ -205,16 +204,16 @@ def test_backprop(compiler="clang-21"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 25,
-            "FOR": 56,
+            "FOR": 37,
             "Call": 60,
             "Unreachable": 2,
-            "WHILE": 2,
+            "WHILE": 6,
             "Free": 6,
             "Malloc": 5,
-            "CUDA": 2,
-            "CUDAOffloading": 4,
-            "MAP": 15,
-            "SEQUENTIAL": 13,
+            "CUDA_Offload": 14,
+            "CUDAOffloading": 14,
+            "MAP": 32,
+            "SEQUENTIAL": 55,
         },
     )
     runner = TestRunner(
@@ -279,7 +278,6 @@ def test_backprop(compiler="clang-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_bfs(compiler="clang++-21"):
     test_case = (
         Path(__file__).parent / "tests" / "rodinia" / "openmp" / "bfs" / "bfs.cpp"
@@ -289,12 +287,12 @@ def test_bfs(compiler="clang++-21"):
         verification={
             "sdfgs": 3,
             "Malloc": 6,
-            "WHILE": 2,
-            "FOR": 6,
-            "CUDAOffloading": 2,
+            "WHILE": 7,
+            "FOR": 0,
+            "CUDAOffloading": 0,
             "MAP": 2,
-            "SEQUENTIAL": 1,
-            "CUDA": 1,
+            "SEQUENTIAL": 2,
+            "CUDA_Offload": 0,
             "Free": 6,
             "Unreachable": 1,
             "Call": 20,
@@ -358,7 +356,6 @@ def test_bfs(compiler="clang++-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_cfd(compiler="clang++-21"):
     test_case = (
         Path(__file__).parent
@@ -372,12 +369,12 @@ def test_cfd(compiler="clang++-21"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 6,
-            "ExternalOffloading": 6,
-            "CUDAOffloading": 36,
-            "MAP": 5,
-            "SEQUENTIAL": 1,
-            "FOR": 19,
-            "CUDA": 4,
+            "ExternalOffloading": 0,
+            "CUDAOffloading": 18,
+            "MAP": 17,
+            "SEQUENTIAL": 24,
+            "FOR": 13,
+            "CUDA_Offload": 6,
         },
     )
     runner = TestRunner(
@@ -439,7 +436,7 @@ def test_cfd(compiler="clang++-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed & Output incorrect")
+@pytest.mark.xfail(reason="Output incorrect")
 def test_heartwall(compiler="clang-21"):
     test_case = (
         Path(__file__).parent / "tests" / "rodinia" / "openmp" / "heartwall" / "main.c"
@@ -450,14 +447,14 @@ def test_heartwall(compiler="clang-21"):
             "sdfgs": 50,
             "Call": 96,
             "Unreachable": 5,
-            "CUDAOffloading": 2,
-            "MAP": 4,
+            "CUDAOffloading": 6,
+            "MAP": 15,
             "Malloc": 27,
-            "FOR": 51,
-            "SEQUENTIAL": 3,
-            "CUDA": 1,
+            "FOR": 41,
+            "SEQUENTIAL": 52,
+            "CUDA_Offload": 4,
             "Free": 37,
-            "WHILE": 70,
+            "WHILE": 73,
             "Memcpy": 2,
             "Memset": 6,
         },
@@ -717,7 +714,7 @@ def test_hotspot3D(compiler="clang-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed & Output incorrect")
+@pytest.mark.xfail(reason="Output incorrect")
 def test_kmeans(compiler="clang-21"):
     test_case = (
         Path(__file__).parent / "tests" / "rodinia" / "openmp" / "kmeans" / "kmeans.c"
@@ -727,13 +724,13 @@ def test_kmeans(compiler="clang-21"):
         verification={
             "sdfgs": 6,
             "Free": 10,
-            "MAP": 4,
-            "CUDA": 1,
-            "CUDAOffloading": 2,
+            "MAP": 12,
+            "CUDA_Offload": 4,
+            "CUDAOffloading": 6,
             "Calloc": 2,
             "WHILE": 11,
-            "SEQUENTIAL": 3,
-            "FOR": 16,
+            "SEQUENTIAL": 20,
+            "FOR": 12,
             "Malloc": 6,
         },
     )
@@ -816,14 +813,13 @@ def test_kmeans(compiler="clang-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_lavaMD(compiler="clang-21"):
     test_case = (
         Path(__file__).parent / "tests" / "rodinia" / "openmp" / "lavaMD" / "main.c"
     )
 
     verifier = SDFGVerification(
-        verification={"sdfgs": 4, "FOR": 21, "WHILE": 5, "Malloc": 8, "Free": 8},
+        verification={"sdfgs": 4, "FOR": 22, "WHILE": 4, "Malloc": 8, "Free": 8},
     )
     runner = TestRunner(
         "Rodinia",
@@ -903,7 +899,7 @@ def test_lud(compiler="clang-21"):
             "Free": 9,
             "CUDAOffloading": 10,
             "MAP": 11,
-            "CUDA": 4,
+            "CUDA_Offload": 4,
             "Malloc": 2,
             "SEQUENTIAL": 7,
             "FOR": 40,
@@ -1018,7 +1014,6 @@ def test_nw(compiler="clang++-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_particlefilter(compiler="clang-21"):
     test_case = (
         Path(__file__).parent
@@ -1034,12 +1029,12 @@ def test_particlefilter(compiler="clang-21"):
             "sdfgs": 17,
             "Free": 2,
             "Malloc": 4,
-            "CUDA": 11,
-            "WHILE": 5,
-            "CUDAOffloading": 30,
-            "MAP": 18,
-            "SEQUENTIAL": 7,
-            "FOR": 56,
+            "CUDA_Offload": 22,
+            "WHILE": 12,
+            "CUDAOffloading": 34,
+            "MAP": 32,
+            "SEQUENTIAL": 40,
+            "FOR": 29,
         }
     )
     runner = TestRunner(
@@ -1091,7 +1086,7 @@ def test_particlefilter(compiler="clang-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed & Output incorrect")
+@pytest.mark.xfail(reason="Output incorrect")
 def test_pathfinder(compiler="clang++-21"):
     test_case = (
         Path(__file__).parent
@@ -1105,11 +1100,11 @@ def test_pathfinder(compiler="clang++-21"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 1,
-            "FOR": 7,
-            "MAP": 2,
-            "CUDA": 1,
-            "SEQUENTIAL": 1,
-            "CUDAOffloading": 4,
+            "FOR": 5,
+            "MAP": 10,
+            "CUDA_Offload": 6,
+            "SEQUENTIAL": 9,
+            "CUDAOffloading": 14,
         },
     )
     runner = TestRunner(
@@ -1154,7 +1149,6 @@ def test_pathfinder(compiler="clang++-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_srad(compiler="clang++-21"):
     test_case = (
         Path(__file__).parent / "tests" / "rodinia" / "openmp" / "srad" / "srad.cpp"
@@ -1164,11 +1158,11 @@ def test_srad(compiler="clang++-21"):
         verification={
             "sdfgs": 3,
             "Malloc": 11,
-            "CUDAOffloading": 12,
-            "MAP": 7,
-            "FOR": 16,
-            "SEQUENTIAL": 4,
-            "CUDA": 3,
+            "CUDAOffloading": 48,
+            "MAP": 12,
+            "FOR": 9,
+            "SEQUENTIAL": 11,
+            "CUDA_Offload": 10,
             "Free": 11,
         },
     )
@@ -1219,7 +1213,7 @@ def test_srad(compiler="clang++-21"):
     return runner.run(timeout=240)
 
 
-@pytest.mark.xfail(reason="Verifier changed & Output incorrect")
+@pytest.mark.xfail(reason="Output incorrect")
 def test_streamcluster(compiler="clang++-21"):
     test_case = (
         Path(__file__).parent
@@ -1233,12 +1227,12 @@ def test_streamcluster(compiler="clang++-21"):
     verifier = SDFGVerification(
         verification={
             "sdfgs": 25,
-            "MAP": 3,
-            "SEQUENTIAL": 2,
-            "CUDA": 1,
-            "CUDAOffloading": 4,
-            "WHILE": 28,
-            "FOR": 45,
+            "MAP": 43,
+            "SEQUENTIAL": 82,
+            "CUDA_Offload": 0,
+            "CUDAOffloading": 0,
+            "WHILE": 32,
+            "FOR": 39,
             "Calloc": 3,
             "Malloc": 7,
             "Free": 8,

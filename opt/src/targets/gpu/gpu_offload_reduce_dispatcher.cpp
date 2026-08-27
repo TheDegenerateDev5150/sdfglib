@@ -3,7 +3,9 @@
 #include <iostream>
 #include <sdfg/analysis/analysis.h>
 #include <sdfg/analysis/assumptions_analysis.h>
+#include <sdfg/analysis/base_user_visitor.h>
 #include <sdfg/analysis/loop_analysis.h>
+#include <sdfg/analysis/type_analysis.h>
 #include <sdfg/analysis/users.h>
 #include <sdfg/builder/structured_sdfg_builder.h>
 #include <sdfg/codegen/dispatchers/sequence_dispatcher.h>
@@ -11,7 +13,9 @@
 #include <sdfg/helpers/helpers.h>
 #include <sdfg/serializer/json_serializer.h>
 #include <sdfg/structured_control_flow/control_flow_node.h>
+#include <sdfg/structured_control_flow/if_else.h>
 #include <sdfg/structured_control_flow/map.h>
+#include <sdfg/structured_control_flow/while.h>
 #include <sdfg/symbolic/symbolic.h>
 #include <sdfg/types/type.h>
 #include <sdfg/visitor/structured_sdfg_visitor.h>
@@ -23,19 +27,17 @@
 #include "sdfg/analysis/arguments_analysis.h"
 #include "sdfg/element.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
-#include "sdfg/targets/cuda/cuda.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
 #include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
-#include "sdfg/targets/rocm/rocm.h"
 
 #include <algorithm>
-#include <list>
 #include <sdfg/data_flow/access_node.h>
 #include <sdfg/data_flow/memlet.h>
 #include <sdfg/structured_control_flow/block.h>
 #include <sdfg/structured_control_flow/reduce.h>
 #include <sdfg/types/pointer.h>
 #include <sdfg/types/scalar.h>
+#include <sdfg/types/utils.h>
 
 namespace sdfg {
 namespace gpu {
@@ -70,13 +72,22 @@ std::string identity_literal(ReductionOperation op, types::PrimitiveType prim) {
         return op == ReductionOperation::Min ? "INFINITY" : "-INFINITY";
     }
 
+    // Bool is neither is_signed nor is_unsigned; OR(max)/AND(min) identities are false/true.
+    if (prim == types::PrimitiveType::Bool) {
+        return op == ReductionOperation::Min ? "1" : "0";
+    }
+
     const size_t width = types::bit_width(prim);
     const bool is_unsigned = types::is_unsigned(prim);
     if (op == ReductionOperation::Min) {
         if (is_unsigned) {
+            if (width == 8) return "UINT8_MAX";
+            if (width == 16) return "UINT16_MAX";
             if (width == 32) return "UINT32_MAX";
             if (width == 64) return "UINT64_MAX";
         } else {
+            if (width == 8) return "INT8_MAX";
+            if (width == 16) return "INT16_MAX";
             if (width == 32) return "INT32_MAX";
             if (width == 64) return "INT64_MAX";
         }
@@ -84,6 +95,8 @@ std::string identity_literal(ReductionOperation op, types::PrimitiveType prim) {
         if (is_unsigned) {
             return "0";
         }
+        if (width == 8) return "INT8_MIN";
+        if (width == 16) return "INT16_MIN";
         if (width == 32) return "INT32_MIN";
         if (width == 64) return "INT64_MIN";
     }
@@ -106,26 +119,30 @@ std::string combine_expr(ReductionOperation op, const std::string& a, const std:
 }
 
 // Scalar element type of a reduction accumulator (device pointer to scalar, or scalar).
-types::PrimitiveType accumulator_primitive(const StructuredSDFG& sdfg, const std::string& container) {
-    auto& type = sdfg.type(container);
-    if (auto* ptr = dynamic_cast<const types::Pointer*>(&type)) {
-        if (!ptr->has_pointee_type()) {
-            throw InvalidSDFGException(
-                "GPUOffloadReduceDispatcher: reduction accumulator '" + container + "' has no pointee type"
-            );
+//
+// The accumulator's declared container type is often an opaque device pointer (a
+// `Pointer()` with no pointee) because the offload transform clones the host array's
+// pointer-like type without carrying its element type. In that case the element type is
+// not recoverable from the pointer itself; it lives on the memlets that access the
+// container. We therefore consult the type analysis, which reconstructs the outer type
+// from those memlets, and peel it down to the innermost scalar element.
+types::PrimitiveType
+accumulator_primitive(const StructuredSDFG& sdfg, analysis::TypeAnalysis& type_analysis, const std::string& container) {
+    const types::IType* type = &sdfg.type(container);
+
+    if (auto* ptr = dynamic_cast<const types::Pointer*>(type); ptr != nullptr && !ptr->has_pointee_type()) {
+        if (const types::IType* resolved = type_analysis.get_outer_type(container)) {
+            type = resolved;
         }
-        if (auto* scalar = dynamic_cast<const types::Scalar*>(&ptr->pointee_type())) {
-            return scalar->primitive_type();
-        }
-        throw InvalidSDFGException(
-            "GPUOffloadReduceDispatcher: reduction accumulator '" + container + "' must point to a scalar"
-        );
     }
-    if (auto* scalar = dynamic_cast<const types::Scalar*>(&type)) {
+
+    const types::IType& element = types::peel_to_innermost_element(*type);
+    if (auto* scalar = dynamic_cast<const types::Scalar*>(&element)) {
         return scalar->primitive_type();
     }
     throw InvalidSDFGException(
-        "GPUOffloadReduceDispatcher: reduction accumulator '" + container + "' must be a device pointer or scalar"
+        "GPUOffloadReduceDispatcher: could not resolve scalar element type for reduction accumulator '" + container +
+        "'"
     );
 }
 
@@ -145,56 +162,86 @@ bool has_native_atomic_add(types::PrimitiveType prim) {
 }
 
 // Single, indvar-invariant index with which `container` is accessed in the reduce body.
-symbolic::Expression accumulator_index(
-    structured_control_flow::Sequence& root, const std::string& container, const symbolic::Symbol& indvar
-) {
-    symbolic::Expression index = SymEngine::null;
-    bool found = false;
+//
+// The body is walked with the shared user-visitor so every control-flow construct is
+// covered (IfElse branches, While/loop bodies, nested loops); a hand-rolled walk is
+// easy to leave incomplete, and a missed access spuriously reports "not accessed"
+// (e.g. maxpool's guarded `if (x > acc) acc = x`).
+class AccumulatorIndexCollector : public analysis::BaseUserVisitor {
+public:
+    explicit AccumulatorIndexCollector(std::string container) : container_(std::move(container)) {}
 
-    std::list<structured_control_flow::ControlFlowNode*> queue = {&root};
-    while (!queue.empty()) {
-        auto* current = queue.front();
-        queue.pop_front();
+    bool found() const { return found_; }
+    symbolic::Expression index() const { return index_; }
 
-        if (auto* block = dynamic_cast<structured_control_flow::Block*>(current)) {
-            auto& dfg = block->dataflow();
-            for (auto& memlet : dfg.edges()) {
-                const auto* src = dynamic_cast<const data_flow::AccessNode*>(&memlet.src());
-                const auto* dst = dynamic_cast<const data_flow::AccessNode*>(&memlet.dst());
-                const data_flow::AccessNode* access = nullptr;
-                if (src != nullptr && src->data() == container) {
-                    access = src;
-                } else if (dst != nullptr && dst->data() == container) {
-                    access = dst;
-                }
-                if (access == nullptr || memlet.subset().size() != 1) {
-                    continue;
-                }
-                auto candidate = memlet.subset()[0];
-                if (!found) {
-                    index = candidate;
-                    found = true;
-                } else if (!symbolic::eq(index, candidate)) {
-                    throw InvalidSDFGException(
-                        "GPUOffloadReduceDispatcher: accumulator '" + container +
-                        "' is accessed with inconsistent indices in the reduce body"
-                    );
-                }
-            }
-        } else if (auto* seq = dynamic_cast<structured_control_flow::Sequence*>(current)) {
-            for (size_t i = 0; i < seq->size(); ++i) {
-                queue.push_back(&seq->at(i));
-            }
-        } else if (auto* loop = dynamic_cast<structured_control_flow::StructuredLoop*>(current)) {
-            queue.push_back(&loop->root());
+    void
+    use_as_src_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+    void
+    use_as_dst_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+
+    void use_as_symbol_read(
+        const std::string&,
+        const structured_control_flow::ControlFlowNode*,
+        const Element*,
+        SymbolReadLocation,
+        int,
+        symbolic::Expression
+    ) override {}
+    void use_as_symbol_write(
+        const symbolic::Symbol&, const structured_control_flow::ControlFlowNode*, const Element*, SymbolWriteLocation
+    ) override {}
+    void use_as_return_src(const std::string&, const structured_control_flow::Return&) override {}
+
+private:
+    void record(const std::string& container, const data_flow::Memlet& edge) {
+        if (container != container_) {
+            return;
+        }
+        // A scalar accumulator is accessed by name (empty subset); treat it as a single slot
+        // at index 0. An array accumulator is accessed as container[i] (subset size 1).
+        // Anything else (multi-dimensional) is not a single-slot reduction target.
+        symbolic::Expression candidate;
+        if (edge.subset().empty()) {
+            candidate = symbolic::zero();
+        } else if (edge.subset().size() == 1) {
+            candidate = edge.subset()[0];
+        } else {
+            return;
+        }
+        if (!found_) {
+            index_ = candidate;
+            found_ = true;
+        } else if (!symbolic::eq(index_, candidate)) {
+            throw InvalidSDFGException(
+                "GPUOffloadReduceDispatcher: accumulator '" + container_ +
+                "' is accessed with inconsistent indices in the reduce body"
+            );
         }
     }
 
-    if (!found) {
+    std::string container_;
+    bool found_ = false;
+    symbolic::Expression index_ = SymEngine::null;
+};
+
+symbolic::Expression accumulator_index(
+    structured_control_flow::Sequence& root, const std::string& container, const symbolic::Symbol& indvar
+) {
+    AccumulatorIndexCollector collector(container);
+    collector.visit(root);
+
+    if (!collector.found()) {
         throw InvalidSDFGException(
             "GPUOffloadReduceDispatcher: accumulator '" + container + "' is not accessed in the reduce body"
         );
     }
+    auto index = collector.index();
     if (symbolic::uses(index, indvar)) {
         throw InvalidSDFGException(
             "GPUOffloadReduceDispatcher: accumulator '" + container + "' index depends on the reduction variable '" +
@@ -817,6 +864,65 @@ std::string GPUOffloadReduceDispatcher::partials_buffer_name(const std::string& 
     return placed.empty() ? ("__daisy_reduce_smem_" + container) : placed;
 }
 
+bool GPUOffloadReduceDispatcher::is_scalar_accumulator(const std::string& container) {
+    return sdfg_.type(container).type_id() == types::TypeID::Scalar;
+}
+
+std::string GPUOffloadReduceDispatcher::
+    reduce_base_slot(codegen::LanguageExtension& language_extension, const std::string& container) {
+    // Which block axes are reduced for this container: this level's own axis plus every
+    // nested block reduce of the same container. Zeroing these axes in the flat thread
+    // index maps every thread of a reduced group onto the group's flat slot 0, where the
+    // halving tree left the combined value.
+    bool reduced_x = false, reduced_y = false, reduced_z = false;
+    auto mark = [&](TargetLevel lvl) {
+        if (lvl == TargetLevel::X_BLOCK) {
+            reduced_x = true;
+        } else if (lvl == TargetLevel::Y_BLOCK) {
+            reduced_y = true;
+        } else if (lvl == TargetLevel::Z_BLOCK) {
+            reduced_z = true;
+        }
+    };
+    TargetLevel my = gpu::ScheduleType_GPU_Offload::target_level(node_.schedule_type());
+    if (is_block_level(my)) {
+        mark(my);
+    }
+    auto& loop_analysis = analysis_manager_.get<analysis::LoopAnalysis>();
+    for (auto* loop : loop_analysis.descendants(&node_)) {
+        auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(loop);
+        if (reduce == nullptr) {
+            continue;
+        }
+        if (reduce->schedule_type().category() != structured_control_flow::ScheduleTypeCategory::Offloader) {
+            continue;
+        }
+        TargetLevel nested = gpu::ScheduleType_GPU_Offload::target_level(reduce->schedule_type());
+        if (!is_block_level(nested)) {
+            continue;
+        }
+        for (const auto& rr : reduce->reductions()) {
+            if (rr.container == container) {
+                mark(nested);
+                break;
+            }
+        }
+    }
+    symbolic::Expression bx = reduce_block_dim(TargetLevel::X_BLOCK);
+    symbolic::Expression by = reduce_block_dim(TargetLevel::Y_BLOCK);
+    symbolic::Expression slot = symbolic::zero();
+    if (!reduced_x) {
+        slot = symbolic::add(slot, symbolic::threadIdx_x());
+    }
+    if (!reduced_y) {
+        slot = symbolic::add(slot, symbolic::mul(symbolic::threadIdx_y(), bx));
+    }
+    if (!reduced_z) {
+        slot = symbolic::add(slot, symbolic::mul(symbolic::threadIdx_z(), symbolic::mul(bx, by)));
+    }
+    return language_extension.expression(slot);
+}
+
 bool GPUOffloadReduceDispatcher::uses_register_partial(TargetLevel target_level, const std::string& container) {
     if (!is_block_level(target_level)) {
         return false;
@@ -874,8 +980,9 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_declarations(
     bool needs_cmath = false;
     bool declared_shared = false;
 
+    auto& type_analysis = analysis_manager_.get<analysis::TypeAnalysis>();
     for (const auto& r : node_.reductions()) {
-        auto prim = accumulator_primitive(sdfg_, r.container);
+        auto prim = accumulator_primitive(sdfg_, type_analysis, r.container);
         std::string ctype = language_extension.primitive_type(prim);
         std::string identity = identity_literal(r.operation, prim);
         if (types::is_floating_point(prim)) {
@@ -927,6 +1034,7 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_shadow(
     const ReduceStrategy strategy = gpu::ScheduleType_GPU_Offload::partial_storage(node_.schedule_type());
     std::string lin_tid = reduce_linear_thread_index(language_extension);
 
+    auto& type_analysis = analysis_manager_.get<analysis::TypeAnalysis>();
     for (const auto& r : node_.reductions()) {
         // For warp-nested block reductions the accumulation is emitted by the nested
         // warp level, so the block level only owns the shared buffer, not the body.
@@ -934,15 +1042,28 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_shadow(
             continue;
         }
 
-        auto prim = accumulator_primitive(sdfg_, r.container);
+        auto prim = accumulator_primitive(sdfg_, type_analysis, r.container);
         std::string ctype = language_extension.primitive_type(prim);
         std::string reg_name = "__daisy_reduce_reg_" + r.container;
         std::string smem_name = partials_buffer_name(r.container);
 
-        std::string storage = (strategy == ReduceStrategy::Shared && !uses_register_partial(target_level, r.container))
-                                  ? ("&" + smem_name + "[" + lin_tid + "]")
-                                  : ("&" + reg_name);
+        std::string storage_lvalue = (strategy == ReduceStrategy::Shared &&
+                                      !uses_register_partial(target_level, r.container))
+                                         ? (smem_name + "[" + lin_tid + "]")
+                                         : reg_name;
 
+        if (is_scalar_accumulator(r.container)) {
+            // Scalar accumulator: the body accesses it by name, so alias it (a C++ reference)
+            // onto this level's partial instead of a pointer offset by an index. The partial
+            // was identity-initialised in the declarations; correctness of reading it as the
+            // running value relies on the accumulator's init equalling the operator identity
+            // (e.g. -INF for max, 0 for sum), which holds for the pooling accumulators that
+            // produce scalar reduction targets.
+            stream << ctype << " &" << r.container << " = " << storage_lvalue << ";" << std::endl;
+            continue;
+        }
+
+        std::string storage = "&" + storage_lvalue;
         auto index = accumulator_index(node_.root(), r.container, node_.indvar());
         if (symbolic::eq(index, symbolic::zero())) {
             stream << ctype << " *" << r.container << " = " << storage << ";" << std::endl;
@@ -968,14 +1089,26 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
     std::string lin_tid = reduce_linear_thread_index(language_extension);
     std::string warp_size = language_extension.expression(get_target_level_dim(TargetLevel::WARP, get_warp_size()));
 
+    auto& type_analysis = analysis_manager_.get<analysis::TypeAnalysis>();
     for (const auto& r : node_.reductions()) {
-        auto prim = accumulator_primitive(sdfg_, r.container);
+        auto prim = accumulator_primitive(sdfg_, type_analysis, r.container);
         std::string ctype = language_extension.primitive_type(prim);
         std::string reg_name = "__daisy_reduce_reg_" + r.container;
         std::string smem_name = partials_buffer_name(r.container);
         auto index = accumulator_index(node_.root(), r.container, node_.indvar());
         std::string target = "reinterpret_cast<" + ctype + " *>(" + r.container + ")[" +
                              language_extension.expression(index) + "]";
+
+        // A scalar accumulator is a per-thread private reduction target; it has no global
+        // slot and grid-level combine (cross-block atomics) is meaningless for it. The
+        // nested-loop transform keeps such reduces off grid levels, so this only fires if an
+        // SDFG bypasses it.
+        if (is_scalar_accumulator(r.container) && is_grid_level(target_level)) {
+            throw InvalidSDFGException(
+                "GPUOffloadReduceDispatcher: scalar accumulator '" + r.container +
+                "' cannot be reduced at a grid level; fold it into a block or warp level instead"
+            );
+        }
 
         if (strategy == ReduceStrategy::Register) {
             // Reduce the per-lane partials into every lane's register. The shuffle is read
@@ -1011,6 +1144,11 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
                 stream << slot << " = " << combine_expr(r.operation, slot, reg_name) << ";" << std::endl;
                 stream.setIndent(stream.indent() - 4);
                 stream << "}" << std::endl;
+            } else if (is_scalar_accumulator(r.container)) {
+                // Standalone warp scalar: the shuffle left the full result in every lane's
+                // register, so broadcast it to each lane's private scalar. There is no global
+                // slot to commit to (a scalar accumulator is thread-private).
+                stream << r.container << " = " << reg_name << ";" << std::endl;
             } else {
                 // No block level owns this container, so the per-warp result must reach
                 // the global accumulator directly. The warp leader atomically merges its
@@ -1096,10 +1234,18 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
             // The outermost block level commits to the global accumulator. The writer is the
             // leader across every reduced block axis (this level plus all nested block
             // reduces), so exactly one thread per remaining (mapped) slot commits
-            // smem[lin_tid]. When the block result is folded into an enclosing grid register
-            // / persists across grid coverage tiles it is combined into the target rather
-            // than overwritten, otherwise the last tile would win.
-            {
+            // smem[lin_tid]. The block result is always combined into the accumulator's
+            // current value rather than overwriting it (see the non-colliding branch below).
+            if (is_scalar_accumulator(r.container)) {
+                // Scalar accumulator: broadcast the block-reduced value from flat slot 0 of
+                // each reduced group to every thread's private scalar, so the by-name reads
+                // after the reduce (e.g. an in-place pooling writeback that runs on every
+                // thread of the reduced axis) all observe the combined result rather than
+                // only the leader.
+                stream << "__syncthreads();" << std::endl;
+                stream << r.container << " = " << smem_name << "[" << reduce_base_slot(language_extension, r.container)
+                       << "];" << std::endl;
+            } else {
                 std::string block_src = smem_name + "[" + lin_tid + "]";
                 std::string leader = block_reduce_leader_condition(language_extension, r.container);
                 bool enclosed_by_reduction = has_enclosing_grid_reduction(r.container);
@@ -1116,9 +1262,15 @@ void GPUOffloadReduceDispatcher::dispatch_reduction_combine(
                         stream << helper << "(&" << target << ", " << block_src << ");" << std::endl;
                     }
                 } else {
-                    std::string block_write = enclosed_by_reduction ? combine_expr(r.operation, target, block_src)
-                                                                    : block_src;
-                    stream << target << " = " << block_write << ";" << std::endl;
+                    // Always fold the block result into the accumulator's existing value
+                    // instead of overwriting it. The partials are seeded with the operator
+                    // identity, so when the source intends to overwrite, the SDFG initialises
+                    // the accumulator before the reduce (target holds the identity) and
+                    // combine(identity, block_src) == block_src. When the accumulator is a
+                    // genuine live-in (read-modify-write, e.g. x[i] = x[i] + sum(...)), this
+                    // preserves the incoming value rather than dropping it. The leader is the
+                    // sole writer of this non-colliding slot, so no atomic is required.
+                    stream << target << " = " << combine_expr(r.operation, target, block_src) << ";" << std::endl;
                 }
                 stream.setIndent(stream.indent() - 4);
                 stream << "}" << std::endl;

@@ -119,7 +119,7 @@ def test_correlation(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 25,
             # "MAP": 17,
             # "SEQUENTIAL": 7,
-            # "CUDA": 10,
+            # "CUDA_Offload": 10,
         },
     )
     test_case = benchmark_path / "correlation.c"
@@ -169,7 +169,7 @@ def test_covariance(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 20,
             # "MAP": 13,
             # "SEQUENTIAL": 4,
-            # "CUDA": 9,
+            # "CUDA_Offload": 9,
         },
     )
     test_case = benchmark_path / "covariance.c"
@@ -391,7 +391,7 @@ def test_symm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 14,
             # "MAP": 7,
             # "SEQUENTIAL": 3,
-            # "CUDA": 4,
+            # "CUDA_Offload": 4,
         },
     )
     test_case = benchmark_path / "symm.c"
@@ -446,7 +446,7 @@ def test_syr2k(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 14,
             # "MAP": 8,
             # "SEQUENTIAL": 2,
-            # "CUDA": 6,
+            # "CUDA_Offload": 6,
         },
     )
     test_case = benchmark_path / "syr2k.c"
@@ -501,7 +501,7 @@ def test_syrk(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 14,
             # "MAP": 8,
             # "SEQUENTIAL": 2,
-            # "CUDA": 6,
+            # "CUDA_Offload": 6,
         },
     )
     test_case = benchmark_path / "syrk.c"
@@ -556,7 +556,7 @@ def test_trmm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 14,
             # "MAP": 7,
             # "SEQUENTIAL": 3,
-            # "CUDA": 4,
+            # "CUDA_Offload": 4,
         },
     )
     test_case = benchmark_path / "trmm.c"
@@ -666,7 +666,7 @@ def test_3mm(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 28,
             # "MAP": 20,
             # "SEQUENTIAL": 3,
-            # "CUDA": 17,
+            # "CUDA_Offload": 17,
         },
     )
     test_case = benchmark_path / "3mm.c"
@@ -832,7 +832,7 @@ def test_doitgen(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 22,
             # "MAP": 10,
             # "SEQUENTIAL": 6,
-            # "CUDA": 4,
+            # "CUDA_Offload": 4,
         },
     )
     test_case = benchmark_path / "doitgen.c"
@@ -887,7 +887,7 @@ def test_mvt(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 11,
             # "MAP": 4,
             # "SEQUENTIAL": 1,
-            # "CUDA": 3,
+            # "CUDA_Offload": 3,
         },
     )
     test_case = benchmark_path / "mvt.c"
@@ -942,7 +942,7 @@ def test_cholesky(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 21,
             # "MAP": 11,
             # "SEQUENTIAL": 2,
-            # "CUDA": 9,
+            # "CUDA_Offload": 9,
         },
     )
     test_case = benchmark_path / "cholesky.c"
@@ -1052,7 +1052,7 @@ def test_gramschmidt(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 19,
             # "MAP": 9,
             # "SEQUENTIAL": 5,
-            # "CUDA": 4,
+            # "CUDA_Offload": 4,
         },
     )
     test_case = benchmark_path / "gramschmidt.c"
@@ -1107,7 +1107,7 @@ def test_lu(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 22,
             # "MAP": 12,
             # "SEQUENTIAL": 3,
-            # "CUDA": 9,
+            # "CUDA_Offload": 9,
         },
     )
     test_case = benchmark_path / "lu.c"
@@ -1265,7 +1265,7 @@ def test_deriche(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "sdfgs": 8,
             # "FOR": 19,
             # "MAP": 10,
-            # "CUDA": 10,
+            # "CUDA_Offload": 10,
         },
     )
     test_case = benchmark_path / "deriche.c"
@@ -1309,7 +1309,7 @@ def test_floyd_warshall(compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 10,
             # "MAP": 2,
             # "SEQUENTIAL": 0,
-            # "CUDA": 2,
+            # "CUDA_Offload": 2,
         },
     )
     test_case = benchmark_path / "floyd-warshall.c"
@@ -1353,7 +1353,7 @@ def test_nussinov(compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 10,
             # "MAP": 3,
             # "SEQUENTIAL": 0,
-            # "CUDA": 3,
+            # "CUDA_Offload": 3,
         },
     )
     test_case = benchmark_path / "nussinov.c"
@@ -1401,7 +1401,7 @@ def test_adi(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 20,
             # "MAP": 10,
             # "SEQUENTIAL": 8,
-            # "CUDA": 2,
+            # "CUDA_Offload": 2,
         },
     )
     test_case = benchmark_path / "adi.c"
@@ -1501,7 +1501,7 @@ def test_heat_3d(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 16,
             # "MAP": 9,
             # "SEQUENTIAL": 7,
-            # "CUDA": 2,
+            # "CUDA_Offload": 2,
         },
     )
     test_case = benchmark_path / "heat-3d.c"
@@ -1601,7 +1601,7 @@ def test_jacobi_2d(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 12,
             # "MAP": 6,
             # "SEQUENTIAL": 4,
-            # "CUDA": 2,
+            # "CUDA_Offload": 2,
         },
     )
     test_case = benchmark_path / "jacobi-2d.c"
@@ -1651,7 +1651,7 @@ def test_seidel_2d(datatype, compiler="clang-21", size="MEDIUM_DATASET"):
             # "FOR": 10,
             # "MAP": 2,
             # "SEQUENTIAL": 0,
-            # "CUDA": 2,
+            # "CUDA_Offload": 2,
         },
     )
     test_case = benchmark_path / "seidel-2d.c"

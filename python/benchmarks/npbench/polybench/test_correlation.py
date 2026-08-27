@@ -85,7 +85,7 @@ def test_correlation(target):
             verification={
                 "GEMM": 1,
                 "CMath": 2,
-                "CUDA": 21,
+                "CUDA_Offload": 21,
                 "SEQUENTIAL": 2,
                 "Memset": 1,
                 "FOR": 27,
@@ -99,7 +99,7 @@ def test_correlation(target):
             verification={
                 "GEMM": 1,
                 "CMath": 2,
-                "ROCM": 21,
+                "ROCM_Offload": 21,
                 "SEQUENTIAL": 2,
                 "Memset": 1,
                 "FOR": 27,

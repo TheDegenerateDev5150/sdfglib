@@ -5,12 +5,15 @@
 #include <vector>
 
 #include <sdfg/analysis/loop_analysis.h>
-#include "sdfg/exceptions.h"
+#include "sdfg/analysis/base_user_visitor.h"
+#include "sdfg/data_flow/access_node.h"
+#include "sdfg/data_flow/memlet.h"
+#include "sdfg/structured_control_flow/block.h"
 #include "sdfg/structured_control_flow/reduce.h"
+#include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
-#include "sdfg/targets/gpu/gpu_schedule_type.h"
 #include "sdfg/targets/rocm/rocm.h"
 #include "symengine/symengine_rcp.h"
 
@@ -33,6 +36,63 @@ template<>
 int64_t gpu_warp_size<rocm::ScheduleType_ROCM_Offload>() {
     return rocm::ROCM_WARP_SIZE;
 }
+
+// Probes how a reduction accumulator is accessed across a reduce body. It reuses the
+// shared user-visitor traversal, which descends into IfElse branches, While/loop and
+// library-node bodies, so no access is missed. (An ad-hoc walk over only
+// Block/Sequence/Loop silently skips IfElse and While bodies, which is where a guarded
+// accumulator access can live.) For the target container it reads the memlet subset:
+// a size > 1 subset (`acc[i][j]...`) is unsupported by the offload reduce dispatcher
+// (it only linearizes scalar or 1-D accumulators); a size == 1 subset is the indexed
+// `acc[index]` form the dispatcher requires.
+class AccumulatorSubsetProbe : public analysis::BaseUserVisitor {
+public:
+    explicit AccumulatorSubsetProbe(std::string container) : container_(std::move(container)) {}
+
+    bool has_multidim() const { return has_multidim_; }
+    bool has_indexed() const { return has_indexed_; }
+
+    void
+    use_as_src_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+    void
+    use_as_dst_node(const std::string& container, const data_flow::AccessNode&, const data_flow::Memlet& edge, const structured_control_flow::Block&)
+        override {
+        record(container, edge);
+    }
+
+    void use_as_symbol_read(
+        const std::string&,
+        const structured_control_flow::ControlFlowNode*,
+        const Element*,
+        SymbolReadLocation,
+        int,
+        symbolic::Expression
+    ) override {}
+    void use_as_symbol_write(
+        const symbolic::Symbol&, const structured_control_flow::ControlFlowNode*, const Element*, SymbolWriteLocation
+    ) override {}
+    void use_as_return_src(const std::string&, const structured_control_flow::Return&) override {}
+
+private:
+    void record(const std::string& container, const data_flow::Memlet& edge) {
+        if (container != container_) {
+            return;
+        }
+        const size_t dims = edge.subset().size();
+        if (dims > 1) {
+            has_multidim_ = true;
+        } else if (dims == 1) {
+            has_indexed_ = true;
+        }
+    }
+
+    std::string container_;
+    bool has_multidim_ = false;
+    bool has_indexed_ = false;
+};
 
 } // namespace
 
@@ -204,6 +264,37 @@ bool GPUOffloadNestedLoop<
                     break;
                 default:
                     return false;
+            }
+
+            AccumulatorSubsetProbe probe(reduction.container);
+            probe.visit(reduce->root());
+
+            // Condition: multi-dimensional accumulators (`acc[i][j]...`) are unsupported by the
+            // offload reduce dispatcher (it only linearizes scalar or 1-D `acc[index]` accesses).
+            // Disable them for now and keep such reductions sequential.
+            if (probe.has_multidim()) {
+                return false;
+            }
+
+            // Condition: the accumulator must be an indexed `acc[index]` container. The
+            // offload reduce dispatcher stages the accumulator through a pointer and
+            // addresses it as acc[index]; a bare scalar accumulator (empty subset, e.g.
+            // the pooling library node's per-thread accumulator) has no such index and
+            // cannot be cooperatively combined. Leave such reductions sequential.
+            if (!probe.has_indexed()) {
+                // A bare scalar accumulator is still supported as a thread-private target at
+                // block/warp levels (aliased onto the level's partial, then broadcast to
+                // every thread after the combine), but not at grid levels: there is no global
+                // slot and a cross-block combine is meaningless. Keep grid-level scalar
+                // reductions sequential.
+                const bool block_or_warp = target_level_ == gpu::TargetLevel::X_BLOCK ||
+                                           target_level_ == gpu::TargetLevel::Y_BLOCK ||
+                                           target_level_ == gpu::TargetLevel::Z_BLOCK ||
+                                           target_level_ == gpu::TargetLevel::WARP;
+                const bool is_scalar = builder.subject().type(reduction.container).type_id() == types::TypeID::Scalar;
+                if (!is_scalar || !block_or_warp) {
+                    return false;
+                }
             }
         }
     }

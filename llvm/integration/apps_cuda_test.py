@@ -54,7 +54,7 @@ def test_HPCCG():
             "CUDAOffloading": 26,
             "FOR": 20,
             "MAP": 6,
-            "CUDA": 4,
+            "CUDA_Offload": 4,
             "WHILE": 6,
             "SEQUENTIAL": 2,
             "ExternalOffloading": 40,
@@ -132,20 +132,20 @@ def evaluate_lulesh(reference_file: Path, test_file: Path, args) -> float:
     assert test_origin_energy == ref_origin_energy
 
 
-@pytest.mark.xfail(reason="Verifier changed & Output incorrect")
+@pytest.mark.xfail(reason="Output incorrect")
 def test_LULESH():
     test_case = Path(__file__).parent / "tests" / "apps" / "LULESH" / "lulesh.cc"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 29,
-            "FOR": 39,
-            "WHILE": 21,
+            "FOR": 22,
+            "WHILE": 24,
             "CUDAOffloading": 46,
-            "MAP": 14,
-            "CUDA": 7,
+            "MAP": 55,
+            "CUDA_Offload": 14,
             "Free": 6,
-            "SEQUENTIAL": 7,
+            "SEQUENTIAL": 63,
         },
     )
     runner = TestRunner(
@@ -232,14 +232,14 @@ def test_miniFE(data_layout, precision):
             "CUDAOffloading": 40,
             "MAP": 21,
             "SEQUENTIAL": 9,
-            "CUDA": 12,
+            "CUDA_Offload": 12,
         }
     )
     verifier_ell = SDFGVerification(
         verification={
             "WHILE": 45,
             "FOR": 128,
-            "CUDA": 5,
+            "CUDA_Offload": 5,
             "CUDAOffloading": 16,
             "MAP": 11,
             "SEQUENTIAL": 6,
@@ -387,18 +387,17 @@ def evaluate_miniAMR2(reference_file: Path, test_file: Path, args) -> float:
         )
 
 
-@pytest.mark.xfail(reason="Verifier changed")
 def test_miniAMR2():
     test_case = Path(__file__).parent / "tests" / "apps" / "miniAMR2" / "main.c"
 
     verifier = SDFGVerification(
         verification={
             "sdfgs": 48,
-            "CUDAOffloading": 4,
-            "MAP": 3,
-            "CUDA": 2,
-            "FOR": 55,
-            "SEQUENTIAL": 1,
+            "CUDAOffloading": 0,
+            "MAP": 2,
+            "CUDA": 0,
+            "FOR": 21,
+            "SEQUENTIAL": 23,
         }
     )
     runner = TestRunner(

@@ -111,7 +111,7 @@ def test_deriche(target):
                 "CUDAOffloading": 44,
                 "SEQUENTIAL": 4,
                 "FOR": 4,
-                "CUDA": 23,
+                "CUDA_Offload": 23,
                 "MAP": 27,
             }
         )
@@ -121,7 +121,7 @@ def test_deriche(target):
                 "ROCMOffloading": 44,
                 "SEQUENTIAL": 4,
                 "FOR": 4,
-                "ROCM": 23,
+                "ROCM_Offload": 23,
                 "MAP": 27,
             }
         )

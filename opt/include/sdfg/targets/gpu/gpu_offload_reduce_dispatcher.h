@@ -120,6 +120,18 @@ protected:
     // partial_container property when set, else the invented __daisy_reduce_smem_<c>.
     std::string partials_buffer_name(const std::string& container);
 
+    // Whether @p container is a scalar accumulator addressed by name (no subscript), e.g.
+    // an in-place pooling handler. Such an accumulator is a single-slot, per-thread private
+    // reduction target: it is aliased (a C++ reference) onto this level's partial in the
+    // body and, after the block/warp combine, broadcast back to every thread's private
+    // scalar, rather than being addressed as a pointer container[index].
+    bool is_scalar_accumulator(const std::string& container);
+
+    // Flat shared-buffer slot with the reduced block axes (this level plus nested block
+    // reduces of @p container) zeroed, so every thread sharing a mapped slot reads the same
+    // combined value when a scalar accumulator's block result is broadcast after the tree.
+    std::string reduce_base_slot(codegen::LanguageExtension& language_extension, const std::string& container);
+
     void dispatch_reduction_declarations(
         codegen::LanguageExtension& language_extension,
         codegen::PrettyPrinter& stream,

@@ -29,6 +29,8 @@ set(TEST_FILES
     passes/offloading/code_motion/block_sorting_test.cpp
     passes/offloading/data_transfer_minimization_pass_test.cpp
     passes/offloading/device_buffer_reuse_pass_test.cpp
+    passes/offloading/gpu_nested_offload_pass_test.cpp
+    passes/tiling_pass_test.cpp
     transformations/offloading/cuda_parallelize_nested_map_test.cpp
     transformations/offloading/rocm_parallelize_nested_map_test.cpp
     transformations/offloading/rocm_transform_test.cpp

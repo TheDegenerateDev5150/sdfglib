@@ -28,6 +28,7 @@ set(SOURCE_FILES
     src/passes/code_motion/extended_block_hoisting.cpp
     src/passes/code_motion/extended_block_sorting.cpp
     src/passes/collapse_pass.cpp
+    src/passes/tiling_pass.cpp
     src/passes/dot_expansion_pass.cpp
     src/passes/einsum.cpp
     src/passes/loop_fusion/loop_fusion_by_access.cpp
@@ -46,6 +47,7 @@ set(SOURCE_FILES
     src/passes/offloading/device_buffer_reuse_pass.cpp
     src/passes/offloading/device_resident_arg_promotion_pass.cpp
     src/passes/offloading/gpu_loop_reordering_pass.cpp
+    src/passes/offloading/gpu_nested_offload_pass.cpp
     src/passes/offloading/gpu_nested_parallelization_pass.cpp
     src/passes/offloading/gpu_tiling_pass.cpp
     src/passes/offloading/rocm_library_node_expansion_pass.cpp
@@ -56,9 +58,11 @@ set(SOURCE_FILES
     src/passes/readonly_transfer_hoisting_pass.cpp
     src/passes/redundant_load_elimination_pass.cpp
     src/passes/scheduler/cuda_scheduler.cpp
+    src/passes/scheduler/cuda_offload_scheduler.cpp
     src/passes/scheduler/loop_scheduling_pass.cpp
     src/passes/scheduler/omp_scheduler.cpp
     src/passes/scheduler/rocm_scheduler.cpp
+    src/passes/scheduler/rocm_offload_scheduler.cpp
     src/passes/scheduler/scheduler_registry.cpp
     src/passes/scheduler/vectorize_scheduler.cpp
     src/passes/targets/device_residency.cpp

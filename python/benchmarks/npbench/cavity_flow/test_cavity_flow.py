@@ -152,7 +152,7 @@ def test_cavity_flow(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 52,
+                "CUDA_Offload": 52,
                 "SEQUENTIAL": 24,
                 "FOR": 4,
                 "MAP": 76,
@@ -162,7 +162,7 @@ def test_cavity_flow(target):
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 52,
+                "ROCM_Offload": 52,
                 "SEQUENTIAL": 24,
                 "FOR": 4,
                 "MAP": 76,

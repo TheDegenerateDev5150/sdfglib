@@ -70,7 +70,7 @@ def test_covariance(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 9,
+                "CUDA_Offload": 9,
                 "CUDAOffloading": 12,
                 "SEQUENTIAL": 4,
                 "MAP": 13,

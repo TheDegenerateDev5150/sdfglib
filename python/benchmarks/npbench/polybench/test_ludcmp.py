@@ -69,22 +69,22 @@ def test_ludcmp(target):
     elif target == "cuda":
         verifier = SDFGVerification(
             verification={
-                "CUDA": 1,
+                "CUDA_Offload": 2,
                 "REDUCE": 4,
                 "SEQUENTIAL": 9,
                 "FOR": 4,
-                "MAP": 2,
+                "MAP": 3,
                 "CUDAOffloading": 12,
             }
         )
     elif target == "rocm":
         verifier = SDFGVerification(
             verification={
-                "ROCM": 1,
+                "ROCM_Offload": 2,
                 "REDUCE": 4,
                 "SEQUENTIAL": 9,
                 "FOR": 4,
-                "MAP": 2,
+                "MAP": 3,
                 "ROCMOffloading": 12,
             }
         )
