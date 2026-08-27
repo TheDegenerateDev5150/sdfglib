@@ -203,6 +203,7 @@ private:
 
     bool aggregate_events = false;
     bool papi_available = false;
+    bool no_async_event_capture = false;
     std::string output_file;
 
     // Global measurement switch. When false, enter/exit/metric calls are no-ops
@@ -319,6 +320,8 @@ private:
                     );
                     if (this->aggregate_events) {
                         accumulate_runtime(region, static_cast<long long>(static_cast<double>(ms) * 1.0e6));
+                    } else {
+                        region.durations.push_back(static_cast<long long>(static_cast<double>(ms) * 1.0e6));
                     }
                 }
                 api.event_pool.push_back(start);
@@ -697,6 +700,13 @@ public:
             split_string(env_events_cuda, this->event_names_cuda);
             verify_events_exist(this->event_names_cuda);
         }
+
+        const char* env_events_async_capture = std::getenv("__DAISY_INSTRUMENTATION_ASYNC_CAPTURE");
+        if (env_events_async_capture) {
+            if (std::strcmp(env_events_async_capture, "0") == 0) {
+                this->no_async_event_capture = true;
+            }
+        }
     }
 
     ~DaisyInstrumentationState() {
@@ -820,6 +830,9 @@ public:
     }
 
     EventCaptureType decide_event_capture(enum __daisy_event_set event_set, const __daisy_metadata* metadata) {
+        if (this->no_async_event_capture || !this->aggregate_events) {
+            return EventCaptureType::NONE;
+        }
         if (event_set == __DAISY_EVENT_SET_CUDA) {
             if (metadata->target_type && std::strcmp(metadata->target_type, "CUDA") == 0) {
                 if (ensure_cuda_events()) {
@@ -910,6 +923,8 @@ public:
                     if (papi_result != 0) {
                         std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                         exit(EXIT_FAILURE);
+                    } else {
+                        DEBUG_PRINTLN("[daisy-rtl] Added PAPI event " << ev << " to region " << metadata->region_uuid);
                     }
                 }
             }
@@ -947,20 +962,12 @@ public:
         } else if (region.event_set == __DAISY_EVENT_SET_CUDA && this->event_names_cuda.size() > 0) {
             std::vector<long long> counts(this->event_names_cuda.size(), 0);
             _PAPI_read(region.papi_eventset, counts.data());
+            DEBUG_PRINTLN("[daisy-rtl] Read CUDA event counts: " << counts.size());
             region.last_counts = counts;
         }
 
-        // Save start time
-        long long start_ns = _PAPI_get_real_nsec();
-        if (this->aggregate_events) {
-            if (region.first_start == 0) {
-                region.first_start = start_ns;
-            }
-            region.last_start = start_ns;
-        } else {
-            region.starts.push_back(start_ns);
-        }
 
+        bool async_capture = false;
         // CUDA regions: record a start event on the stream (async, no host sync)
         // so back-to-back launches stay hot; the paired exit records the stop.
         if (region.event_capture_type != EventCaptureType::NONE) {
@@ -972,6 +979,20 @@ public:
                     std::cerr << "[daisy-rtl] GPU eventRecord start failed with " << res << "\n";
                 }
                 DEBUG_PRINTLN("[daisy-rtl] GPU region " << region.metadata.region_uuid << " start event recorded.");
+                async_capture = true;
+            }
+        }
+
+        if (!async_capture) {
+            // Save start time
+            long long start_ns = _PAPI_get_real_nsec();
+            if (this->aggregate_events) {
+                if (region.first_start == 0) {
+                    region.first_start = start_ns;
+                }
+                region.last_start = start_ns;
+            } else {
+                region.starts.push_back(start_ns);
             }
         }
     }
@@ -1013,33 +1034,32 @@ public:
                 api.event_pool.push_back(region.last_start_event);
             }
             region.last_start_event = nullptr;
-            return;
-        }
-
-        // Save duration (before counters)
-        long long end_ns = _PAPI_get_real_nsec();
-        if (this->aggregate_events) {
-            long long duration_ns = end_ns - region.last_start;
-
-            // Update aggregated runtime stats
-            if (region.runtime_n == 0) {
-                region.runtime_n = 1;
-                region.runtime_mean = static_cast<double>(duration_ns);
-                region.runtime_variance = 0.0;
-                region.runtime_min = duration_ns;
-                region.runtime_max = duration_ns;
-            } else {
-                region.runtime_n += 1;
-                double delta1 = duration_ns - region.runtime_mean;
-                region.runtime_mean += delta1 / region.runtime_n;
-                double delta2 = duration_ns - region.runtime_mean;
-                region.runtime_variance += (delta1 * delta2 - region.runtime_variance) / region.runtime_n;
-                if (duration_ns < region.runtime_min) region.runtime_min = duration_ns;
-                if (duration_ns > region.runtime_max) region.runtime_max = duration_ns;
-            }
         } else {
-            long long duration_ns = end_ns - region.starts.back();
-            region.durations.push_back(duration_ns);
+            // Save duration (before counters)
+            long long end_ns = _PAPI_get_real_nsec();
+            if (this->aggregate_events) {
+                long long duration_ns = end_ns - region.last_start;
+
+                // Update aggregated runtime stats
+                if (region.runtime_n == 0) {
+                    region.runtime_n = 1;
+                    region.runtime_mean = static_cast<double>(duration_ns);
+                    region.runtime_variance = 0.0;
+                    region.runtime_min = duration_ns;
+                    region.runtime_max = duration_ns;
+                } else {
+                    region.runtime_n += 1;
+                    double delta1 = duration_ns - region.runtime_mean;
+                    region.runtime_mean += delta1 / region.runtime_n;
+                    double delta2 = duration_ns - region.runtime_mean;
+                    region.runtime_variance += (delta1 * delta2 - region.runtime_variance) / region.runtime_n;
+                    if (duration_ns < region.runtime_min) region.runtime_min = duration_ns;
+                    if (duration_ns > region.runtime_max) region.runtime_max = duration_ns;
+                }
+            } else {
+                long long duration_ns = end_ns - region.starts.back();
+                region.durations.push_back(duration_ns);
+            }
         }
 
         // Save end counters
