@@ -4,6 +4,7 @@
 
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/data_flow/tasklet.h"
+#include "sdfg/symbolic/extreme_values.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/types/array.h"
 #include "sdfg/types/pointer.h"
@@ -828,4 +829,70 @@ TEST(AssumptionsAnalysisTest, IfElse_Coupled_NonAffine_Rejected) {
         << "Non-affine coupled guard must not be registered as a constraint on i.";
     EXPECT_TRUE(assumptions.at(j).constraints().empty())
         << "Non-affine coupled guard must not be registered as a constraint on j.";
+}
+
+// An inner thread-tile loop `i in [it, min(N, block + it))` (stride s) must give
+// the assumptions enough to prove `s' + i < block + it` for the compute tile.
+// Two pieces are required and asserted here:
+//   (a) a STRIDE-TIGHT upper bound `it + s*floor((block-1)/s)` (not the loose
+//       `block-1+it`), and
+//   (b) a COUPLED CONSTRAINT `i - it - <tight offset>` so BoundAnalysis's
+//       Fourier-Motzkin peel can cancel the shared parent `it`.
+// End-to-end, `3 + i < 64 + it` must then be provable — the literal that blocked
+// LoopPeeling's dead-remainder elimination before this fix.
+TEST(AssumptionsAnalysisTest, TileNest_StrideTightAndCoupledConstraintEnableProof) {
+    builder::StructuredSDFGBuilder builder("tile_nest", FunctionType_CPU);
+
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar u64(types::PrimitiveType::UInt64);
+    builder.add_container("it", u64);
+    builder.add_container("i", u64);
+
+    auto it = symbolic::symbol("it");
+    auto i = symbolic::symbol("i");
+
+    // Outer grid tile: it in [0, 1024) stride 64  ->  tight upper bound 960.
+    auto& outer = builder.add_for(
+        root,
+        it,
+        symbolic::Lt(it, symbolic::integer(1024)),
+        symbolic::integer(0),
+        symbolic::add(it, symbolic::integer(64))
+    );
+    // Inner thread tile: i in [it, min(1024, 64 + it)) stride 4.
+    auto ub = symbolic::min(symbolic::integer(1024), symbolic::add(symbolic::integer(64), it));
+    auto& inner = builder.add_for(outer.root(), i, symbolic::Lt(i, ub), it, symbolic::add(i, symbolic::integer(4)));
+    builder.add_block(inner.root());
+
+    analysis::AnalysisManager am(sdfg);
+    auto& analysis = am.get<analysis::AssumptionsAnalysis>();
+    const auto& assums = analysis.get(inner.root(), true);
+    const auto& i_assum = assums.at(i);
+
+    // (a) stride-tight upper bound `it + 60` (floor(63/4)*4 = 60).
+    auto tight = symbolic::add(it, symbolic::integer(60));
+    bool has_tight_ub = false;
+    for (const auto& ub_e : i_assum.upper_bounds()) {
+        if (symbolic::eq(ub_e, tight)) has_tight_ub = true;
+    }
+    EXPECT_TRUE(has_tight_ub) << "Expected stride-tight upper bound `it + 60` on i.";
+
+    // (b) coupled constraint `i - it - 60`.
+    auto constraint = symbolic::expand(symbolic::sub(i, tight));
+    bool has_constraint = false;
+    for (const auto& c : i_assum.constraints()) {
+        if (symbolic::eq(c, constraint)) has_constraint = true;
+    }
+    EXPECT_TRUE(has_constraint) << "Expected coupled constraint `i - it - 60` on i.";
+
+    // End-to-end: `3 + i < 64 + it` provable (the GEMM dead-remainder literal).
+    EXPECT_TRUE(symbolic::is_lt(
+        symbolic::add(symbolic::integer(3), i),
+        symbolic::add(symbolic::integer(64), it),
+        analysis.parameters(),
+        assums,
+        true
+    )) << "`3 + i < 64 + it` must be provable from the tile assumptions.";
 }
