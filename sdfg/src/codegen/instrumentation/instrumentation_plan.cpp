@@ -152,6 +152,13 @@ void InstrumentationPlan::end_instrumentation(
     stream << "__daisy_instrumentation_finalize(" << region_id_var << ");" << std::endl;
 }
 
+void InstrumentationPlan::leaving_instrumentation_function(PrettyPrinter& stream, LanguageExtension& language_extension)
+    const {
+    if (!this->is_empty()) {
+        stream << "__daisy_instrumentation_finalize_all();" << std::endl;
+    }
+}
+
 std::unique_ptr<InstrumentationPlan> InstrumentationPlan::none(StructuredSDFG& sdfg) {
     return std::make_unique<InstrumentationPlan>(sdfg, std::unordered_set<const Element*>{});
 }

@@ -49,6 +49,8 @@ public:
         const InstrumentationInfo& info
     ) const;
 
+    void leaving_instrumentation_function(PrettyPrinter& stream, LanguageExtension& language_extension) const;
+
     void insert(const Element* node) { nodes_.insert(node); }
 
     static std::unique_ptr<InstrumentationPlan> none(StructuredSDFG& sdfg);

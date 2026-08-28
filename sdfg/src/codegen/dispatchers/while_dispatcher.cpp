@@ -117,6 +117,8 @@ void ReturnDispatcher::dispatch_node(
         }
     }
 
+    instrumentation_plan_.leaving_instrumentation_function(main_stream, language_extension_);
+
     if (node_.is_data()) {
         std::string return_str = node_.data();
         if (sdfg_.is_external(node_.data())) {

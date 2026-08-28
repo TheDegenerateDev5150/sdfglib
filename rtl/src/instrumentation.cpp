@@ -44,6 +44,16 @@ static inline pid_t gettid() { return syscall(SYS_gettid); }
 
 #define REGION_CACHE_SIZE 10
 
+#ifndef DEBUG_RTL
+#define DEBUG_PRINTLN(...) ((void) 0)
+#else
+#define DEBUG_PRINTLN(...)                     \
+    do {                                       \
+        std::cerr << __VA_ARGS__ << std::endl; \
+    } while (0)
+#endif
+
+
 // -----------------------------------------------------------------------------
 //  Dynamic PAPI loading – we avoid a hard dependency on the library at link time
 // -----------------------------------------------------------------------------
@@ -84,10 +94,13 @@ static void load_papi_symbols() {
 }
 } // namespace
 
+enum class EventCaptureType { NONE = 0, CUDA_EVT = 1, ROCM_EVT = 2 };
+
 struct DaisyRegion {
     __daisy_metadata metadata;
     enum __daisy_event_set event_set;
     int papi_eventset = -1;
+    EventCaptureType event_capture_type;
 
     // Temporary buffers
     std::vector<long long> last_counts;
@@ -125,6 +138,13 @@ struct DaisyRegion {
     std::unordered_map<std::string, double> static_counters_variance;
     std::unordered_map<std::string, double> static_counters_min;
     std::unordered_map<std::string, double> static_counters_max;
+
+    // CUDA-event timing: kernels are timed with cudaEvents recorded on the stream
+    // (no per-launch host sync), so back-to-back launches stay async and the GPU
+    // boosts. `last_cuda_start` holds the enter event; each exit pushes a
+    // (start, stop) pair, resolved (synchronize + elapsed) lazily at stats time.
+    void* last_start_event = nullptr;
+    std::vector<std::pair<void*, void*>> pending_events;
 };
 
 struct JsSafeDouble {
@@ -141,6 +161,35 @@ static std::ostream& operator<<(std::ostream& os, JsSafeDouble val) {
     return os;
 }
 
+// CUDA event API loaded lazily via dlopen (no hard cudart link dependency).
+// When available, CUDA regions are timed with events instead of a host clock
+// + per-launch cudaDeviceSynchronize, so launches stay async and clocks boost.
+struct GpuEventApi {
+    bool tried_loading = false;
+    bool loaded = false;
+    void* event_lib_handle = nullptr;
+    int (*eventCreate_)(void**) = nullptr;
+    int (*eventRecord_)(void*, void*) = nullptr;
+    int (*eventSynchronize_)(void*) = nullptr;
+    int (*eventElapsedTime_)(float*, void*, void*) = nullptr;
+    int (*eventDestroy_)(void*) = nullptr;
+    const char* (*errorString)(int) = nullptr;
+    const char* (*errorName)(int) = nullptr;
+
+    std::vector<void*> event_pool;
+
+    void* acquire_new_event() {
+        if (!event_pool.empty()) {
+            void* e = event_pool.back();
+            event_pool.pop_back();
+            return e;
+        }
+        void* e = nullptr;
+        if (eventCreate_(&e) != 0) return nullptr;
+        return e;
+    }
+};
+
 class DaisyInstrumentationState {
 private:
     size_t next_region_id = 1;
@@ -154,6 +203,7 @@ private:
 
     bool aggregate_events = false;
     bool papi_available = false;
+    bool no_async_event_capture = false;
     std::string output_file;
 
     // Global measurement switch. When false, enter/exit/metric calls are no-ops
@@ -165,6 +215,123 @@ private:
     std::vector<std::string> event_names_cuda;
 
     std::mutex mutex;
+
+    GpuEventApi cuda_events_;
+    GpuEventApi rocm_events_;
+
+    bool ensure_cuda_events() {
+        if (cuda_events_.tried_loading) return cuda_events_.loaded;
+        cuda_events_.tried_loading = true;
+        cuda_events_.event_lib_handle = dlopen("libcudart.so", RTLD_NOW | RTLD_GLOBAL);
+        if (!cuda_events_.event_lib_handle)
+            cuda_events_.event_lib_handle = dlopen("libcudart.so.12", RTLD_NOW | RTLD_GLOBAL);
+        if (!cuda_events_.event_lib_handle) return false;
+        cuda_events_.eventCreate_ =
+            reinterpret_cast<int (*)(void**)>(dlsym(cuda_events_.event_lib_handle, "cudaEventCreate"));
+        cuda_events_.eventRecord_ =
+            reinterpret_cast<int (*)(void*, void*)>(dlsym(cuda_events_.event_lib_handle, "cudaEventRecord"));
+        cuda_events_.eventSynchronize_ =
+            reinterpret_cast<int (*)(void*)>(dlsym(cuda_events_.event_lib_handle, "cudaEventSynchronize"));
+        cuda_events_.eventElapsedTime_ =
+            reinterpret_cast<int (*)(float*, void*, void*)>(dlsym(cuda_events_.event_lib_handle, "cudaEventElapsedTime")
+            );
+        cuda_events_.eventDestroy_ =
+            reinterpret_cast<int (*)(void*)>(dlsym(cuda_events_.event_lib_handle, "cudaEventDestroy"));
+        cuda_events_.errorString =
+            reinterpret_cast<const char* (*) (int)>(dlsym(cuda_events_.event_lib_handle, "cudaGetErrorString"));
+        cuda_events_.errorName =
+            reinterpret_cast<const char* (*) (int)>(dlsym(cuda_events_.event_lib_handle, "cudaGetErrorName"));
+        cuda_events_.loaded = cuda_events_.eventCreate_ && cuda_events_.eventRecord_ &&
+                              cuda_events_.eventSynchronize_ && cuda_events_.eventElapsedTime_ &&
+                              cuda_events_.eventDestroy_;
+        if (!cuda_events_.loaded) {
+            std::cerr << "[daisy-rtl] Failed to load CUDA event functions from libcudart.so\n";
+        }
+        return cuda_events_.loaded;
+    }
+
+    bool ensure_rocm_events() {
+        if (rocm_events_.tried_loading) return rocm_events_.loaded;
+        rocm_events_.tried_loading = true;
+        rocm_events_.event_lib_handle = dlopen("libamdhip64.so", RTLD_NOW | RTLD_GLOBAL);
+        if (!rocm_events_.event_lib_handle) return false;
+        rocm_events_.eventCreate_ =
+            reinterpret_cast<int (*)(void**)>(dlsym(rocm_events_.event_lib_handle, "hipEventCreate"));
+        rocm_events_.eventRecord_ =
+            reinterpret_cast<int (*)(void*, void*)>(dlsym(rocm_events_.event_lib_handle, "hipEventRecord"));
+        rocm_events_.eventSynchronize_ =
+            reinterpret_cast<int (*)(void*)>(dlsym(rocm_events_.event_lib_handle, "hipEventSynchronize"));
+        rocm_events_.eventElapsedTime_ =
+            reinterpret_cast<int (*)(float*, void*, void*)>(dlsym(rocm_events_.event_lib_handle, "hipEventElapsedTime")
+            );
+        rocm_events_.eventDestroy_ =
+            reinterpret_cast<int (*)(void*)>(dlsym(rocm_events_.event_lib_handle, "hipEventDestroy"));
+        rocm_events_.errorString =
+            reinterpret_cast<const char* (*) (int)>(dlsym(rocm_events_.event_lib_handle, "hipGetErrorString"));
+        rocm_events_.errorName =
+            reinterpret_cast<const char* (*) (int)>(dlsym(rocm_events_.event_lib_handle, "hipGetErrorName"));
+        rocm_events_.loaded = rocm_events_.eventCreate_ && rocm_events_.eventRecord_ &&
+                              rocm_events_.eventSynchronize_ && rocm_events_.eventElapsedTime_ &&
+                              rocm_events_.eventDestroy_;
+        if (!rocm_events_.loaded) {
+            std::cerr << "[daisy-rtl] Failed to load ROCM event functions from libamdhip64.so\n";
+        }
+        return rocm_events_.loaded;
+    }
+
+    // Accumulate one duration into a region's aggregate runtime stats (Welford).
+    static void accumulate_runtime(DaisyRegion& region, long long duration_ns) {
+        if (region.runtime_n == 0) {
+            region.runtime_n = 1;
+            region.runtime_mean = static_cast<double>(duration_ns);
+            region.runtime_variance = 0.0;
+            region.runtime_min = duration_ns;
+            region.runtime_max = duration_ns;
+        } else {
+            region.runtime_n += 1;
+            double delta1 = duration_ns - region.runtime_mean;
+            region.runtime_mean += delta1 / region.runtime_n;
+            double delta2 = duration_ns - region.runtime_mean;
+            region.runtime_variance += (delta1 * delta2 - region.runtime_variance) / region.runtime_n;
+            if (duration_ns < region.runtime_min) region.runtime_min = duration_ns;
+            if (duration_ns > region.runtime_max) region.runtime_max = duration_ns;
+        }
+    }
+
+    // Synchronize + read every pending CUDA-event pair for `region` and fold the
+    // elapsed times into its aggregate runtime stats. Events are returned to the
+    // pool for reuse. Called from the stats accessors (once per batch).
+    void resolve_pending_events(DaisyRegion& region) {
+        if (!region.pending_events.empty()) {
+            auto& api = get_event_api(region.event_capture_type);
+            for (auto& [start, stop] : region.pending_events) {
+                auto res = api.eventSynchronize_(stop);
+                if (res != 0) {
+                    std::cerr << "[daisy-rtl] GPU event synchronization failed with " << res << "\n";
+                }
+                float ms = 0.0f;
+                res = api.eventElapsedTime_(&ms, start, stop);
+                if (res != 0) {
+                    std::cerr << "[daisy-rtl] GPU eventElapsedTime failed with " << res << ": " << api.errorString(res)
+                              << "\n";
+                } else {
+                    DEBUG_PRINTLN(
+                        "[daisy-rtl] GPU region " << region.metadata.region_uuid << " elapsed time: " << ms << " ms"
+                    );
+                    if (this->aggregate_events) {
+                        accumulate_runtime(region, static_cast<long long>(static_cast<double>(ms) * 1.0e6));
+                    } else {
+                        region.durations.push_back(static_cast<long long>(static_cast<double>(ms) * 1.0e6));
+                    }
+                }
+                api.event_pool.push_back(start);
+                api.event_pool.push_back(stop);
+            }
+            region.pending_events.clear();
+        }
+    }
+
+    void post_process_region(DaisyRegion& region) { resolve_pending_events(region); }
 
     double ns_to_us(double ns) { return ns / 1000; }
 
@@ -533,6 +700,13 @@ public:
             split_string(env_events_cuda, this->event_names_cuda);
             verify_events_exist(this->event_names_cuda);
         }
+
+        const char* env_events_async_capture = std::getenv("__DAISY_INSTRUMENTATION_ASYNC_CAPTURE");
+        if (env_events_async_capture) {
+            if (std::strcmp(env_events_async_capture, "0") == 0) {
+                this->no_async_event_capture = true;
+            }
+        }
     }
 
     ~DaisyInstrumentationState() {
@@ -557,6 +731,17 @@ public:
         this->sleeping_regions_by_name.clear();
 
         this->region_name_to_id.clear();
+
+        for (auto& [region_id, region] : regions) {
+            if (!region.pending_events.empty()) {
+                std::fprintf(
+                    stderr,
+                    "[daisy-rtl] Region %s has unresolved pending events. Call process_async\n",
+                    region.metadata.region_uuid
+                );
+                exit(EXIT_FAILURE);
+            }
+        }
 
         // Write output file
         FILE* f = std::fopen(this->output_file.c_str(), "w");
@@ -644,6 +829,24 @@ public:
         }
     }
 
+    EventCaptureType decide_event_capture(enum __daisy_event_set event_set, const __daisy_metadata* metadata) {
+        if (this->no_async_event_capture || !this->aggregate_events) {
+            return EventCaptureType::NONE;
+        }
+        if (event_set == __DAISY_EVENT_SET_CUDA) {
+            if (metadata->target_type && std::strcmp(metadata->target_type, "CUDA") == 0) {
+                if (ensure_cuda_events()) {
+                    return EventCaptureType::CUDA_EVT;
+                }
+            } else if (metadata->target_type && std::strcmp(metadata->target_type, "ROCM") == 0) {
+                if (ensure_rocm_events()) {
+                    return EventCaptureType::ROCM_EVT;
+                }
+            }
+        }
+        return EventCaptureType::NONE;
+    }
+
     size_t register_region(const __daisy_metadata* metadata, enum __daisy_event_set event_set) {
         std::lock_guard<std::mutex> lock(mutex);
 
@@ -673,15 +876,17 @@ public:
                 }
                 if (region.event_set == __DAISY_EVENT_SET_CPU) {
                     for (const auto& ev : this->event_names_cpu) {
-                        if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                        auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                        if (papi_result != 0) {
+                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                             exit(EXIT_FAILURE);
                         }
                     }
                 } else if (region.event_set == __DAISY_EVENT_SET_CUDA) {
                     for (const auto& ev : this->event_names_cuda) {
-                        if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                        auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                        if (papi_result != 0) {
+                            std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                             exit(EXIT_FAILURE);
                         }
                     }
@@ -696,6 +901,7 @@ public:
 
         DaisyRegion region;
         std::memcpy(&region.metadata, metadata, sizeof(__daisy_metadata));
+        region.event_capture_type = decide_event_capture(event_set, metadata);
         region.event_set = event_set;
 
         if (this->has_events(region.event_set)) {
@@ -705,16 +911,20 @@ public:
             }
             if (region.event_set == __DAISY_EVENT_SET_CPU) {
                 for (const auto& ev : this->event_names_cpu) {
-                    if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                    auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                    if (papi_result != 0) {
+                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                         exit(EXIT_FAILURE);
                     }
                 }
             } else if (region.event_set == __DAISY_EVENT_SET_CUDA) {
                 for (const auto& ev : this->event_names_cuda) {
-                    if (_PAPI_add_named_event(region.papi_eventset, ev.c_str()) != 0) {
-                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s.\n", ev.c_str());
+                    auto papi_result = _PAPI_add_named_event(region.papi_eventset, ev.c_str());
+                    if (papi_result != 0) {
+                        std::fprintf(stderr, "[daisy-rtl] Could not add event %s (%d).\n", ev.c_str(), papi_result);
                         exit(EXIT_FAILURE);
+                    } else {
+                        DEBUG_PRINTLN("[daisy-rtl] Added PAPI event " << ev << " to region " << metadata->region_uuid);
                     }
                 }
             }
@@ -752,18 +962,38 @@ public:
         } else if (region.event_set == __DAISY_EVENT_SET_CUDA && this->event_names_cuda.size() > 0) {
             std::vector<long long> counts(this->event_names_cuda.size(), 0);
             _PAPI_read(region.papi_eventset, counts.data());
+            DEBUG_PRINTLN("[daisy-rtl] Read CUDA event counts: " << counts.size());
             region.last_counts = counts;
         }
 
-        // Save start time
-        long long start_ns = _PAPI_get_real_nsec();
-        if (this->aggregate_events) {
-            if (region.first_start == 0) {
-                region.first_start = start_ns;
+
+        bool async_capture = false;
+        // CUDA regions: record a start event on the stream (async, no host sync)
+        // so back-to-back launches stay hot; the paired exit records the stop.
+        if (region.event_capture_type != EventCaptureType::NONE) {
+            auto& api = get_event_api(region.event_capture_type);
+            region.last_start_event = api.acquire_new_event();
+            if (region.last_start_event) {
+                auto res = api.eventRecord_(region.last_start_event, nullptr);
+                if (res != 0) {
+                    std::cerr << "[daisy-rtl] GPU eventRecord start failed with " << res << "\n";
+                }
+                DEBUG_PRINTLN("[daisy-rtl] GPU region " << region.metadata.region_uuid << " start event recorded.");
+                async_capture = true;
             }
-            region.last_start = start_ns;
-        } else {
-            region.starts.push_back(start_ns);
+        }
+
+        if (!async_capture) {
+            // Save start time
+            long long start_ns = _PAPI_get_real_nsec();
+            if (this->aggregate_events) {
+                if (region.first_start == 0) {
+                    region.first_start = start_ns;
+                }
+                region.last_start = start_ns;
+            } else {
+                region.starts.push_back(start_ns);
+            }
         }
     }
 
@@ -783,30 +1013,53 @@ public:
 
         DaisyRegion& region = it->second;
 
-        // Save duration (before counters)
-        long long end_ns = _PAPI_get_real_nsec();
-        if (this->aggregate_events) {
-            long long duration_ns = end_ns - region.last_start;
-
-            // Update aggregated runtime stats
-            if (region.runtime_n == 0) {
-                region.runtime_n = 1;
-                region.runtime_mean = static_cast<double>(duration_ns);
-                region.runtime_variance = 0.0;
-                region.runtime_min = duration_ns;
-                region.runtime_max = duration_ns;
+        // CUDA-event timing: record the stop event on the stream and defer the
+        // elapsed-time read to stats time. The host clock would only see the async
+        // launch, so skip it (and the PAPI-counter path, unused for pure timing).
+        if (region.event_capture_type != EventCaptureType::NONE && region.last_start_event) {
+            auto& api = get_event_api(region.event_capture_type);
+            void* stop = api.acquire_new_event();
+            if (stop) {
+                auto res = api.eventRecord_(stop, nullptr);
+                if (res != 0) {
+                    std::cerr << "[daisy-rtl] GPU eventRecord stop failed with " << res << "\n";
+                }
+                DEBUG_PRINTLN("[daisy-rtl] GPU region " << region.metadata.region_uuid << " stop event recorded.");
+                region.pending_events.emplace_back(region.last_start_event, stop);
             } else {
-                region.runtime_n += 1;
-                double delta1 = duration_ns - region.runtime_mean;
-                region.runtime_mean += delta1 / region.runtime_n;
-                double delta2 = duration_ns - region.runtime_mean;
-                region.runtime_variance += (delta1 * delta2 - region.runtime_variance) / region.runtime_n;
-                if (duration_ns < region.runtime_min) region.runtime_min = duration_ns;
-                if (duration_ns > region.runtime_max) region.runtime_max = duration_ns;
+                DEBUG_PRINTLN(
+                    "[daisy-rtl] GPU region " << region.metadata.region_uuid
+                                              << " stop event failed to acquire; dropping start event."
+                );
+                api.event_pool.push_back(region.last_start_event);
             }
+            region.last_start_event = nullptr;
         } else {
-            long long duration_ns = end_ns - region.starts.back();
-            region.durations.push_back(duration_ns);
+            // Save duration (before counters)
+            long long end_ns = _PAPI_get_real_nsec();
+            if (this->aggregate_events) {
+                long long duration_ns = end_ns - region.last_start;
+
+                // Update aggregated runtime stats
+                if (region.runtime_n == 0) {
+                    region.runtime_n = 1;
+                    region.runtime_mean = static_cast<double>(duration_ns);
+                    region.runtime_variance = 0.0;
+                    region.runtime_min = duration_ns;
+                    region.runtime_max = duration_ns;
+                } else {
+                    region.runtime_n += 1;
+                    double delta1 = duration_ns - region.runtime_mean;
+                    region.runtime_mean += delta1 / region.runtime_n;
+                    double delta2 = duration_ns - region.runtime_mean;
+                    region.runtime_variance += (delta1 * delta2 - region.runtime_variance) / region.runtime_n;
+                    if (duration_ns < region.runtime_min) region.runtime_min = duration_ns;
+                    if (duration_ns > region.runtime_max) region.runtime_max = duration_ns;
+                }
+            } else {
+                long long duration_ns = end_ns - region.starts.back();
+                region.durations.push_back(duration_ns);
+            }
         }
 
         // Save end counters
@@ -1003,6 +1256,12 @@ public:
         }
     }
 
+    void post_process_regions() {
+        for (auto& [region_id, region] : regions) {
+            post_process_region(region);
+        }
+    }
+
 public:
     // Read the running aggregate runtime stats for a region (aggregate mode).
     // Returns false if the region is unknown or has no samples yet. Units:
@@ -1014,6 +1273,7 @@ public:
             return false;
         }
         DaisyRegion& region = it->second;
+        resolve_pending_events(region);
         if (region.runtime_n <= 0) {
             return false;
         }
@@ -1033,6 +1293,7 @@ public:
         bool any = false;
         for (auto& kv : regions) {
             DaisyRegion& region = kv.second;
+            resolve_pending_events(region);
             if (region.runtime_n <= 0) {
                 continue;
             }
@@ -1050,6 +1311,17 @@ public:
         return true;
     }
 
+    GpuEventApi& get_event_api(EventCaptureType event_capture) {
+        switch (event_capture) {
+            case EventCaptureType::CUDA_EVT:
+                return cuda_events_;
+            case EventCaptureType::ROCM_EVT:
+                return rocm_events_;
+            default:
+                throw std::runtime_error("There is no known EventCaptureType!");
+        }
+    }
+
     // Clear running aggregate runtime stats for all regions (keeps registration).
     void reset_all_stats() {
         std::lock_guard<std::mutex> lock(mutex);
@@ -1061,6 +1333,19 @@ public:
             region.first_start = 0;
             region.starts.clear();
             region.durations.clear();
+
+            // Discard any pending CUDA events (e.g. the warmup launch) so their
+            // timing is dropped consistently with the runtime stats above; the
+            // events are recycled into the pool.
+            if (!region.pending_events.empty()) {
+                auto& api = get_event_api(region.event_capture_type);
+                for (auto& [start, stop] : region.pending_events) {
+                    api.event_pool.push_back(start);
+                    api.event_pool.push_back(stop);
+                }
+            }
+            region.pending_events.clear();
+            region.last_start_event = nullptr;
 
             // Hardware-counter aggregates, cleared so all metrics drop the
             // warmup sample consistently with the runtime stats above.
@@ -1132,6 +1417,8 @@ void __daisy_instrumentation_start(void) { get_daisy_state().set_enabled(true); 
 void __daisy_instrumentation_stop(void) { get_daisy_state().set_enabled(false); }
 
 bool __daisy_instrumentation_is_enabled(void) { return get_daisy_state().is_enabled(); }
+
+void __daisy_instrumentation_finalize_all(void) { get_daisy_state().post_process_regions(); }
 
 #ifdef __cplusplus
 } // extern "C"

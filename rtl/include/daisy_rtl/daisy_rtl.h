@@ -101,6 +101,9 @@ void __daisy_instrumentation_stop(void);
 // Query whether measurement is currently enabled (true by default).
 bool __daisy_instrumentation_is_enabled(void);
 
+// Called at end of instrumented function to do any cleanup or post processing before handles and libraries might destr
+void __daisy_instrumentation_finalize_all(void);
+
 typedef struct __daisy_capture __daisy_capture_t;
 
 __daisy_capture_t* __daisy_capture_init(const char* name, const char* base_dir);
