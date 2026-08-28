@@ -239,6 +239,78 @@ TEST(ExtremeValuesTest, Min_Symbolic) {
     EXPECT_TRUE(symbolic::eq(max, symbolic::min(M, M_)));
 }
 
+// ===== Coupled Min/Max cancellation (translation invariance) =====
+// A variable that appears both inside a min/max and additively outside it must
+// cancel: `min(a1, a2, ...) + R == min(a1 + R, a2 + R, ...)`. Per-term interval
+// bounding decorrelates (it maxes the min-arg and mins the outside term with
+// different values), so `visit_add` must distribute the addend into the min/max.
+
+TEST(ExtremeValuesTest, MinMinusCoupledVar) {
+    // min(1024, 64 + a) - a  with a in [0, 960]  ==  64  (the `a` cancels:
+    // min(1024, 64+a) - a = min(1024-a, 64) = 64 for a <= 960).
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum(a);
+    assum.add_lower_bound(symbolic::integer(0));
+    assum.add_upper_bound(symbolic::integer(960));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::sub(symbolic::min(symbolic::integer(1024), symbolic::add(symbolic::integer(64), a)), a);
+
+    auto max = symbolic::maximum(expr, {}, assums, false);
+    ASSERT_FALSE(max.is_null());
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(64)));
+
+    auto min = symbolic::minimum(expr, {}, assums, false);
+    ASSERT_FALSE(min.is_null());
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(64)));
+}
+
+TEST(ExtremeValuesTest, MinMinusCoupledVarDivided) {
+    // (min(1024, 64 + a) - a + 3) / 4  with a in [0, 960]  ==  16
+    // == (64 + 3) / 4 == 16. This is the GEMM tile trip count that decorrelated.
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum(a);
+    assum.add_lower_bound(symbolic::integer(0));
+    assum.add_upper_bound(symbolic::integer(960));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto inner = symbolic::
+        add(symbolic::sub(symbolic::min(symbolic::integer(1024), symbolic::add(symbolic::integer(64), a)), a),
+            symbolic::integer(3));
+    auto expr = symbolic::div(inner, symbolic::integer(4));
+
+    auto max = symbolic::maximum(expr, {}, assums, false);
+    ASSERT_FALSE(max.is_null());
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(16)));
+
+    auto min = symbolic::minimum(expr, {}, assums, false);
+    ASSERT_FALSE(min.is_null());
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(16)));
+}
+
+TEST(ExtremeValuesTest, MaxMinusCoupledVar) {
+    // max(64, a) - a  with a in [0, 960]  ==  max(64 - a, 0).
+    // For a in [0, 960]: peak at a = 0 -> 64; floor 0 (a >= 64). So max = 64, min = 0.
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum(a);
+    assum.add_lower_bound(symbolic::integer(0));
+    assum.add_upper_bound(symbolic::integer(960));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::sub(symbolic::max(symbolic::integer(64), a), a);
+
+    auto max = symbolic::maximum(expr, {}, assums, false);
+    ASSERT_FALSE(max.is_null());
+    EXPECT_TRUE(symbolic::eq(max, symbolic::integer(64)));
+
+    auto min = symbolic::minimum(expr, {}, assums, false);
+    ASSERT_FALSE(min.is_null());
+    EXPECT_TRUE(symbolic::eq(min, symbolic::integer(0)));
+}
+
 TEST(ExtremeValuesTest, Recursive_Assumptions) {
     auto i = symbolic::symbol("i");
     auto i_init = symbolic::symbol("i_init");

@@ -517,6 +517,50 @@ Interval BoundAnalysis::visit_mul(const SymEngine::RCP<const SymEngine::Mul>& mu
 
 Interval BoundAnalysis::visit_add(const SymEngine::RCP<const SymEngine::Add>& add_expr, size_t depth) {
     const auto& args = add_expr->get_args();
+
+    // Min/Max distribution (translation invariance): a variable appearing both
+    // inside a `min`/`max` and additively outside must cancel, e.g.
+    //   min(N, k + i) - i  ==  min(N - i, k).
+    // Per-term interval bounding decorrelates the two `i` occurrences (it maxes
+    // the min-arg with i's upper and mins the outside `-i` with i's lower). Push
+    // the remaining addends into the extremum's args so the cancellation happens
+    // structurally, then bound the rewrite. Handle exactly one top-level Min/Max
+    // addend (the tile-bound shape); fall through if it doesn't tighten.
+    {
+        SymEngine::RCP<const SymEngine::Basic> extremum;
+        bool is_min = false;
+        size_t extremum_count = 0;
+        Expression rest = symbolic::zero();
+        for (const auto& a : args) {
+            if (SymEngine::is_a<SymEngine::Min>(*a)) {
+                extremum = a;
+                is_min = true;
+                ++extremum_count;
+            } else if (SymEngine::is_a<SymEngine::Max>(*a)) {
+                extremum = a;
+                is_min = false;
+                ++extremum_count;
+            } else {
+                rest = symbolic::add(rest, a);
+            }
+        }
+        if (extremum_count == 1 && !symbolic::eq(rest, symbolic::zero())) {
+            Expression distributed = SymEngine::null;
+            for (const auto& m : extremum->get_args()) {
+                auto shifted = symbolic::add(m, rest);
+                distributed = distributed.is_null() ? shifted
+                                                    : (is_min ? symbolic::min(distributed, shifted)
+                                                              : symbolic::max(distributed, shifted));
+            }
+            if (!distributed.is_null()) {
+                auto iv = visit(distributed, depth + 1);
+                if (iv.has_lower() || iv.has_upper()) {
+                    return iv;
+                }
+            }
+        }
+    }
+
     Expression expr = add_expr;
 
     // Collect generators: non-parameter symbols with a map (loop induction variables).
