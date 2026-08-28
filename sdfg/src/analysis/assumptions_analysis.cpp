@@ -433,15 +433,59 @@ void AssumptionsAnalysis::traverse_structured_loop(
             }
 
             // If combined bound, each arg is also an upper bound
+            // Stride-tighten each arg to its largest in-range value `init + k*stride`.
+            // Subtracting `init` cancels the arg's parent-relative part (e.g.
+            // `(63 + tile0) - tile0 = 63`), so `idiv(63, stride)*stride` folds to a
+            // clean constant offset (`tile0 + 60`) the inequality prover can use —
+            // unlike the combined `min(...)` tight bound, whose `min` stays opaque.
+            auto stride_tighten = [&](const symbolic::Expression& incl) -> symbolic::Expression {
+                if (symbolic::eq(stride, symbolic::one())) {
+                    return incl;
+                }
+                auto steps = symbolic::div(symbolic::sub(incl, init), stride);
+                return symbolic::add(init, symbolic::mul(steps, stride));
+            };
+            // Register the coupled constraint `indvar - tight <= 0` when `tight`
+            // couples the indvar with another loop variable (e.g. `tile1 <= tile0 +
+            // 60`). Per-symbol bounding decorrelates such a bound (`tile0 + 60 ->
+            // [60, N]`), losing the coupling; storing it as a constraint lets the
+            // Add coupled-constraint projection cancel the shared parent symbol
+            // (proving e.g. `3 + tile1 < 64 + tile0`). Only loop-condition bounds
+            // reach here — IfElse conditions already register constraints.
+            auto add_coupled_constraint = [&](const symbolic::Expression& tight) {
+                bool couples_indvar = false;
+                for (const auto& a : symbolic::atoms(tight)) {
+                    if (!symbolic::eq(a, indvar) && !this->parameters_.contains(a)) {
+                        couples_indvar = true;
+                        break;
+                    }
+                }
+                if (!couples_indvar) {
+                    return;
+                }
+                auto constraint = symbolic::expand(symbolic::sub(indvar, tight));
+                body_assumptions[indvar].add_constraint(constraint);
+                for (const auto& a : symbolic::atoms(tight)) {
+                    if (!symbolic::eq(a, indvar) && body_assumptions.find(a) != body_assumptions.end()) {
+                        body_assumptions[a].add_constraint(constraint);
+                    }
+                }
+            };
             if (SymEngine::is_a<SymEngine::Min>(*ub)) {
                 auto min = SymEngine::rcp_static_cast<const SymEngine::Min>(ub);
                 for (size_t i = 0; i < min->get_args().size(); i++) {
                     auto arg = min->get_args()[i];
                     auto arg_inclusive = symbolic::sub(arg, symbolic::one());
                     body_assumptions[indvar].add_upper_bound(arg_inclusive);
+                    auto tight = stride_tighten(arg_inclusive);
+                    body_assumptions[indvar].add_upper_bound(tight);
+                    add_coupled_constraint(tight);
                 }
             } else {
                 body_assumptions[indvar].add_upper_bound(ub_inclusive);
+                auto tight = stride_tighten(ub_inclusive);
+                body_assumptions[indvar].add_upper_bound(tight);
+                add_coupled_constraint(tight);
             }
 
             // Furthermore, we can infer lower bounds for each upper bound's symbol
