@@ -11,6 +11,7 @@
 #include "sdfg/analysis/memory_layout_analysis.h"
 #include "sdfg/analysis/pointer_analyzers.h"
 #include "sdfg/data_flow/library_node.h"
+#include "sdfg/data_flow/library_nodes/atomic_op_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/data_flow/pointer_metadata.h"
 #include "sdfg/data_flow/tasklet.h"
@@ -691,10 +692,30 @@ bool LocalStorage::collect_reduction_owners(
         return nullptr;
     };
 
+    // A grid-parallel (e.g. split-K Z_GRID) offloaded reduce merges per-block
+    // partials across the grid via an atomic writeback rather than in-place.
+    auto is_grid_parallel_reduce = [&](structured_control_flow::Reduce* reduce) -> bool {
+        const auto& sched = reduce->schedule_type();
+        if (!gpu::is_gpu_schedule(sched)) {
+            return false;
+        }
+        const std::string& value = sched.value();
+        if (value != "CUDA_Offload" && value != "ROCM_Offload") {
+            return false;
+        }
+        return gpu::is_grid_level(gpu::gpu_target_level(sched));
+    };
+
     // An ancestor Reduce accumulates across iterations *outside* the localized
     // scope, so a buffer created at loop_ cannot span the accumulator's lifetime.
+    // Exception: a grid-parallel ancestor reduce merges per-block partials via an
+    // atomic writeback, so LocalStorage may privatize the partial into a register
+    // tile and take over the cross-block merge (not retargeted here).
     for (auto* node : loop_analysis.ancestors(&loop)) {
-        if (owns(node)) {
+        if (auto* reduce = owns(node)) {
+            if (is_grid_parallel_reduce(reduce)) {
+                continue;
+            }
             return false;
         }
     }
@@ -722,6 +743,39 @@ bool LocalStorage::collect_reduction_owners(
         }
     }
     return true;
+}
+
+std::vector<structured_control_flow::Reduce*> LocalStorage::collect_grid_reduction_owners(
+    structured_control_flow::StructuredLoop& loop,
+    const std::string& container,
+    analysis::AnalysisManager& analysis_manager
+) {
+    auto& loop_analysis = analysis_manager.get<analysis::LoopAnalysis>();
+    std::vector<structured_control_flow::Reduce*> out;
+    for (auto* node : loop_analysis.ancestors(&loop)) {
+        auto* reduce = dynamic_cast<structured_control_flow::Reduce*>(node);
+        if (reduce == nullptr) {
+            continue;
+        }
+        const auto& sched = reduce->schedule_type();
+        if (!gpu::is_gpu_schedule(sched)) {
+            continue;
+        }
+        const std::string& value = sched.value();
+        if (value != "CUDA_Offload" && value != "ROCM_Offload") {
+            continue;
+        }
+        if (!gpu::is_grid_level(gpu::gpu_target_level(sched))) {
+            continue;
+        }
+        for (const auto& r : reduce->reductions()) {
+            if (r.container == container) {
+                out.push_back(reduce);
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bool container_written) {
@@ -806,10 +860,16 @@ bool LocalStorage::can_be_applied(builder::StructuredSDFGBuilder& builder, analy
     // buffer. A cooperatively-combined (GPU-offloaded) Reduce, or one enclosing
     // the localized scope, is left to the reduce dispatcher.
     reduce_retargets_.clear();
+    grid_reduce_owners_.clear();
+    atomic_merge_ = false;
     if (is_reduction_accumulator(loop_, container_, analysis_manager)) {
         if (!collect_reduction_owners(loop_, container_, analysis_manager, reduce_retargets_)) {
             return false;
         }
+        // A grid-parallel ancestor reduce is privatized here (per-block partial) and
+        // its cross-block merge becomes an atomic copy-out; record it for apply().
+        grid_reduce_owners_ = collect_grid_reduction_owners(loop_, container_, analysis_manager);
+        atomic_merge_ = !grid_reduce_owners_.empty();
     }
 
     // Classify the container's accesses directly from the dataflow.
@@ -1096,6 +1156,15 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
         reduce->replace_reduction_container(container_, local_name_);
     }
 
+    // Grid-parallel reductions: the atomic copy-out now performs the cross-block
+    // merge, so demote each owning Reduce to a plain Map (the reduce dispatcher no
+    // longer handles this accumulator).
+    for (auto* reduce : grid_reduce_owners_) {
+        if (auto* parent = dynamic_cast<structured_control_flow::Sequence*>(reduce->get_parent())) {
+            builder.convert_reduce_to_map(*parent, *reduce);
+        }
+    }
+
     analysis_manager.invalidate_all();
 }
 
@@ -1165,18 +1234,82 @@ void LocalStorage::emit_private_copy(
         body = &builder.add_case(if_else, guard, loop_.debug_info());
     }
 
-    auto& block = builder.add_block(*body);
-    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
-    if (writeback) {
-        auto& src = builder.add_access(block, local_name_);
-        auto& dst = builder.add_access(block, container_);
-        builder.add_computational_memlet(block, src, tasklet, "_in", buffer_subset, buffer_type);
-        builder.add_computational_memlet(block, tasklet, "_out", dst, original_subset, pointer_type);
-    } else {
-        auto& src = builder.add_access(block, container_);
+    // Scalar element type of the accumulator (the container pointer's pointee).
+    const types::IType* scalar_type = &buffer_type;
+    if (auto* p = dynamic_cast<const types::Pointer*>(&pointer_type)) {
+        if (p->has_pointee_type()) {
+            scalar_type = &p->pointee_type();
+        }
+    }
+
+    if (writeback && atomic_merge_) {
+        // Atomically merge this block's partial into the global accumulator. Both
+        // edges into the atomic node carry no subset: stage the tile element into a
+        // scalar, and pre-offset the global slot via a reference memlet.
+        const std::string sched_val = grid_reduce_owners_.front()->schedule_type().value();
+        const data_flow::AtomicScalarOpImpl* impl;
+        if (sched_val == "CUDA_Offload") {
+            impl = data_flow::AtomicScalarOpCudaImpl::instance();
+        } else if (sched_val == "ROCM_Offload") {
+            impl = data_flow::AtomicScalarOpRocmImpl::instance();
+        } else {
+            impl = data_flow::AtomicScalarOpCPUImpl::instance();
+        }
+
+        if (!impl->supports(scalar_type->primitive_type(), data_flow::AtomicOpType::Add)) {
+            throw InvalidTransformationException(
+                "LocalStorage: atomic merge of type " +
+                std::string(types::primitive_type_to_string(scalar_type->primitive_type())) +
+                " not supported on impl " + std::string(impl->type_name())
+            );
+        }
+
+        auto val_name = builder.find_new_name("__daisy_atom_val_" + container_);
+        builder.add_container(val_name, *scalar_type);
+        auto& b1 = builder.add_block(*body);
+        auto& tile_src = builder.add_access(b1, local_name_);
+        auto& val_w = builder.add_access(b1, val_name);
+        auto& stage = builder.add_tasklet(b1, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(b1, tile_src, stage, "_in", buffer_subset, buffer_type);
+        builder.add_computational_memlet(b1, stage, "_out", val_w, {}, *scalar_type);
+
+        auto ptr_name = builder.find_new_name("__daisy_atom_ptr_" + container_);
+        builder.add_container(ptr_name, pointer_type);
+        auto& b2 = builder.add_block(*body);
+        auto& acc_src = builder.add_access(b2, container_);
+        auto& dref_w = builder.add_access(b2, ptr_name);
+        builder.add_reference_memlet(b2, acc_src, dref_w, original_subset, pointer_type);
+
+        auto& b3 = builder.add_block(*body);
+        auto& dref_r = builder.add_access(b3, ptr_name);
+        auto& val_r = builder.add_access(b3, val_name);
+        auto& node = builder.add_library_node<data_flow::AtomicScalarOpNode>(
+            b3, loop_.debug_info(), scalar_type->primitive_type(), data_flow::AtomicOpType::Add, impl
+        );
+        builder.add_computational_memlet(b3, dref_r, node, "_dst", {}, pointer_type);
+        builder.add_computational_memlet(b3, val_r, node, "_src", {}, *scalar_type);
+    } else if (!writeback && atomic_merge_) {
+        // Zero-init the per-block partial (it accumulates only this block's k-slice).
+        auto& block = builder.add_block(*body);
+        auto& zero = builder.add_constant(block, "0", *scalar_type);
         auto& dst = builder.add_access(block, local_name_);
-        builder.add_computational_memlet(block, src, tasklet, "_in", original_subset, pointer_type);
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        builder.add_computational_memlet(block, zero, tasklet, "_in", {}, *scalar_type);
         builder.add_computational_memlet(block, tasklet, "_out", dst, buffer_subset, buffer_type);
+    } else {
+        auto& block = builder.add_block(*body);
+        auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+        if (writeback) {
+            auto& src = builder.add_access(block, local_name_);
+            auto& dst = builder.add_access(block, container_);
+            builder.add_computational_memlet(block, src, tasklet, "_in", buffer_subset, buffer_type);
+            builder.add_computational_memlet(block, tasklet, "_out", dst, original_subset, pointer_type);
+        } else {
+            auto& src = builder.add_access(block, container_);
+            auto& dst = builder.add_access(block, local_name_);
+            builder.add_computational_memlet(block, src, tasklet, "_in", original_subset, pointer_type);
+            builder.add_computational_memlet(block, tasklet, "_out", dst, buffer_subset, buffer_type);
+        }
     }
 
     builder.move_children(scope, parent, index + 1);

@@ -11,6 +11,7 @@
 #include <symengine/real_double.h>
 #include "py_structured_sdfg.h"
 #include "sdfg/data_flow/access_node.h"
+#include "sdfg/data_flow/library_nodes/atomic_op_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/data_flow/library_nodes/math/cmath/cmath_node.h"
 #include "sdfg/data_flow/library_nodes/math/math.h"
@@ -865,6 +866,16 @@ void PyStructuredSDFGBuilder::add_free_block(const std::string& container, const
 void PyStructuredSDFGBuilder::add_barrier_local_block(const sdfg::DebugInfo& debug_info) {
     auto& block = builder_.add_block(current_sequence(), {}, debug_info);
     builder_.add_library_node<sdfg::data_flow::BarrierLocalNode>(block, debug_info);
+}
+
+sdfg::data_flow::LibraryNode& PyStructuredSDFGBuilder::add_atomic_accumulate(
+    Block& block, const std::string& data_type, const std::string& implementation_type, const sdfg::DebugInfo& debug_info
+) {
+    auto* impl = sdfg::data_flow::AtomicScalarOpNode::get_implementation(implementation_type);
+
+    return builder_.add_library_node<sdfg::data_flow::AtomicScalarOpNode>(
+        block, debug_info, sdfg::types::primitive_type_from_string(data_type), sdfg::data_flow::AtomicOpType::Add, impl
+    );
 }
 
 void PyStructuredSDFGBuilder::add_cuda_offloading_block(

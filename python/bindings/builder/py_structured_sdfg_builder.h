@@ -244,6 +244,14 @@ public:
     // Emits a block-local thread barrier (__syncthreads) into the current sequence.
     void add_barrier_local_block(const sdfg::DebugInfo& debug_info = sdfg::DebugInfo());
 
+    // Creates an atomic-accumulate library node (inputs `_dst` pointer + `_src` value/tile).
+    sdfg::data_flow::LibraryNode& add_atomic_accumulate(
+        sdfg::structured_control_flow::Block& block,
+        const std::string& data_type,
+        const std::string& implementation_type,
+        const sdfg::DebugInfo& debug_info = sdfg::DebugInfo()
+    );
+
     /**
      * @brief Add a CUDA data-offloading block (cudaMalloc/cudaMemcpy/cudaFree) to the current sequence
      * @param host_container Name of the host-side container

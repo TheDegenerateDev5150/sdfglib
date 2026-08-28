@@ -2346,6 +2346,47 @@ TEST(LocalStorageTest, CollectReductionOwners_AncestorRejects) {
     EXPECT_FALSE(LocalStorage::collect_reduction_owners(loop_k, "acc", am, owners));
 }
 
+// collect_reduction_owners: a grid-parallel (split-K Z_GRID) ancestor Reduce merges
+// per-block partials via an atomic writeback, so privatizing the per-block partial
+// into a register tile at an inner loop is permitted — and the reduce is NOT
+// retargeted (LocalStorage takes over the cross-block merge separately).
+TEST(LocalStorageTest, CollectReductionOwners_GridParallelAncestorAccepts) {
+    builder::StructuredSDFGBuilder builder("ls_collect_grid_ancestor", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+    builder.add_container("acc", ptr);
+
+    auto grid = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::Z_GRID, symbolic::integer(16));
+    auto& reduce_j = builder.add_reduce(
+        seq,
+        j,
+        symbolic::Lt(j, N),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        grid
+    );
+    auto& loop_k =
+        builder
+            .add_for(reduce_j.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+
+    analysis::AnalysisManager am(builder.subject());
+    std::vector<structured_control_flow::Reduce*> owners;
+    EXPECT_TRUE(LocalStorage::collect_reduction_owners(loop_k, "acc", am, owners));
+    EXPECT_TRUE(owners.empty());
+}
+
+
 // Accumulator privatization: a sequential Reduce over j accumulates y[iO*CY+iI]
 // (per-iO block). Localizing y at the Reduce loads the block once, accumulates in
 // a Private buffer, writes back once, and retargets the Reduce's descriptor to it
