@@ -6,7 +6,7 @@
 #include "sdfg/codegen/language_extensions/c_language_extension.h"
 #include "sdfg/codegen/language_extensions/cuda_language_extension.h"
 #include "sdfg/data_flow/library_node.h"
-#include "sdfg/data_flow/library_nodes/atomic_accumulate_node.h"
+#include "sdfg/data_flow/library_nodes/atomic_op_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 
 using namespace sdfg;
@@ -156,8 +156,12 @@ TEST(DataFlowDispatcherTest, DispatchAtomicAccumulateNode) {
     auto& block = builder.add_block(root);
     auto& dst = builder.add_access(block, "dst");
     auto& src = builder.add_access(block, "src");
-    auto& node = builder.add_library_node<sdfg::data_flow::AtomicAccumulateNode>(
-        block, DebugInfo(), sdfg::data_flow::ImplementationType_AtomicAccumulate_CUDA
+    auto& node = builder.add_library_node<sdfg::data_flow::AtomicScalarOpNode>(
+        block,
+        DebugInfo(),
+        types::PrimitiveType::Float,
+        data_flow::AtomicOpType::Add,
+        sdfg::data_flow::AtomicScalarOpCudaImpl::instance()
     );
     // No subset on either edge: dst is already offset, src is a scalar.
     builder.add_computational_memlet(block, dst, node, "_dst", {}, ptr);
@@ -182,7 +186,11 @@ TEST(DataFlowDispatcherTest, DispatchAtomicAccumulateNode) {
     EXPECT_EQ(out.find("[i]"), std::string::npos); // no subset addressing
 }
 
-TEST(DataFlowDispatcherTest, DispatchAtomicAccumulateNode_NestedArray) {
+TEST(DataFlowDispatcherTest, DISABLED_DispatchAtomicAccumulateNode_NestedArray) { // the Node is only for scalar. For
+                                                                                  // now LocalStorage handles the
+                                                                                  // iterating. In the future we plan to
+                                                                                  // have a eltwise version of this
+                                                                                  // again!
     builder::StructuredSDFGBuilder builder("sdfg_a", FunctionType_CPU);
     auto& sdfg = builder.subject();
     auto& root = sdfg.root();
@@ -198,8 +206,12 @@ TEST(DataFlowDispatcherTest, DispatchAtomicAccumulateNode_NestedArray) {
     auto& block = builder.add_block(root);
     auto& dst = builder.add_access(block, "dst");
     auto& src = builder.add_access(block, "src");
-    auto& node = builder.add_library_node<sdfg::data_flow::AtomicAccumulateNode>(
-        block, DebugInfo(), sdfg::data_flow::ImplementationType_AtomicAccumulate_CUDA
+    auto& node = builder.add_library_node<sdfg::data_flow::AtomicScalarOpNode>(
+        block,
+        DebugInfo(),
+        f.primitive_type(),
+        data_flow::AtomicOpType::Add,
+        sdfg::data_flow::AtomicScalarOpCudaImpl::instance()
     );
     builder.add_computational_memlet(block, dst, node, "_dst", {}, dst_ptr);
     builder.add_computational_memlet(block, src, node, "_src", {}, tile);

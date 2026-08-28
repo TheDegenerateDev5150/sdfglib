@@ -11,7 +11,7 @@
 #include "sdfg/analysis/memory_layout_analysis.h"
 #include "sdfg/analysis/pointer_analyzers.h"
 #include "sdfg/data_flow/library_node.h"
-#include "sdfg/data_flow/library_nodes/atomic_accumulate_node.h"
+#include "sdfg/data_flow/library_nodes/atomic_op_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/data_flow/pointer_metadata.h"
 #include "sdfg/data_flow/tasklet.h"
@@ -1247,8 +1247,22 @@ void LocalStorage::emit_private_copy(
         // edges into the atomic node carry no subset: stage the tile element into a
         // scalar, and pre-offset the global slot via a reference memlet.
         const std::string sched_val = grid_reduce_owners_.front()->schedule_type().value();
-        const auto impl = (sched_val == "ROCM_Offload") ? data_flow::ImplementationType_AtomicAccumulate_ROCM
-                                                        : data_flow::ImplementationType_AtomicAccumulate_CUDA;
+        const data_flow::AtomicScalarOpImpl* impl;
+        if (sched_val == "CUDA_Offload") {
+            impl = data_flow::AtomicScalarOpCudaImpl::instance();
+        } else if (sched_val == "ROCM_Offload") {
+            impl = data_flow::AtomicScalarOpRocmImpl::instance();
+        } else {
+            impl = data_flow::AtomicScalarOpCPUImpl::instance();
+        }
+
+        if (!impl->supports(scalar_type->primitive_type(), data_flow::AtomicOpType::Add)) {
+            throw InvalidTransformationException(
+                "LocalStorage: atomic merge of type " +
+                std::string(types::primitive_type_to_string(scalar_type->primitive_type())) +
+                " not supported on impl " + std::string(impl->type_name())
+            );
+        }
 
         auto val_name = builder.find_new_name("__daisy_atom_val_" + container_);
         builder.add_container(val_name, *scalar_type);
@@ -1269,7 +1283,9 @@ void LocalStorage::emit_private_copy(
         auto& b3 = builder.add_block(*body);
         auto& dref_r = builder.add_access(b3, ptr_name);
         auto& val_r = builder.add_access(b3, val_name);
-        auto& node = builder.add_library_node<data_flow::AtomicAccumulateNode>(b3, loop_.debug_info(), impl);
+        auto& node = builder.add_library_node<data_flow::AtomicScalarOpNode>(
+            b3, loop_.debug_info(), scalar_type->primitive_type(), data_flow::AtomicOpType::Add, impl
+        );
         builder.add_computational_memlet(b3, dref_r, node, "_dst", {}, pointer_type);
         builder.add_computational_memlet(b3, val_r, node, "_src", {}, *scalar_type);
     } else if (!writeback && atomic_merge_) {

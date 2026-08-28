@@ -987,6 +987,7 @@ PYBIND11_MODULE(_sdfg, m) {
             "add_atomic_accumulate",
             &PyStructuredSDFGBuilder::add_atomic_accumulate,
             py::arg("block"),
+            py::arg("data_type"),
             py::arg("implementation_type"),
             py::arg("debug_info") = sdfg::DebugInfo(),
             py::return_value_policy::reference,

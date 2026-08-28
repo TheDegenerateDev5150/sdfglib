@@ -138,7 +138,7 @@ def _emit_atomic(b, dev, fscalar, impl, src_index, slot):
     blk = b.add_block()
     dref_r = b.add_access(blk, "__daisy_dst_ptr")
     val_r = b.add_access(blk, "val")
-    node = b.add_atomic_accumulate(blk, impl)
+    node = b.add_atomic_accumulate(blk, "Float", impl)
     b.add_memlet(blk, dref_r, "", node, "_dst", "", dev)
     b.add_memlet(blk, val_r, "", node, "_src", "", fscalar)
 
@@ -183,6 +183,7 @@ def _compile_run(backend, b, tmp_path, name, args):
     sdfg.validate()
     output_dir = tmp_path / name
     output_dir.mkdir(parents=True, exist_ok=True)
+    sdfg.dump(str(output_dir), "built", True, True)
     lib_path = sdfg._compile(str(output_dir), backend.target)
 
     generated = "\n".join(p.read_text() for p in output_dir.rglob(backend.source_glob))

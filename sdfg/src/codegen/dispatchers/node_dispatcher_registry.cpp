@@ -10,7 +10,7 @@
 #include "sdfg/codegen/dispatchers/sequence_dispatcher.h"
 #include "sdfg/codegen/dispatchers/while_dispatcher.h"
 
-#include "sdfg/data_flow/library_nodes/atomic_accumulate_node.h"
+#include "sdfg/data_flow/library_nodes/atomic_op_node.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/data_flow/library_nodes/call_node.h"
 #include "sdfg/data_flow/library_nodes/invoke_node.h"
@@ -418,26 +418,43 @@ void register_default_dispatchers() {
         }
     );
 
-    // AtomicAccumulate: one dispatcher per implementation type (CUDA/ROCm/CPU).
-    for (const auto& impl :
-         {data_flow::ImplementationType_AtomicAccumulate_CUDA,
-          data_flow::ImplementationType_AtomicAccumulate_ROCM,
-          data_flow::ImplementationType_AtomicAccumulate_CPU}) {
-        LibraryNodeDispatcherRegistry::instance().register_library_node_dispatcher(
-            data_flow::LibraryNodeType_AtomicAccumulate.value() + "::" + impl.value(),
-            [](LanguageExtension& language_extension,
-               const Function& function,
-               const data_flow::DataFlowGraph& data_flow_graph,
-               const data_flow::LibraryNode& node) {
-                return std::make_unique<data_flow::AtomicAccumulateNodeDispatcher>(
-                    language_extension,
-                    function,
-                    data_flow_graph,
-                    dynamic_cast<const data_flow::AtomicAccumulateNode&>(node)
-                );
-            }
-        );
-    }
+
+    auto& libNodeRegistry = LibraryNodeDispatcherRegistry::instance();
+    libNodeRegistry.register_library_node_dispatcher(
+        data_flow::LibraryNodeType_AtomicScalarOp.value() + "::" + data_flow::AtomicScalarOpCPUImpl::TYPE_NAME,
+        [](LanguageExtension& language_extension,
+           const Function& function,
+           const data_flow::DataFlowGraph& data_flow_graph,
+           const data_flow::LibraryNode& node) {
+            return std::make_unique<data_flow::AtomicScalarOpCPUNodeDispatcher>(
+                language_extension, function, data_flow_graph, dynamic_cast<const data_flow::AtomicScalarOpNode&>(node)
+            );
+        }
+    );
+
+    libNodeRegistry.register_library_node_dispatcher(
+        data_flow::LibraryNodeType_AtomicScalarOp.value() + "::" + data_flow::AtomicScalarOpCudaImpl::TYPE_NAME,
+        [](LanguageExtension& language_extension,
+           const Function& function,
+           const data_flow::DataFlowGraph& data_flow_graph,
+           const data_flow::LibraryNode& node) {
+            return std::make_unique<data_flow::AtomicScalarOpGPUNodeDispatcher>(
+                language_extension, function, data_flow_graph, dynamic_cast<const data_flow::AtomicScalarOpNode&>(node)
+            );
+        }
+    );
+
+    libNodeRegistry.register_library_node_dispatcher(
+        data_flow::LibraryNodeType_AtomicScalarOp.value() + "::" + data_flow::AtomicScalarOpRocmImpl::TYPE_NAME,
+        [](LanguageExtension& language_extension,
+           const Function& function,
+           const data_flow::DataFlowGraph& data_flow_graph,
+           const data_flow::LibraryNode& node) {
+            return std::make_unique<data_flow::AtomicScalarOpGPUNodeDispatcher>(
+                language_extension, function, data_flow_graph, dynamic_cast<const data_flow::AtomicScalarOpNode&>(node)
+            );
+        }
+    );
 
     // Metadata
     LibraryNodeDispatcherRegistry::instance().register_library_node_dispatcher(
