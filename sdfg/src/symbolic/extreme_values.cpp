@@ -6,7 +6,9 @@
 #include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "symengine/basic.h"
+#include "symengine/constants.h"
 #include "symengine/functions.h"
+#include "symengine/mul.h"
 #include "symengine/number.h"
 
 namespace sdfg {
@@ -515,6 +517,20 @@ Interval BoundAnalysis::visit_mul(const SymEngine::RCP<const SymEngine::Mul>& mu
 // Add — polynomial normalization + sign-aware affine bounding
 // ============================================================================
 
+// True if `expr` contains any FunctionSymbol (idiv, imod, zext_i64, trunc_i32).
+// Such terms are opaque to the polynomial/affine machinery.
+static bool contains_function_symbol(const SymEngine::RCP<const SymEngine::Basic>& expr) {
+    if (SymEngine::is_a<SymEngine::FunctionSymbol>(*expr)) {
+        return true;
+    }
+    for (const auto& arg : expr->get_args()) {
+        if (contains_function_symbol(arg)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Interval BoundAnalysis::visit_add(const SymEngine::RCP<const SymEngine::Add>& add_expr, size_t depth) {
     const auto& args = add_expr->get_args();
 
@@ -525,37 +541,128 @@ Interval BoundAnalysis::visit_add(const SymEngine::RCP<const SymEngine::Add>& ad
     // the min-arg with i's upper and mins the outside `-i` with i's lower). Push
     // the remaining addends into the extremum's args so the cancellation happens
     // structurally, then bound the rewrite. Handle exactly one top-level Min/Max
-    // addend (the tile-bound shape); fall through if it doesn't tighten.
+    // addend, possibly scaled by a constant (a subtracted `min` appears as
+    // `(-1)*min(...)`, and negation flips min<->max); fall through if it doesn't
+    // tighten. This is the shape of tile-coverage boundary guards
+    // (`i + idiv(c,B) - min(N, k+i, ...)`).
     {
         SymEngine::RCP<const SymEngine::Basic> extremum;
         bool is_min = false;
+        long long coeff = 1;
         size_t extremum_count = 0;
         Expression rest = symbolic::zero();
-        for (const auto& a : args) {
+        auto classify = [](const SymEngine::RCP<const SymEngine::Basic>& a,
+                           SymEngine::RCP<const SymEngine::Basic>& ext,
+                           bool& ext_is_min,
+                           long long& ext_coeff) {
             if (SymEngine::is_a<SymEngine::Min>(*a)) {
-                extremum = a;
-                is_min = true;
-                ++extremum_count;
-            } else if (SymEngine::is_a<SymEngine::Max>(*a)) {
-                extremum = a;
-                is_min = false;
+                ext = a;
+                ext_is_min = true;
+                ext_coeff = 1;
+                return true;
+            }
+            if (SymEngine::is_a<SymEngine::Max>(*a)) {
+                ext = a;
+                ext_is_min = false;
+                ext_coeff = 1;
+                return true;
+            }
+            if (SymEngine::is_a<SymEngine::Mul>(*a)) {
+                auto mul = SymEngine::rcp_static_cast<const SymEngine::Mul>(a);
+                const auto& dict = mul->get_dict();
+                if (dict.size() == 1 && SymEngine::is_a<SymEngine::Integer>(*mul->get_coef()) &&
+                    SymEngine::eq(*dict.begin()->second, *SymEngine::one)) {
+                    const auto& base = dict.begin()->first;
+                    if (SymEngine::is_a<SymEngine::Min>(*base) || SymEngine::is_a<SymEngine::Max>(*base)) {
+                        ext = base;
+                        ext_is_min = SymEngine::is_a<SymEngine::Min>(*base);
+                        ext_coeff = SymEngine::rcp_static_cast<const SymEngine::Integer>(mul->get_coef())->as_int();
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        for (const auto& a : args) {
+            SymEngine::RCP<const SymEngine::Basic> ext;
+            bool ext_is_min = false;
+            long long ext_coeff = 1;
+            if (classify(a, ext, ext_is_min, ext_coeff)) {
+                extremum = ext;
+                is_min = ext_is_min;
+                coeff = ext_coeff;
                 ++extremum_count;
             } else {
                 rest = symbolic::add(rest, a);
             }
         }
-        if (extremum_count == 1 && !symbolic::eq(rest, symbolic::zero())) {
+        if (extremum_count == 1 && coeff != 0 && !symbolic::eq(rest, symbolic::zero())) {
+            // Negative scaling flips min<->max (translation-and-scaling invariance).
+            bool result_is_min = (coeff > 0) ? is_min : !is_min;
+            auto coeff_expr = symbolic::integer(coeff);
             Expression distributed = SymEngine::null;
             for (const auto& m : extremum->get_args()) {
-                auto shifted = symbolic::add(m, rest);
+                auto shifted = symbolic::add(symbolic::mul(coeff_expr, m), rest);
                 distributed = distributed.is_null() ? shifted
-                                                    : (is_min ? symbolic::min(distributed, shifted)
-                                                              : symbolic::max(distributed, shifted));
+                                                    : (result_is_min ? symbolic::min(distributed, shifted)
+                                                                     : symbolic::max(distributed, shifted));
             }
             if (!distributed.is_null()) {
                 auto iv = visit(distributed, depth + 1);
                 if (iv.has_lower() || iv.has_upper()) {
                     return iv;
+                }
+            }
+        }
+    }
+
+    // Separable opaque atoms: split the sum into an affine-in-loop-vars part and
+    // an opaque part (containing idiv/imod/... function symbols) over *disjoint*
+    // variables, bound each independently, and add the intervals. A single
+    // polynomial over both would treat the opaque term's inner variable (e.g. the
+    // cooperative index in `idiv(coop, 64)`) as a generator, degenerate to degree
+    // 0, and fall back to per-term bounding that drops coupled-constraint
+    // tightening on the affine part. Disjoint variable sets make the interval
+    // sum exact; sound regardless (an over-approximation otherwise).
+    {
+        Expression affine_sum = symbolic::zero();
+        Expression opaque_sum = symbolic::zero();
+        bool has_affine = false;
+        bool has_opaque = false;
+        SymbolSet affine_syms;
+        SymbolSet opaque_syms;
+        for (const auto& a : args) {
+            if (contains_function_symbol(a)) {
+                opaque_sum = symbolic::add(opaque_sum, a);
+                has_opaque = true;
+                for (const auto& s : atoms(a)) {
+                    opaque_syms.insert(s);
+                }
+            } else {
+                affine_sum = symbolic::add(affine_sum, a);
+                has_affine = true;
+                for (const auto& s : atoms(a)) {
+                    affine_syms.insert(s);
+                }
+            }
+        }
+        if (has_affine && has_opaque) {
+            bool disjoint = true;
+            for (const auto& s : opaque_syms) {
+                if (affine_syms.find(s) != affine_syms.end()) {
+                    disjoint = false;
+                    break;
+                }
+            }
+            if (disjoint) {
+                auto iv_a = visit(affine_sum, depth + 1);
+                auto iv_o = visit(opaque_sum, depth + 1);
+                Expression lb = (iv_a.has_lower() && iv_o.has_lower()) ? symbolic::add(iv_a.lower, iv_o.lower)
+                                                                       : Expression(SymEngine::null);
+                Expression ub = (iv_a.has_upper() && iv_o.has_upper()) ? symbolic::add(iv_a.upper, iv_o.upper)
+                                                                       : Expression(SymEngine::null);
+                if (!lb.is_null() || !ub.is_null()) {
+                    return {lb, ub};
                 }
             }
         }

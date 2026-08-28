@@ -12,6 +12,7 @@
 #include <sdfg/serializer/json_serializer.h>
 #include <sdfg/structured_control_flow/control_flow_node.h>
 #include <sdfg/structured_control_flow/map.h>
+#include <sdfg/symbolic/extreme_values.h>
 #include <sdfg/symbolic/symbolic.h>
 #include <sdfg/types/type.h>
 #include <sdfg/visitor/structured_sdfg_visitor.h>
@@ -328,7 +329,45 @@ void GPUOffloadMapDispatcher::dispatch_kernel_body(
 
 
     // Boundary Conditions
-    if (!gpu::ScheduleType_GPU_Offload::nested_sync(node_.schedule_type())) {
+    // The coverage loop maps indvar to `init + stride*(coverage*dim + idx)`. A
+    // partial final wave (some threads overshoot the trip) exists ONLY when the
+    // trip count is not a whole multiple of the parallel size. When
+    // `trip % parallel_size == 0` every generated index is in range, so the loop
+    // condition holds for all threads and the per-thread guard is redundant —
+    // dropping it lets the body's cooperative loads/stores vectorize instead of
+    // sitting under a predicate. WARP level is excluded (its sequential coverage
+    // is handled separately). Sound: only fires on compile-time-constant trips.
+    bool guard_redundant = false;
+    if (target_level != TargetLevel::WARP) {
+        auto psize = gpu::ScheduleType_GPU_Offload::parallel_size(node_.schedule_type());
+        if (!psize.is_null() && SymEngine::is_a<SymEngine::Integer>(*psize)) {
+            auto p = SymEngine::rcp_static_cast<const SymEngine::Integer>(psize)->as_int();
+            if (p > 0) {
+                // Resolve the trip to a constant. Tile maps have a symbolic
+                // `min(N, base+block)` trip that the assumptions collapse to a
+                // constant (e.g. 16) once the parent tile's bound is known (the
+                // coupled `min(...)-base` cancellation lives in BoundAnalysis).
+                auto trip = node_.num_iterations();
+                long long t = -1;
+                if (!trip.is_null() && SymEngine::is_a<SymEngine::Integer>(*trip)) {
+                    t = SymEngine::rcp_static_cast<const SymEngine::Integer>(trip)->as_int();
+                } else if (!trip.is_null()) {
+                    auto& aa = analysis_manager_.get<analysis::AssumptionsAnalysis>();
+                    const auto& assums = aa.get(node_.root(), true);
+                    const auto& params = aa.parameters();
+                    auto mx = symbolic::maximum(trip, params, assums, true);
+                    auto mn = symbolic::minimum(trip, params, assums, true);
+                    if (!mx.is_null() && !mn.is_null() && symbolic::eq(mx, mn) &&
+                        SymEngine::is_a<SymEngine::Integer>(*mx)) {
+                        t = SymEngine::rcp_static_cast<const SymEngine::Integer>(mx)->as_int();
+                    }
+                }
+                guard_redundant = (t >= 0 && t % p == 0);
+            }
+        }
+    }
+    bool emit_guard = !gpu::ScheduleType_GPU_Offload::nested_sync(node_.schedule_type()) && !guard_redundant;
+    if (emit_guard) {
         library_stream << "if (" << kernel_language_extension.expression(node_.condition()) << ") {" << std::endl;
         library_stream.setIndent(library_stream.indent() + 4);
     }
@@ -348,7 +387,7 @@ void GPUOffloadMapDispatcher::dispatch_kernel_body(
         }
     }
 
-    if (!gpu::ScheduleType_GPU_Offload::nested_sync(node_.schedule_type())) {
+    if (emit_guard) {
         library_stream.setIndent(library_stream.indent() - 4);
         library_stream << "}" << std::endl;
     }

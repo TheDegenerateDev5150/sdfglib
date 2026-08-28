@@ -1123,3 +1123,50 @@ TEST(ExtremeValuesTest, Polynomial_DegenerateIDivImod_RejectedAndArgwiseBounds) 
     // idiv(7, 2) + (2 - 1) = 3 + 1 = 4
     EXPECT_TRUE(symbolic::is_true(symbolic::Le(max, symbolic::integer(4))));
 }
+
+// The hot cooperative-load boundary guard from the tiled GEMM kernel:
+//   it1 + idiv(coop, 64) <= min(1023, min(3 + it1, 63 + it0))
+// with it0 in [0, 960] (grid tile, stride 64), it1 in [it0, it0 + 60] (block
+// tile, stride 4, coupled it1 - it0 <= 60), and coop in [0, 255] (256 slots).
+// The guard is ALWAYS true (interior + ragged): idiv(coop,64) <= 3, and
+// it1 + 3 <= 3 + it1, <= 63 + it0 (it1-it0<=60), <= 1023 (it1<=1020). Proving
+// it lets the dispatcher drop the guard so the coop load vectorizes.
+TEST(InequalityProofs, CoopLoadBoundaryGuard_A_Provable) {
+    auto it0 = symbolic::symbol("it0");
+    auto it1 = symbolic::symbol("it1");
+    auto coop = symbolic::symbol("coop");
+
+    symbolic::Assumption a_it0(it0);
+    a_it0.add_lower_bound(symbolic::integer(0));
+    a_it0.add_upper_bound(symbolic::integer(960));
+    a_it0.tight_lower_bound(symbolic::integer(0));
+    a_it0.tight_upper_bound(symbolic::integer(960));
+    a_it0.map(symbolic::add(it0, symbolic::integer(64)));
+
+    symbolic::Assumption a_it1(it1);
+    a_it1.add_lower_bound(it0);
+    a_it1.add_upper_bound(symbolic::add(it0, symbolic::integer(60)));
+    a_it1.tight_lower_bound(it0);
+    a_it1.tight_upper_bound(symbolic::add(it0, symbolic::integer(60)));
+    a_it1.add_constraint(symbolic::sub(symbolic::sub(it1, it0), symbolic::integer(60)));
+    a_it1.map(symbolic::add(it1, symbolic::integer(4)));
+
+    symbolic::Assumption a_coop(coop);
+    a_coop.add_lower_bound(symbolic::integer(0));
+    a_coop.add_upper_bound(symbolic::integer(255));
+    a_coop.tight_lower_bound(symbolic::integer(0));
+    a_coop.tight_upper_bound(symbolic::integer(255));
+    a_coop.map(symbolic::add(coop, symbolic::integer(1)));
+
+    symbolic::Assumptions assums;
+    assums.insert({it0, a_it0});
+    assums.insert({it1, a_it1});
+    assums.insert({coop, a_coop});
+
+    auto lhs = symbolic::add(it1, symbolic::div(coop, symbolic::integer(64)));
+    auto rhs = symbolic::
+        min(symbolic::integer(1023),
+            symbolic::min(symbolic::add(symbolic::integer(3), it1), symbolic::add(symbolic::integer(63), it0)));
+
+    EXPECT_TRUE(symbolic::is_le(lhs, rhs, {}, assums, true));
+}

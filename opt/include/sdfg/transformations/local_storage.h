@@ -438,12 +438,19 @@ private:
     /// Element-predicate a global copy: AND over varying dims of `base[d] +
     /// tile_index <= maxes[d]`, so the over-approximated tile skips out-of-bounds
     /// global elements. @p tile_indices are per varying dim. boolTrue if unbounded.
-    symbolic::Condition boundary_guard(const data_flow::Subset& tile_indices) const;
+    /// Conjuncts provably always-true under @p assums (given @p params) are
+    /// dropped, so a fully-covering tile emits no guard at all.
+    symbolic::Condition boundary_guard(
+        const data_flow::Subset& tile_indices,
+        const symbolic::SymbolSet& params = {},
+        const symbolic::Assumptions& assums = {}
+    ) const;
 
     /// Private/CPU path: a nested sequential copy nest around the loop (copy-in
     /// when @p writeback is false, copy-out when true).
     void emit_private_copy(
         builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
         structured_control_flow::Sequence& parent,
         const TileBuffer& buffer,
         const types::IType& buffer_type,
@@ -457,6 +464,7 @@ private:
     /// @p leading_barrier adds a pre-copy barrier for re-staged (per-thread) tiles.
     void emit_cooperative_copy_in(
         builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
         structured_control_flow::Sequence& parent,
         const TileBuffer& buffer,
         const types::IType& buffer_type,

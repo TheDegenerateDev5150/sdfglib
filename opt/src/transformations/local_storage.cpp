@@ -6,6 +6,7 @@
 #include <functional>
 #include <unordered_set>
 
+#include "sdfg/analysis/assumptions_analysis.h"
 #include "sdfg/analysis/base_user_visitor.h"
 #include "sdfg/analysis/loop_analysis.h"
 #include "sdfg/analysis/memory_layout_analysis.h"
@@ -22,6 +23,7 @@
 #include "sdfg/structured_control_flow/sequence.h"
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/structured_sdfg.h"
+#include "sdfg/symbolic/extreme_values.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
 #include "sdfg/targets/gpu/gpu_offload_schedule_type.h"
 #include "sdfg/targets/gpu/gpu_schedule_type.h"
@@ -34,6 +36,33 @@ namespace sdfg {
 namespace transformations {
 
 namespace {
+
+// Assumptions for discharging a copy's boundary guard: the enclosing scope's
+// assumptions (tile-tight bounds + coupled constraints on the grid/block
+// indvars) plus the freshly-created copy indvars pinned to their own [0, size-1]
+// range. `is_le` then proves `base + idx <= max` for a fully-covering tile.
+symbolic::Assumptions build_copy_discharge_assumptions(
+    analysis::AnalysisManager& analysis_manager,
+    structured_control_flow::ControlFlowNode& scope,
+    const std::vector<symbolic::Expression>& indvars,
+    const std::vector<symbolic::Expression>& inclusive_uppers
+) {
+    auto& aa = analysis_manager.get<analysis::AssumptionsAnalysis>();
+    symbolic::Assumptions assums = aa.get(scope, /*include_trivial_bounds=*/true);
+    for (size_t i = 0; i < indvars.size() && i < inclusive_uppers.size(); ++i) {
+        if (!SymEngine::is_a<SymEngine::Symbol>(*indvars[i]) || inclusive_uppers[i].is_null()) {
+            continue;
+        }
+        auto sym = SymEngine::rcp_static_cast<const SymEngine::Symbol>(indvars[i]);
+        symbolic::Assumption a(sym);
+        a.add_lower_bound(symbolic::integer(0));
+        a.tight_lower_bound(symbolic::integer(0));
+        a.add_upper_bound(inclusive_uppers[i]);
+        a.tight_upper_bound(inclusive_uppers[i]);
+        assums.insert_or_assign(sym, a);
+    }
+    return assums;
+}
 
 /// Build the nested-array buffer type `elem[axes[0]][axes[1]]...` (outermost
 /// first). Only the outermost array carries @p storage; the inner arrays and the
@@ -1136,14 +1165,16 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
             // A per-thread slot prefix means the shared row is re-staged per kernel
             // coverage iteration, so guard it with a leading barrier too.
             bool leading_barrier = !slot_indices.empty();
-            emit_cooperative_copy_in(builder, *parent, buffer, buffer_type, pointer_type, slot_indices, leading_barrier);
+            emit_cooperative_copy_in(
+                builder, analysis_manager, *parent, buffer, buffer_type, pointer_type, slot_indices, leading_barrier
+            );
         }
     } else {
         if (needs_copy_in()) {
-            emit_private_copy(builder, *parent, buffer, buffer_type, pointer_type, /*writeback=*/false);
+            emit_private_copy(builder, analysis_manager, *parent, buffer, buffer_type, pointer_type, /*writeback=*/false);
         }
         if (needs_copy_out()) {
-            emit_private_copy(builder, *parent, buffer, buffer_type, pointer_type, /*writeback=*/true);
+            emit_private_copy(builder, analysis_manager, *parent, buffer, buffer_type, pointer_type, /*writeback=*/true);
         }
     }
 
@@ -1168,10 +1199,15 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     analysis_manager.invalidate_all();
 }
 
-symbolic::Condition LocalStorage::boundary_guard(const data_flow::Subset& tile_indices) const {
+symbolic::Condition LocalStorage::boundary_guard(
+    const data_flow::Subset& tile_indices, const symbolic::SymbolSet& params, const symbolic::Assumptions& assums
+) const {
     // Compare each delinearized global index (base[d] + tile_index) against the
     // tile's max valid index maxes[d]. tile_indices are per varying dim, aligned
     // with varying_dims(); degenerate (extent-1) dims sit at their base <= max.
+    // A conjunct provably always true under the assumptions (a fully-covering
+    // tile: `base + idx <= max` holds for every idx) is dropped — sound, and it
+    // lets an interior copy vectorize instead of sitting under a predicate.
     symbolic::Condition guard = SymEngine::boolTrue;
     auto vdims = tile_info_.varying_dims();
     for (size_t v = 0; v < vdims.size() && v < tile_indices.size(); ++v) {
@@ -1180,6 +1216,9 @@ symbolic::Condition LocalStorage::boundary_guard(const data_flow::Subset& tile_i
             continue;
         }
         auto global_d = symbolic::add(tile_info_.bases[d], tile_indices[v]);
+        if (!assums.empty() && symbolic::is_le(global_d, tile_info_.maxes[d], params, assums, /*tight=*/true)) {
+            continue;
+        }
         guard = symbolic::And(guard, symbolic::Le(global_d, tile_info_.maxes[d]));
     }
     return guard;
@@ -1187,6 +1226,7 @@ symbolic::Condition LocalStorage::boundary_guard(const data_flow::Subset& tile_i
 
 void LocalStorage::emit_private_copy(
     builder::StructuredSDFGBuilder& builder,
+    analysis::AnalysisManager& analysis_manager,
     structured_control_flow::Sequence& parent,
     const TileBuffer& buffer,
     const types::IType& buffer_type,
@@ -1226,8 +1266,15 @@ void LocalStorage::emit_private_copy(
     // Element-predicate the global access: the over-approximated tile may address
     // out-of-bounds global memory on ragged blocks. Skip those elements (the
     // buffer slots they'd fill are never consumed — the compute's own boundary
-    // handling guards them).
-    auto guard = boundary_guard(indvars);
+    // handling guards them). Provably in-bounds conjuncts (a fully-covering tile)
+    // are dropped so the interior copy vectorizes.
+    std::vector<symbolic::Expression> incl_uppers;
+    for (const auto& s : varying_dim_sizes) {
+        incl_uppers
+            .push_back(s.is_null() ? symbolic::Expression(SymEngine::null) : symbolic::sub(s, symbolic::integer(1)));
+    }
+    auto discharge = build_copy_discharge_assumptions(analysis_manager, parent, indvars, incl_uppers);
+    auto guard = boundary_guard(indvars, analysis_manager.get<analysis::AssumptionsAnalysis>().parameters(), discharge);
     structured_control_flow::Sequence* body = current;
     if (!symbolic::is_true(guard)) {
         auto& if_else = builder.add_if_else(*current, loop_.debug_info());
@@ -1318,6 +1365,7 @@ void LocalStorage::emit_private_copy(
 
 void LocalStorage::emit_cooperative_copy_in(
     builder::StructuredSDFGBuilder& builder,
+    analysis::AnalysisManager& analysis_manager,
     structured_control_flow::Sequence& parent,
     const TileBuffer& buffer,
     const types::IType& buffer_type,
@@ -1361,8 +1409,19 @@ void LocalStorage::emit_cooperative_copy_in(
 
     // Element-predicate the cooperative global read so ragged blocks never read
     // out-of-bounds; skipped slots are never consumed (guarded by the compute).
+    // Provably in-bounds conjuncts (a fully-covering tile) are dropped so the hot
+    // cooperative load vectorizes instead of running under a predicate.
     data_flow::Subset coop_original = tile_info_.original_subset(decomp);
-    auto coop_guard = boundary_guard(decomp);
+    std::vector<symbolic::Expression> coop_uppers;
+    {
+        auto total = buffer.tile_total_size();
+        coop_uppers.push_back(
+            total.is_null() ? symbolic::Expression(SymEngine::null) : symbolic::sub(total, symbolic::integer(1))
+        );
+    }
+    auto coop_discharge = build_copy_discharge_assumptions(analysis_manager, parent, {c}, coop_uppers);
+    auto coop_guard =
+        boundary_guard(decomp, analysis_manager.get<analysis::AssumptionsAnalysis>().parameters(), coop_discharge);
     structured_control_flow::Sequence* coop_body = &copy_map.root();
     if (!symbolic::is_true(coop_guard)) {
         auto& if_else = builder.add_if_else(copy_map.root(), loop_.debug_info());
