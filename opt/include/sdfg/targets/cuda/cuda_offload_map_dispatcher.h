@@ -48,6 +48,13 @@ public:
         codegen::ArgCapturePlan& arg_capture_plan
     );
 
+    void dispatch_kernel_preamble(
+        codegen::PrettyPrinter& library_stream,
+        analysis::AnalysisManager& analysis_manager,
+        const std::string& kernel_name,
+        std::vector<std::string>& arguments_declaration
+    ) override;
+
     void dispatch_kernel_launch_error_check(
         codegen::PrettyPrinter& stream, const codegen::LanguageExtension& language_extension, bool instrumented
     ) override;

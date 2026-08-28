@@ -52,7 +52,7 @@ protected:
         std::vector<std::string>& arguments_device
     ) = 0;
 
-    void dispatch_kernel_preamble(
+    virtual void dispatch_kernel_preamble(
         codegen::PrettyPrinter& library_stream,
         analysis::AnalysisManager& analysis_manager,
         const std::string& kernel_name,
