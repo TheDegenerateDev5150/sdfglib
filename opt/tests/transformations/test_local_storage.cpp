@@ -3077,11 +3077,12 @@ TEST(LocalStorageTest, Apply_Cooperative_Mixed) {
 
     auto buf = xform.local_container();
     ASSERT_TRUE(builder.subject().exists(buf));
-    // Buffer = [slot(BM=8)] x [padded per-slot block]: tile 16 -> 17 (coprime with
-    // 32) to avoid shared-memory bank conflicts.
+    // Buffer = [slot(BM=8)] x [padded per-slot block]. The coop axis (j) contributes
+    // 4 threads per warp, so the inner stride is padded to 16 -> 36 (== 4 mod 32) to
+    // make the cooperative `[slot][coop]` stores bank-conflict-free.
     EXPECT_TRUE(builder.subject().type(buf).storage_type().is_nv_shared());
     EXPECT_TRUE(
-        builder.subject().type(buf) == types::Array(types::Array(elem, symbolic::integer(17)), symbolic::integer(8))
+        builder.subject().type(buf) == types::Array(types::Array(elem, symbolic::integer(36)), symbolic::integer(8))
     );
 
     // The cooperative map body is [leading barrier, copy_map, trailing barrier, k-loop].
@@ -3167,11 +3168,12 @@ TEST(LocalStorageTest, Apply_Cooperative_Mixed_CoopOuter) {
 
     auto buf = xform.local_container();
     ASSERT_TRUE(builder.subject().exists(buf));
-    // Buffer = [slot(i width = 8)] x [padded per-slot block]: tile 16 -> 17 (coprime
-    // with 32) to avoid shared-memory bank conflicts.
+    // Buffer = [slot(i width = 8)] x [padded per-slot block]. The coop axis (j)
+    // contributes 4 threads per warp, so the inner stride is padded to 16 -> 36
+    // (== 4 mod 32) to make the cooperative `[slot][coop]` stores conflict-free.
     EXPECT_TRUE(builder.subject().type(buf).storage_type().is_nv_shared());
     EXPECT_TRUE(
-        builder.subject().type(buf) == types::Array(types::Array(elem, symbolic::integer(17)), symbolic::integer(8))
+        builder.subject().type(buf) == types::Array(types::Array(elem, symbolic::integer(36)), symbolic::integer(8))
     );
 
     // The copy sits in the immediately-enclosing (per-thread) map's body:

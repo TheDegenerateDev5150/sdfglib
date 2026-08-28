@@ -445,6 +445,24 @@ bool is_gpu_schedule(const structured_control_flow::ScheduleType& schedule) {
            schedule.value() == "ROCM";
 }
 
+template<>
+int64_t gpu_warp_size<cuda::ScheduleType_CUDA_Offload>() {
+    return cuda::CUDA_WARP_SIZE;
+}
+
+template<>
+int64_t gpu_warp_size<rocm::ScheduleType_ROCM_Offload>() {
+    return rocm::ROCM_WARP_SIZE;
+}
+
+int64_t gpu_warp_size(const structured_control_flow::ScheduleType& schedule) {
+    if (schedule.value() == rocm::ScheduleType_ROCM_Offload::value() ||
+        schedule.value() == rocm::ScheduleType_ROCM::value()) {
+        return rocm::ROCM_WARP_SIZE;
+    }
+    return cuda::CUDA_WARP_SIZE;
+}
+
 // Explicit template instantiations for CUDA
 template symbolic::Expression find_nested_gpu_blocksize<cuda::ScheduleType_CUDA>(
     structured_control_flow::Map& node, analysis::AnalysisManager& analysis_manager, GPUDimension dimension

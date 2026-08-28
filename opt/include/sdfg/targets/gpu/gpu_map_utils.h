@@ -15,10 +15,12 @@ namespace sdfg {
 // Forward declarations for explicit template instantiation
 namespace cuda {
 class ScheduleType_CUDA;
-}
+class ScheduleType_CUDA_Offload;
+} // namespace cuda
 namespace rocm {
 class ScheduleType_ROCM;
-}
+class ScheduleType_ROCM_Offload;
+} // namespace rocm
 
 namespace gpu {
 
@@ -84,6 +86,20 @@ symbolic::SymbolSet get_gpu_indvars(
  * @brief Check if a schedule type is a GPU schedule (CUDA or ROCM)
  */
 bool is_gpu_schedule(const structured_control_flow::ScheduleType& schedule);
+
+// Warp/wavefront size of the target, mirroring the offload dispatchers'
+// get_warp_size() (cuda::CUDA_WARP_SIZE / rocm::ROCM_WARP_SIZE).
+template<typename GPUType>
+int64_t gpu_warp_size();
+
+template<>
+int64_t gpu_warp_size<cuda::ScheduleType_CUDA_Offload>();
+template<>
+int64_t gpu_warp_size<rocm::ScheduleType_ROCM_Offload>();
+
+// Runtime variant dispatching on an offload schedule's target (defaults to the
+// CUDA warp size for any non-ROCm schedule).
+int64_t gpu_warp_size(const structured_control_flow::ScheduleType& schedule);
 
 /**
  * @brief Get all GPU Map nodes in a given dimension (in tree traversal order).

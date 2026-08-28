@@ -22,21 +22,6 @@ namespace transformations {
 
 namespace {
 
-// Warp/wavefront size of the target, mirroring the offload dispatchers'
-// get_warp_size() (cuda::CUDA_WARP_SIZE / rocm::ROCM_WARP_SIZE).
-template<typename GPUType>
-int64_t gpu_warp_size();
-
-template<>
-int64_t gpu_warp_size<cuda::ScheduleType_CUDA_Offload>() {
-    return cuda::CUDA_WARP_SIZE;
-}
-
-template<>
-int64_t gpu_warp_size<rocm::ScheduleType_ROCM_Offload>() {
-    return rocm::ROCM_WARP_SIZE;
-}
-
 // Probes how a reduction accumulator is accessed across a reduce body. It reuses the
 // shared user-visitor traversal, which descends into IfElse branches, While/loop and
 // library-node bodies, so no access is missed. (An ad-hoc walk over only
@@ -164,7 +149,7 @@ bool GPUOffloadNestedLoop<
         }
     } else if (target_level_ == gpu::TargetLevel::WARP) {
         // WARP dimension must equal the target's warp/wavefront size.
-        if (parallel_size_->as_int() != gpu_warp_size<GPUType>()) {
+        if (parallel_size_->as_int() != gpu::gpu_warp_size<GPUType>()) {
             return false;
         }
     } else {
@@ -248,7 +233,7 @@ bool GPUOffloadNestedLoop<
     }
 
     // Condition: num threads >= warp size
-    if (target_level_ == gpu::TargetLevel::WARP && block_product < gpu_warp_size<GPUType>()) {
+    if (target_level_ == gpu::TargetLevel::WARP && block_product < gpu::gpu_warp_size<GPUType>()) {
         return false;
     }
 
