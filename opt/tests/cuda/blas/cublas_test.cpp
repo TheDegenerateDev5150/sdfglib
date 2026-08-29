@@ -158,53 +158,45 @@ TEST(CuBlasTest, GemmNodeWithDataTransfers) {
     EXPECT_EQ(sdfg.root().size(), 1);
     auto new_sequence = dyn_cast<structured_control_flow::Sequence*>(&sdfg.root().at(0));
     EXPECT_NE(new_sequence, nullptr);
+    // beta == 1: the init nest is skipped, leaving only the compute nest.
+    ASSERT_EQ(new_sequence->size(), 1);
 
-    auto map_1 = dyn_cast<structured_control_flow::Map*>(&new_sequence->at(0));
-    EXPECT_NE(map_1, nullptr);
-    EXPECT_EQ(map_1->root().size(), 1);
+    auto comp_map_i = dyn_cast<structured_control_flow::Map*>(&new_sequence->at(0));
+    ASSERT_NE(comp_map_i, nullptr);
+    EXPECT_EQ(comp_map_i->root().size(), 1);
 
-    auto map_2 = dyn_cast<structured_control_flow::Map*>(&map_1->root().at(0));
-    EXPECT_NE(map_2, nullptr);
-    EXPECT_EQ(map_2->root().size(), 3);
+    auto comp_map_j = dyn_cast<structured_control_flow::Map*>(&comp_map_i->root().at(0));
+    ASSERT_NE(comp_map_j, nullptr);
+    EXPECT_EQ(comp_map_j->root().size(), 1);
 
-    auto block_init = dyn_cast<structured_control_flow::Block*>(&map_2->root().at(0));
-    EXPECT_NE(block_init, nullptr);
-    EXPECT_EQ(block_init->dataflow().nodes().size(), 3);
-    auto init_tasklet = *block_init->dataflow().tasklets().begin();
-    EXPECT_EQ(init_tasklet->code(), data_flow::TaskletCode::assign);
-    EXPECT_EQ(init_tasklet->inputs().at(0), "_in");
-    EXPECT_EQ(init_tasklet->output(), "_out");
+    auto comp_for_k = dyn_cast<structured_control_flow::For*>(&comp_map_j->root().at(0));
+    ASSERT_NE(comp_for_k, nullptr);
+    EXPECT_EQ(comp_for_k->root().size(), 1);
 
-    auto map_3 = dyn_cast<structured_control_flow::For*>(&map_2->root().at(1));
-    EXPECT_NE(map_3, nullptr);
-    EXPECT_EQ(map_3->root().size(), 1);
+    auto block_fma = dyn_cast<structured_control_flow::Block*>(&comp_for_k->root().at(0));
+    ASSERT_NE(block_fma, nullptr);
+    // alpha != 1: p = A[i,k] * B[k,j]; C[i,j] = alpha * p + C[i,j]
+    // (a, b, c_in, c_out, fma, mul, prod, alpha)
+    EXPECT_EQ(block_fma->dataflow().nodes().size(), 8);
 
-    auto block_fma = dyn_cast<structured_control_flow::Block*>(&map_3->root().at(0));
-    EXPECT_NE(block_fma, nullptr);
-    EXPECT_EQ(block_fma->dataflow().nodes().size(), 5);
-
-    auto tasklet = *block_fma->dataflow().tasklets().begin();
-    EXPECT_EQ(tasklet->code(), data_flow::TaskletCode::fp_fma);
-    EXPECT_EQ(tasklet->inputs().size(), 3);
-    EXPECT_EQ(tasklet->inputs().at(0), "_in1");
-    EXPECT_EQ(tasklet->inputs().at(1), "_in2");
-    EXPECT_EQ(tasklet->inputs().at(2), "_in3");
-    EXPECT_EQ(tasklet->output(), "_out");
-
-    auto block_flush = dyn_cast<structured_control_flow::Block*>(&map_2->root().at(2));
-    EXPECT_NE(block_flush, nullptr);
-    EXPECT_EQ(block_flush->dataflow().nodes().size(), 10);
-    auto flush_tasklets = block_flush->dataflow().tasklets();
-    EXPECT_EQ(flush_tasklets.size(), 3);
-    for (auto* tasklet : flush_tasklets) {
-        if (tasklet->code() == data_flow::TaskletCode::fp_add) {
-            EXPECT_EQ(tasklet->output(), "_out");
-            auto& final_edge = *block_flush->dataflow().out_edges(*tasklet).begin();
-            auto* final_access = dynamic_cast<data_flow::AccessNode*>(&final_edge.dst());
-            EXPECT_NE(final_access, nullptr);
-            EXPECT_EQ(final_access->data(), c_var_name);
+    data_flow::Tasklet* fma_tasklet = nullptr;
+    for (auto* tasklet : block_fma->dataflow().tasklets()) {
+        if (tasklet->code() == data_flow::TaskletCode::fp_fma) {
+            fma_tasklet = tasklet;
         }
     }
+    ASSERT_NE(fma_tasklet, nullptr);
+    EXPECT_EQ(fma_tasklet->inputs().size(), 3);
+    EXPECT_EQ(fma_tasklet->inputs().at(0), "_in1");
+    EXPECT_EQ(fma_tasklet->inputs().at(1), "_in2");
+    EXPECT_EQ(fma_tasklet->inputs().at(2), "_in3");
+    EXPECT_EQ(fma_tasklet->output(), "_out");
+
+    // The accumulating store writes back into C.
+    auto& final_edge = *block_fma->dataflow().out_edges(*fma_tasklet).begin();
+    auto* final_access = dynamic_cast<data_flow::AccessNode*>(&final_edge.dst());
+    EXPECT_NE(final_access, nullptr);
+    EXPECT_EQ(final_access->data(), c_var_name);
 }
 
 TEST(CuBlasTest, GemmNodeWithoutDataTransfers) {
@@ -269,53 +261,45 @@ TEST(CuBlasTest, GemmNodeWithoutDataTransfers) {
     EXPECT_EQ(sdfg.root().size(), 1);
     auto new_sequence = dyn_cast<structured_control_flow::Sequence*>(&sdfg.root().at(0));
     EXPECT_NE(new_sequence, nullptr);
+    // beta == 1: the init nest is skipped, leaving only the compute nest.
+    ASSERT_EQ(new_sequence->size(), 1);
 
-    auto map_1 = dyn_cast<structured_control_flow::Map*>(&new_sequence->at(0));
-    EXPECT_NE(map_1, nullptr);
-    EXPECT_EQ(map_1->root().size(), 1);
+    auto comp_map_i = dyn_cast<structured_control_flow::Map*>(&new_sequence->at(0));
+    ASSERT_NE(comp_map_i, nullptr);
+    EXPECT_EQ(comp_map_i->root().size(), 1);
 
-    auto map_2 = dyn_cast<structured_control_flow::Map*>(&map_1->root().at(0));
-    EXPECT_NE(map_2, nullptr);
-    EXPECT_EQ(map_2->root().size(), 3);
+    auto comp_map_j = dyn_cast<structured_control_flow::Map*>(&comp_map_i->root().at(0));
+    ASSERT_NE(comp_map_j, nullptr);
+    EXPECT_EQ(comp_map_j->root().size(), 1);
 
-    auto block_init = dyn_cast<structured_control_flow::Block*>(&map_2->root().at(0));
-    EXPECT_NE(block_init, nullptr);
-    EXPECT_EQ(block_init->dataflow().nodes().size(), 3);
-    auto init_tasklet = *block_init->dataflow().tasklets().begin();
-    EXPECT_EQ(init_tasklet->code(), data_flow::TaskletCode::assign);
-    EXPECT_EQ(init_tasklet->inputs().at(0), "_in");
-    EXPECT_EQ(init_tasklet->output(), "_out");
+    auto comp_for_k = dyn_cast<structured_control_flow::For*>(&comp_map_j->root().at(0));
+    ASSERT_NE(comp_for_k, nullptr);
+    EXPECT_EQ(comp_for_k->root().size(), 1);
 
-    auto map_3 = dyn_cast<structured_control_flow::For*>(&map_2->root().at(1));
-    EXPECT_NE(map_3, nullptr);
-    EXPECT_EQ(map_3->root().size(), 1);
+    auto block_fma = dyn_cast<structured_control_flow::Block*>(&comp_for_k->root().at(0));
+    ASSERT_NE(block_fma, nullptr);
+    // alpha != 1: p = A[i,k] * B[k,j]; C[i,j] = alpha * p + C[i,j]
+    // (a, b, c_in, c_out, fma, mul, prod, alpha)
+    EXPECT_EQ(block_fma->dataflow().nodes().size(), 8);
 
-    auto block_fma = dyn_cast<structured_control_flow::Block*>(&map_3->root().at(0));
-    EXPECT_NE(block_fma, nullptr);
-    EXPECT_EQ(block_fma->dataflow().nodes().size(), 5);
-
-    auto tasklet = *block_fma->dataflow().tasklets().begin();
-    EXPECT_EQ(tasklet->code(), data_flow::TaskletCode::fp_fma);
-    EXPECT_EQ(tasklet->inputs().size(), 3);
-    EXPECT_EQ(tasklet->inputs().at(0), "_in1");
-    EXPECT_EQ(tasklet->inputs().at(1), "_in2");
-    EXPECT_EQ(tasklet->inputs().at(2), "_in3");
-    EXPECT_EQ(tasklet->output(), "_out");
-
-    auto block_flush = dyn_cast<structured_control_flow::Block*>(&map_2->root().at(2));
-    EXPECT_NE(block_flush, nullptr);
-    EXPECT_EQ(block_flush->dataflow().nodes().size(), 10);
-    auto flush_tasklets = block_flush->dataflow().tasklets();
-    EXPECT_EQ(flush_tasklets.size(), 3);
-    for (auto* tasklet : flush_tasklets) {
-        if (tasklet->code() == data_flow::TaskletCode::fp_add) {
-            EXPECT_EQ(tasklet->output(), "_out");
-            auto& final_edge = *block_flush->dataflow().out_edges(*tasklet).begin();
-            auto* final_access = dynamic_cast<data_flow::AccessNode*>(&final_edge.dst());
-            EXPECT_NE(final_access, nullptr);
-            EXPECT_EQ(final_access->data(), c_var_name);
+    data_flow::Tasklet* fma_tasklet = nullptr;
+    for (auto* tasklet : block_fma->dataflow().tasklets()) {
+        if (tasklet->code() == data_flow::TaskletCode::fp_fma) {
+            fma_tasklet = tasklet;
         }
     }
+    ASSERT_NE(fma_tasklet, nullptr);
+    EXPECT_EQ(fma_tasklet->inputs().size(), 3);
+    EXPECT_EQ(fma_tasklet->inputs().at(0), "_in1");
+    EXPECT_EQ(fma_tasklet->inputs().at(1), "_in2");
+    EXPECT_EQ(fma_tasklet->inputs().at(2), "_in3");
+    EXPECT_EQ(fma_tasklet->output(), "_out");
+
+    // The accumulating store writes back into C.
+    auto& final_edge = *block_fma->dataflow().out_edges(*fma_tasklet).begin();
+    auto* final_access = dynamic_cast<data_flow::AccessNode*>(&final_edge.dst());
+    EXPECT_NE(final_access, nullptr);
+    EXPECT_EQ(final_access->data(), c_var_name);
 }
 
 TEST(CuBlasTest, BatchedGemmNodeWithDataTransfers) {
