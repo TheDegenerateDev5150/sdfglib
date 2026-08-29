@@ -1,5 +1,6 @@
 #include "sdfg/symbolic/extreme_values.h"
 
+#include <cstdlib>
 #include <limits>
 #include <vector>
 
@@ -70,8 +71,42 @@ Expression BoundAnalysis::upper_bound(const Expression& expr) { return visit(exp
 // Main dispatch
 // ============================================================================
 
+// Proof-search work budget. Some queries over deeply-nested tile nests (e.g.
+// blocked LU) trigger a large fan-out of speculative sub-proofs that ultimately
+// return "unknown"; the successful bounds resolve in far fewer steps. Capping
+// the total node visits per top-level query bails those fruitless searches early
+// with the same (conservative "unknown") result, keeping analysis time bounded.
+// Tunable via DOCC_BOUND_BUDGET for diagnostics.
+namespace {
+thread_local size_t g_bound_work = 0;
+thread_local int g_bound_depth = 0;
+
+size_t bound_budget() {
+    static const size_t budget = [] {
+        if (const char* e = std::getenv("DOCC_BOUND_BUDGET")) {
+            return static_cast<size_t>(std::strtoull(e, nullptr, 10));
+        }
+        return static_cast<size_t>(50000);
+    }();
+    return budget;
+}
+
+// Resets the work counter on the outermost top-level query only.
+struct BoundWorkGuard {
+    BoundWorkGuard() {
+        if (g_bound_depth++ == 0) g_bound_work = 0;
+    }
+    ~BoundWorkGuard() { --g_bound_depth; }
+};
+} // namespace
+
 Interval BoundAnalysis::visit(const Expression& expr, size_t depth) {
     if (depth > MAX_DEPTH) {
+        return Interval::failure();
+    }
+    // Global work budget across the whole top-level proof (shared by every
+    // BoundAnalysis instance spawned during Min/Max descent).
+    if (g_bound_depth > 0 && ++g_bound_work > bound_budget()) {
         return Interval::failure();
     }
 
@@ -1153,11 +1188,13 @@ Interval BoundAnalysis::visit_add_coupled_constraints(const AffineCoeffs& coeffs
 // ============================================================================
 
 Expression minimum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight) {
+    BoundWorkGuard guard;
     BoundAnalysis analysis(parameters, assumptions, tight);
     return analysis.lower_bound(expr);
 }
 
 Expression maximum(const Expression expr, const SymbolSet& parameters, const Assumptions& assumptions, bool tight) {
+    BoundWorkGuard guard;
     BoundAnalysis analysis(parameters, assumptions, tight);
     return analysis.upper_bound(expr);
 }
@@ -1286,6 +1323,7 @@ bool prove_ge_zero(
     bool strict,
     int depth
 ) {
+    BoundWorkGuard guard;
     auto e = symbolic::expand(diff);
 
     // Constant integer fast path.
@@ -1463,6 +1501,7 @@ bool descend_min_and_ba(const Expression& e, BoundAnalysis& ba, bool strict, int
 }
 
 bool prove_ge_zero_ba(const Expression& diff, BoundAnalysis& ba, bool strict, int depth) {
+    BoundWorkGuard guard;
     auto e = symbolic::expand(diff);
 
     // Constant integer fast path.
