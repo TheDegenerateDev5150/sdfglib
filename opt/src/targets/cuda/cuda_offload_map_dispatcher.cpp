@@ -114,6 +114,8 @@ void CUDAOffloadMapDispatcher::dispatch_kernel_preamble(
     // struct overloads of atomicAdd, declared in these headers.
     library_stream << "#include <cuda_fp16.h>" << std::endl;
     library_stream << "#include <cuda_bf16.h>" << std::endl;
+    // cp.async pipeline primitives for software-pipelined cooperative copies.
+    library_stream << "#include <cuda_pipeline.h>" << std::endl;
     gpu::GPUOffloadMapDispatcher::
         dispatch_kernel_preamble(library_stream, analysis_manager, kernel_name, arguments_declaration);
 }

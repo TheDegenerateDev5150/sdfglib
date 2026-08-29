@@ -153,6 +153,7 @@ set(SOURCE_FILES
     src/transformations/out_local_storage.cpp
     src/transformations/recorder.cpp
     src/transformations/replayer.cpp
+    src/transformations/software_pipelining.cpp
     src/transformations/tile_fusion.cpp
     src/transformations/transformation_schema.cpp
     src/transformations/unroll_transform.cpp
