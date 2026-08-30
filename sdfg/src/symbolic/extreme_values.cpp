@@ -353,18 +353,21 @@ Interval BoundAnalysis::visit_function(const SymEngine::RCP<const SymEngine::Fun
         if (!SymEngine::is_a<const SymEngine::Integer>(*denominator)) {
             return Interval::failure();
         }
-
-        auto num_iv = visit(numerator, depth + 1);
-        auto den_iv = visit(denominator, depth + 1);
-        if (!num_iv.has_lower() || !num_iv.has_upper() || !den_iv.has_lower() || !den_iv.has_upper()) {
-            return Interval::failure();
-        }
         // Denominator must be strictly positive
-        if (symbolic::is_true(symbolic::Le(den_iv.lower, symbolic::zero()))) {
+        if (symbolic::is_true(symbolic::Le(denominator, symbolic::zero()))) {
             return Interval::failure();
         }
-        // For positive denominator: min(a/b) = min(a)/max(b), max(a/b) = max(a)/min(b)
-        return {symbolic::div(num_iv.lower, den_iv.upper), symbolic::div(num_iv.upper, den_iv.lower)};
+        // Monotonic increasing in the numerator for a positive denominator, so pass
+        // each numerator bound through independently: a one-sided numerator bound
+        // (e.g. a lower bound of 0 with no upper bound) still yields a one-sided
+        // result rather than failing outright.
+        auto num_iv = visit(numerator, depth + 1);
+        Expression lb = num_iv.has_lower() ? symbolic::div(num_iv.lower, denominator) : Expression(SymEngine::null);
+        Expression ub = num_iv.has_upper() ? symbolic::div(num_iv.upper, denominator) : Expression(SymEngine::null);
+        if (lb.is_null() && ub.is_null()) {
+            return Interval::failure();
+        }
+        return {lb, ub};
     }
 
     // imod(lhs, rhs) — only for constant integer rhs
@@ -376,6 +379,18 @@ Interval BoundAnalysis::visit_function(const SymEngine::RCP<const SymEngine::Fun
         }
 
         auto lhs_iv = visit(lhs, depth + 1);
+        auto zero = symbolic::zero();
+        auto pos_bound = symbolic::sub(rhs, symbolic::one());
+
+        // A non-negative dividend modulo a positive divisor is always [0, rhs-1],
+        // regardless of whether the dividend has a (finite) upper bound. This is the
+        // common case for offset decodes like imod(idiv(iter, ...), n).
+        bool rhs_positive = symbolic::is_true(symbolic::Gt(rhs, zero));
+        bool lhs_non_negative = lhs_iv.has_lower() && symbolic::is_true(symbolic::Ge(lhs_iv.lower, zero));
+        if (rhs_positive && lhs_non_negative && !lhs_iv.has_upper()) {
+            return {zero, pos_bound};
+        }
+
         if (!lhs_iv.has_lower() || !lhs_iv.has_upper()) {
             return Interval::failure();
         }
@@ -387,8 +402,6 @@ Interval BoundAnalysis::visit_function(const SymEngine::RCP<const SymEngine::Fun
         bool all_negative = symbolic::is_true(symbolic::Lt(lhs_ub, symbolic::zero())) ||
                             symbolic::is_true(symbolic::Lt(rhs, symbolic::zero()));
         auto neg_bound = symbolic::sub(symbolic::one(), symbolic::simplify(symbolic::abs(rhs)));
-        auto pos_bound = symbolic::sub(rhs, symbolic::one());
-        auto zero = symbolic::zero();
 
         auto width = symbolic::sub(lhs_ub, lhs_lb);
         if (symbolic::is_true(symbolic::Lt(width, rhs))) {
@@ -1315,6 +1328,58 @@ bool descend_min_and(
     return true;
 }
 
+// Substitute a symbol with its SYMBOLIC bound to recover coupling that
+// per-symbol interval bounding loses. For proving `e >= 0`, a symbol `s` that
+// appears affinely in `e` with a constant integer coefficient `c` is monotone in
+// `s`, so the extreme of `e` over `s`'s range is at one endpoint:
+//   c < 0: `e` decreases in `s` -> substitute `s -> tight_upper_bound(s)`.
+//   c > 0: `e` increases in `s` -> substitute `s -> tight_lower_bound(s)`.
+// The substituted expression is a sound lower bound on `e`, and any subexpression
+// shared between `s`'s bound and the rest of `e` (e.g. a compound tile base
+// appearing in both `s`'s bound and a constraint) now cancels syntactically,
+// which interval bounding cannot do when the base is a non-polynomial function of
+// another generator (Stream-K's `64*imod(idiv(t,16),16)`).
+bool descend_symbol_bounds(
+    const Expression& diff,
+    const SymbolSet& parameters,
+    const Assumptions& assumptions,
+    bool tight,
+    bool strict,
+    int depth
+) {
+    auto e = symbolic::expand(diff);
+    auto zero = symbolic::zero();
+    auto one = symbolic::integer(1);
+    auto two = symbolic::integer(2);
+    for (auto& s : symbolic::atoms(e)) {
+        if (parameters.find(s) != parameters.end()) continue;
+        auto it = assumptions.find(s);
+        if (it == assumptions.end()) continue;
+
+        // Linear coefficient of `s` via second-difference test (constant iff linear).
+        auto c0 = symbolic::subs(e, s, zero);
+        auto c1 = symbolic::subs(e, s, one);
+        auto c2 = symbolic::subs(e, s, two);
+        auto d1 = symbolic::simplify(symbolic::expand(symbolic::sub(c1, c0)));
+        auto d2 = symbolic::simplify(symbolic::expand(symbolic::sub(c2, c1)));
+        if (!SymEngine::eq(*symbolic::simplify(symbolic::sub(d1, d2)), *zero)) continue;
+        if (!SymEngine::is_a<SymEngine::Integer>(*d1)) continue;
+        auto coeff = SymEngine::rcp_static_cast<const SymEngine::Integer>(d1);
+        if (coeff->is_zero()) continue;
+
+        Expression bound = coeff->is_negative() ? it->second.tight_upper_bound() : it->second.tight_lower_bound();
+        // Only worthwhile for a compound symbolic bound; numeric bounds are
+        // already handled by the interval path, and a self-referential bound
+        // would loop.
+        if (bound.is_null() || SymEngine::is_a<SymEngine::Integer>(*bound)) continue;
+        if (symbolic::atoms(bound).count(s)) continue;
+
+        Expression replaced = symbolic::simplify(symbolic::expand(symbolic::subs(e, s, bound)));
+        if (prove_ge_zero(replaced, parameters, assumptions, tight, strict, depth - 1)) return true;
+    }
+    return false;
+}
+
 bool prove_ge_zero(
     const Expression& diff,
     const SymbolSet& parameters,
@@ -1378,6 +1443,17 @@ bool prove_ge_zero(
 
     // Max descent on the original expression.
     if (descend_max(e, parameters, assumptions, tight, strict, depth)) return true;
+
+    // Min-AND descent on the original expression: `min(a,b) - c >= 0` iff
+    // `a - c >= 0` AND `b - c >= 0`. The interval path handles most mins, but a
+    // Stream-K store bound `min(N-1, min(3+_j1, 63+base)) - _j1 - d` needs the
+    // branches split so the per-branch symbolic substitution below can fire.
+    if (descend_min_and(e, parameters, assumptions, tight, strict, depth)) return true;
+
+    // Symbolic-bound substitution: recover coupling lost by per-symbol interval
+    // bounding (e.g. `_j1 - base` when `_j1 in [base, base+K]` and `base` is a
+    // non-polynomial function of another generator).
+    if (descend_symbol_bounds(e, parameters, assumptions, tight, strict, depth)) return true;
 
     return false;
 }

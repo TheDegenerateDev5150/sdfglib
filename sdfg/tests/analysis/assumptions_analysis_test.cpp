@@ -37,6 +37,225 @@ TEST(AssumptionsAnalysisTest, Init_bool) {
     EXPECT_TRUE(analysis.is_parameter("N"));
 }
 
+TEST(AssumptionsAnalysisTest, StreamK_WorkerIter_TileBaseBounded) {
+    // Persistent grid (bid < 336) > worker For (iter in [idiv(bid*4096,336),
+    // idiv((bid+1)*4096,336))) > coop-copy scope. The Stream-K tile decode
+    // 64*imod(idiv(iter,16),16) must bound to [0,960] at that scope for the
+    // cooperative-copy guard to discharge (it needs iter >= 0 to be propagated).
+    builder::StructuredSDFGBuilder builder("sk", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+    types::Scalar u64(types::PrimitiveType::UInt64);
+    builder.add_container("bid", u64);
+    builder.add_container("iter", u64);
+
+    auto bid = symbolic::symbol("bid");
+    auto iter = symbolic::symbol("iter");
+    auto total = symbolic::integer(4096);
+    auto NB = symbolic::integer(336);
+    auto one = symbolic::integer(1);
+
+    auto& mbid = builder.add_for(root, bid, symbolic::Lt(bid, NB), symbolic::integer(0), symbolic::add(bid, one));
+    auto iter_begin = symbolic::div(symbolic::mul(bid, total), NB);
+    auto iter_end = symbolic::div(symbolic::mul(symbolic::add(bid, one), total), NB);
+    // The real Stream-K worker update is non-affine: iter jumps to the next tile
+    // boundary or stops at iter_end.
+    auto iter_update = symbolic::
+        min(symbolic::mul(symbolic::integer(16), symbolic::add(one, symbolic::div(iter, symbolic::integer(16)))),
+            iter_end);
+    auto& fiter = builder.add_for(mbid.root(), iter, symbolic::Lt(iter, iter_end), iter_begin, iter_update);
+    auto& block = builder.add_block(fiter.root());
+
+    analysis::AnalysisManager am(sdfg);
+    auto& aa = am.get<analysis::AssumptionsAnalysis>();
+    auto& assums = aa.get(block, true);
+
+    auto base = symbolic::
+        mul(symbolic::integer(64), symbolic::mod(symbolic::div(iter, symbolic::integer(16)), symbolic::integer(16)));
+    auto mx = symbolic::maximum(base, aa.parameters(), assums, true);
+    EXPECT_TRUE(mx.is_null());
+
+    // Even injecting iter >= 0 at the root does not help: the loop's own indvar
+    // processing does not carry a tight lower bound for a non-affine update, so
+    // BoundAnalysis still treats iter as unbounded. The fix belongs in AA (derive
+    // lower_bound = init for increasing loops regardless of stride) or in the
+    // worker's update (keep it affine). Once fixed, flip these to expect a bound.
+    symbolic::Assumption a_iter(iter);
+    a_iter.add_lower_bound(symbolic::integer(0));
+    symbolic::Assumptions additional;
+    additional.insert({iter, a_iter});
+    analysis::AnalysisManager am2(sdfg, additional);
+    auto& aa2 = am2.get<analysis::AssumptionsAnalysis>();
+    auto& assums2 = aa2.get(block, true);
+    auto mx2 = symbolic::maximum(base, aa2.parameters(), assums2, true);
+    EXPECT_TRUE(mx2.is_null());
+}
+
+TEST(AssumptionsAnalysisTest, StreamK_AffineWorker_TileBaseBounded) {
+    // Same as above but with the Option-2 AFFINE worker update (t = t + 1). The
+    // tile index t itself is the loop indvar; its lower bound is init =
+    // idiv(idiv(bid*4096,336),16) >= 0 (since bid >= 0), so 64*imod(t,16) must
+    // bound to [0,960].
+    builder::StructuredSDFGBuilder builder("sk_aff", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+    types::Scalar u64(types::PrimitiveType::UInt64);
+    builder.add_container("bid", u64);
+    builder.add_container("t", u64);
+
+    auto bid = symbolic::symbol("bid");
+    auto t = symbolic::symbol("t");
+    auto total = symbolic::integer(4096);
+    auto NB = symbolic::integer(336);
+    auto one = symbolic::integer(1);
+    auto p16 = symbolic::integer(16);
+
+    auto& mbid = builder.add_for(root, bid, symbolic::Lt(bid, NB), symbolic::integer(0), symbolic::add(bid, one));
+    auto iter_begin = symbolic::div(symbolic::mul(bid, total), NB);
+    auto iter_end = symbolic::div(symbolic::mul(symbolic::add(bid, one), total), NB);
+    auto t_begin = symbolic::div(iter_begin, p16);
+    // Affine update: t -> t + 1. Condition 16*t < iter_end.
+    auto& ft =
+        builder.add_for(mbid.root(), t, symbolic::Lt(symbolic::mul(p16, t), iter_end), t_begin, symbolic::add(t, one));
+    auto& block = builder.add_block(ft.root());
+
+    analysis::AnalysisManager am(sdfg);
+    auto& aa = am.get<analysis::AssumptionsAnalysis>();
+    auto& assums = aa.get(block, true);
+
+    // _i1 tile base: 64*imod(t,16). _j1 tile base: 64*imod(idiv(t,16),16).
+    auto base_i = symbolic::mul(symbolic::integer(64), symbolic::mod(t, p16));
+    auto base_j = symbolic::mul(symbolic::integer(64), symbolic::mod(symbolic::div(t, p16), p16));
+    auto mx_i = symbolic::maximum(base_i, aa.parameters(), assums, true);
+    auto mx_j = symbolic::maximum(base_j, aa.parameters(), assums, true);
+    EXPECT_FALSE(mx_i.is_null());
+    EXPECT_FALSE(mx_j.is_null());
+
+    // The output boundary guard drops iff the block-map trip
+    //   (min(1024, 64 + base) - base) / 4
+    // collapses to a constant 16 (== parallel_size). This is the coupled
+    // min(...) - base cancellation that must survive with the imod/idiv base.
+    for (auto base : {base_i, base_j}) {
+        auto trip = symbolic::
+            div(symbolic::sub(symbolic::min(symbolic::integer(1024), symbolic::add(symbolic::integer(64), base)), base),
+                symbolic::integer(4));
+        auto tmx = symbolic::maximum(trip, aa.parameters(), assums, true);
+        auto tmn = symbolic::minimum(trip, aa.parameters(), assums, true);
+        ASSERT_FALSE(tmx.is_null());
+        ASSERT_FALSE(tmn.is_null());
+        EXPECT_TRUE(symbolic::eq(tmx, symbolic::integer(16))) << "trip max = " << tmx->__str__();
+        EXPECT_TRUE(symbolic::eq(tmn, symbolic::integer(16))) << "trip min = " << tmn->__str__();
+    }
+}
+
+TEST(AssumptionsAnalysisTest, StreamK_AffineWorker_NestedStoreGuardDischarges) {
+    // Mirror the real nesting: worker For(t) > block map(_j1, init=base,
+    // stride 4, cond < min(1024, 64+base)) > register map(d < 4) > store. The
+    // register-store boundary guard is _j1 + d <= min(1023, min(3+_j1, 63+base));
+    // it must discharge (is_le true for both conjuncts) so no guard is emitted.
+    builder::StructuredSDFGBuilder builder("sk_nest", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+    types::Scalar u64(types::PrimitiveType::UInt64);
+    builder.add_container("bid", u64);
+    builder.add_container("t", u64);
+    builder.add_container("_j1", u64);
+    builder.add_container("d", u64);
+
+    auto bid = symbolic::symbol("bid");
+    auto t = symbolic::symbol("t");
+    auto j1 = symbolic::symbol("_j1");
+    auto d = symbolic::symbol("d");
+    auto total = symbolic::integer(4096);
+    auto NB = symbolic::integer(336);
+    auto one = symbolic::integer(1);
+    auto p16 = symbolic::integer(16);
+
+    auto& mbid = builder.add_for(root, bid, symbolic::Lt(bid, NB), symbolic::integer(0), symbolic::add(bid, one));
+    auto iter_end = symbolic::div(symbolic::mul(symbolic::add(bid, one), total), NB);
+    auto t_begin = symbolic::div(symbolic::div(symbolic::mul(bid, total), NB), p16);
+    auto& ft =
+        builder.add_for(mbid.root(), t, symbolic::Lt(symbolic::mul(p16, t), iter_end), t_begin, symbolic::add(t, one));
+    // base = 64 * imod(idiv(t,16), 16)  -> the _j1 tile base for the j dimension.
+    auto base = symbolic::mul(symbolic::integer(64), symbolic::mod(symbolic::div(t, p16), p16));
+    auto& mj = builder.add_for(
+        ft.root(),
+        j1,
+        symbolic::Lt(j1, symbolic::min(symbolic::integer(1024), symbolic::add(symbolic::integer(64), base))),
+        base,
+        symbolic::add(j1, symbolic::integer(4))
+    );
+    auto& md =
+        builder
+            .add_for(mj.root(), d, symbolic::Lt(d, symbolic::integer(4)), symbolic::integer(0), symbolic::add(d, one));
+    auto& block = builder.add_block(md.root());
+
+    analysis::AnalysisManager am(sdfg);
+    auto& aa = am.get<analysis::AssumptionsAnalysis>();
+    auto& assums = aa.get(block, true);
+    const auto& params = aa.parameters();
+
+    auto global_d = symbolic::add(j1, d);
+    auto maxreg = symbolic::add(symbolic::integer(3), j1);
+    auto maxpanel = symbolic::add(symbolic::integer(63), base);
+    auto maxes = symbolic::min(symbolic::integer(1023), symbolic::min(maxreg, maxpanel));
+
+    // With the symbolic-bound substitution in prove_ge_zero, the panel conjunct
+    // `_j1 + d <= 63 + base` discharges even though base = 64*imod(idiv(t,16),16)
+    // is non-polynomial in the worker indvar t: substituting _j1 -> its tight
+    // upper bound (base + K) cancels base syntactically.
+    EXPECT_TRUE(symbolic::is_le(global_d, maxreg, params, assums, true)) << "vs 3+_j1 failed";
+    EXPECT_TRUE(symbolic::is_le(global_d, maxpanel, params, assums, true)) << "vs 63+base failed";
+    EXPECT_TRUE(symbolic::is_le(global_d, maxes, params, assums, true)) << "vs full min() failed";
+}
+
+TEST(AssumptionsAnalysisTest, StreamK_CleanBaseGenerator_StoreGuardDischarges) {
+    builder::StructuredSDFGBuilder builder("sk_clean", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+    types::Scalar u64(types::PrimitiveType::UInt64);
+    builder.add_container("bj", u64);
+    builder.add_container("_j1", u64);
+    builder.add_container("d", u64);
+
+    auto bj = symbolic::symbol("bj");
+    auto j1 = symbolic::symbol("_j1");
+    auto d = symbolic::symbol("d");
+    auto one = symbolic::integer(1);
+
+    // bj sweeps tile bases 0,64,...,960 (17 tiles across N=1024).
+    auto& mbj = builder.add_for(
+        root,
+        bj,
+        symbolic::Lt(bj, symbolic::integer(1024)),
+        symbolic::integer(0),
+        symbolic::add(bj, symbolic::integer(64))
+    );
+    auto& mj = builder.add_for(
+        mbj.root(),
+        j1,
+        symbolic::Lt(j1, symbolic::min(symbolic::integer(1024), symbolic::add(symbolic::integer(64), bj))),
+        bj,
+        symbolic::add(j1, symbolic::integer(4))
+    );
+    auto& md =
+        builder
+            .add_for(mj.root(), d, symbolic::Lt(d, symbolic::integer(4)), symbolic::integer(0), symbolic::add(d, one));
+    auto& block = builder.add_block(md.root());
+
+    analysis::AnalysisManager am(sdfg);
+    auto& aa = am.get<analysis::AssumptionsAnalysis>();
+    auto& assums = aa.get(block, true);
+    const auto& params = aa.parameters();
+
+    auto global_d = symbolic::add(j1, d);
+    auto maxpanel = symbolic::add(symbolic::integer(63), bj);
+    auto mx = symbolic::maximum(symbolic::sub(j1, bj), params, assums, true);
+    ASSERT_FALSE(mx.is_null());
+    EXPECT_TRUE(symbolic::eq(mx, symbolic::integer(60))) << "max(_j1-bj) = " << mx->__str__();
+    EXPECT_TRUE(symbolic::is_le(global_d, maxpanel, params, assums, true)) << "clean base: vs 63+bj failed";
+}
+
 TEST(AssumptionsAnalysisTest, Init_i8) {
     builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
 

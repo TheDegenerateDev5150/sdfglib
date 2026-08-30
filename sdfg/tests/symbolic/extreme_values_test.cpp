@@ -526,6 +526,110 @@ TEST(ExtremeValuesTest, IMod_Integral_reduced) {
     EXPECT_TRUE(symbolic::eq(max, symbolic::integer(1)));
 }
 
+// ===== One-sided (non-negative dividend, no upper bound) idiv/imod =====
+
+TEST(ExtremeValuesTest, IDiv_LowerBoundOnly_NonNegative) {
+    // a in [0, inf): idiv is monotonic in the numerator, so the lower bound passes
+    // through and the upper stays unknown (rather than failing outright).
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(0));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::div(a, symbolic::integer(4));
+    EXPECT_TRUE(symbolic::eq(symbolic::minimum(expr, {}, assums, false), symbolic::integer(0)));
+    EXPECT_TRUE(symbolic::maximum(expr, {}, assums, false).is_null());
+}
+
+TEST(ExtremeValuesTest, IMod_NonNegativeNoUpperBound) {
+    // a in [0, inf): a % 16 is always [0, 15], no upper bound on a required.
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(0));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mod(a, symbolic::integer(16));
+    EXPECT_TRUE(symbolic::eq(symbolic::minimum(expr, {}, assums, false), symbolic::integer(0)));
+    EXPECT_TRUE(symbolic::eq(symbolic::maximum(expr, {}, assums, false), symbolic::integer(15)));
+}
+
+TEST(ExtremeValuesTest, IMod_IDiv_Chain_NonNegativeNoUpper) {
+    // The Stream-K tile decode imod(idiv(a, 256), 16) with a >= 0 (no upper bound)
+    // is [0, 15]: idiv keeps a non-negative lower bound, imod bounds the cycle.
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(0));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mod(symbolic::div(a, symbolic::integer(256)), symbolic::integer(16));
+    EXPECT_TRUE(symbolic::eq(symbolic::minimum(expr, {}, assums, false), symbolic::integer(0)));
+    EXPECT_TRUE(symbolic::eq(symbolic::maximum(expr, {}, assums, false), symbolic::integer(15)));
+}
+
+TEST(ExtremeValuesTest, Mul_IMod_NonNegativeNoUpper) {
+    // 64 * (a % 16) with a >= 0 (no upper) is [0, 960]: the tile-base range that
+    // lets loop peeling prove an interior guard like `< 1024`.
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(0));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mul(symbolic::integer(64), symbolic::mod(a, symbolic::integer(16)));
+    EXPECT_TRUE(symbolic::eq(symbolic::minimum(expr, {}, assums, false), symbolic::integer(0)));
+    EXPECT_TRUE(symbolic::eq(symbolic::maximum(expr, {}, assums, false), symbolic::integer(960)));
+}
+
+TEST(ExtremeValuesTest, IMod_NegativeLowerNoUpper_Fails) {
+    // Without an upper bound and a possibly-negative dividend, imod is not
+    // determinable -> null (the non-negative shortcut must not fire).
+    auto a = symbolic::symbol("a");
+    symbolic::Assumption assum = symbolic::Assumption(a);
+    assum.add_lower_bound(symbolic::integer(-5));
+    symbolic::Assumptions assums;
+    assums.insert({a, assum});
+
+    auto expr = symbolic::mod(a, symbolic::integer(16));
+    EXPECT_TRUE(symbolic::minimum(expr, {}, assums, false).is_null());
+    EXPECT_TRUE(symbolic::maximum(expr, {}, assums, false).is_null());
+}
+
+TEST(ExtremeValuesTest, StreamK_CoopGuard_Discharge) {
+    // Models the Stream-K cooperative-copy global-bound guard:
+    //   64*imod(idiv(iter,16),16) + 4*ty + c <= 1023
+    // with iter >= 0 (worker indvar, no upper bound), ty in [0,15], c in [0,3].
+    // 64*imod(...) <= 960, 4*ty <= 60, c <= 3 -> sum <= 1023. This is exactly the
+    // predicate LocalStorage must discharge to drop the coop-copy guard.
+    auto iter = symbolic::symbol("iter");
+    auto ty = symbolic::symbol("ty");
+    auto c = symbolic::symbol("c");
+
+    symbolic::Assumption a_iter(iter);
+    a_iter.add_lower_bound(symbolic::integer(0));
+    symbolic::Assumption a_ty(ty);
+    a_ty.add_lower_bound(symbolic::integer(0));
+    a_ty.add_upper_bound(symbolic::integer(15));
+    symbolic::Assumption a_c(c);
+    a_c.add_lower_bound(symbolic::integer(0));
+    a_c.add_upper_bound(symbolic::integer(3));
+    symbolic::Assumptions assums;
+    assums.insert({iter, a_iter});
+    assums.insert({ty, a_ty});
+    assums.insert({c, a_c});
+
+    auto base = symbolic::
+        mul(symbolic::integer(64), symbolic::mod(symbolic::div(iter, symbolic::integer(16)), symbolic::integer(16)));
+    auto lhs = symbolic::add(symbolic::add(base, symbolic::mul(symbolic::integer(4), ty)), c);
+
+    // Global-bound clause: needs the imod range (relaxation) to prove.
+    EXPECT_TRUE(symbolic::is_le(lhs, symbolic::integer(1023), {}, assums, false));
+    // Tile-relative clause: the base cancels, needs only ty/c ranges.
+    EXPECT_TRUE(symbolic::is_le(lhs, symbolic::add(symbolic::integer(63), base), {}, assums, false));
+}
+
 TEST(ExtremeValuesTest, Conv2d_Access_Pattern) {
     // Expression from generated conv2d code accessing padded input buffer:
     // k10 + 3364*(ic0 + 64*(idiv(idiv(oc0_collapsed0, 32), 128)))
