@@ -484,6 +484,8 @@ void CSymbolicPrinter::bvisit(const SymEngine::FunctionSymbol& x) {
         str_ = "((int) ((unsigned int) ((unsigned long long) (" + apply(x.get_args()[0]) + "))))";
     } else if (x.get_name() == "imod") {
         str_ = "((" + apply(x.get_args()[0]) + ") % (" + apply(x.get_args()[1]) + "))";
+    } else if (x.get_name() == "bit_xor") {
+        str_ = "((" + apply(x.get_args()[0]) + ") ^ (" + apply(x.get_args()[1]) + "))";
     } else if (x.get_name() == "sizeof") {
         auto& so = dynamic_cast<const symbolic::SizeOfTypeFunction&>(x);
         auto& type = so.get_type();

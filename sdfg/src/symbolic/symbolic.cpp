@@ -134,6 +134,16 @@ Expression mod(const Expression lhs, const Expression rhs) {
     return mod;
 };
 
+Expression bit_xor(const Expression lhs, const Expression rhs) {
+    if (eq(rhs, integer(0))) {
+        return lhs;
+    }
+    if (eq(lhs, integer(0))) {
+        return rhs;
+    }
+    return SymEngine::function_symbol("bit_xor", {lhs, rhs});
+};
+
 Expression pow(const Expression base, const Expression exp) { return SymEngine::pow(base, exp); };
 
 Expression zext_i64(const Expression expr) {
