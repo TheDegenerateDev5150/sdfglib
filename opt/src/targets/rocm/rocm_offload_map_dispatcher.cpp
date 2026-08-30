@@ -105,5 +105,19 @@ bool ROCMOffloadMapDispatcher::is_device_pointer_storage(const types::StorageTyp
 
 std::string ROCMOffloadMapDispatcher::kernel_file_extension() const { return "rocm.cpp"; }
 
+void ROCMOffloadMapDispatcher::dispatch_kernel_preamble(
+    codegen::PrettyPrinter& library_stream,
+    analysis::AnalysisManager& analysis_manager,
+    const std::string& kernel_name,
+    std::vector<std::string>& arguments_declaration
+) {
+    // fp16/bf16 atomics (e.g. split-K accumulate) use the __half / __hip_bfloat16
+    // struct overloads of atomicAdd, declared in these HIP headers.
+    library_stream << "#include <hip/hip_fp16.h>" << std::endl;
+    library_stream << "#include <hip/hip_bf16.h>" << std::endl;
+    gpu::GPUOffloadMapDispatcher::
+        dispatch_kernel_preamble(library_stream, analysis_manager, kernel_name, arguments_declaration);
+}
+
 } // namespace rocm
 } // namespace sdfg
