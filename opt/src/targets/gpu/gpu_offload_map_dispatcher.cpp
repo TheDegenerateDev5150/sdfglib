@@ -1,6 +1,7 @@
 #include "sdfg/targets/gpu/gpu_offload_map_dispatcher.h"
 
 #include <iostream>
+#include <limits>
 #include <sdfg/analysis/analysis.h>
 #include <sdfg/analysis/assumptions_analysis.h>
 #include <sdfg/analysis/loop_analysis.h>
@@ -14,6 +15,7 @@
 #include <sdfg/structured_control_flow/map.h>
 #include <sdfg/symbolic/extreme_values.h>
 #include <sdfg/symbolic/symbolic.h>
+#include <sdfg/types/scalar.h>
 #include <sdfg/types/type.h>
 #include <sdfg/visitor/structured_sdfg_visitor.h>
 #include <string>
@@ -267,18 +269,27 @@ void GPUOffloadMapDispatcher::dispatch_kernel_body(
     std::string coverage_loop_var = "__daisy_gpu_coverage_loop_" + gpu::to_string(target_level);
     std::string size = kernel_language_extension.expression(node_.num_iterations());
     if (target_level == TargetLevel::WARP) {
+        // Thread helpers (num_warps/warp_id/lane) are bounded by the hardware
+        // block-size cap (<=1024), so uint32 always suffices.
+        const std::string type_thread = kernel_language_extension.primitive_type(types::PrimitiveType::UInt32);
         std::string warp_dim = kernel_language_extension.expression(get_target_level_dim(target_level, get_warp_size())
         );
-        library_stream << "uint32_t num_warps = (" << kernel_language_extension.expression(symbolic::blockDim_x())
-                       << " + " << warp_dim << " - 1) / " << warp_dim << ";" << std::endl;
-        library_stream << "uint32_t warp_id = " << kernel_language_extension.expression(symbolic::threadIdx_x())
+        library_stream << type_thread << " num_warps = ("
+                       << kernel_language_extension.expression(symbolic::blockDim_x()) << " + " << warp_dim
+                       << " - 1) / " << warp_dim << ";" << std::endl;
+        library_stream << type_thread << " warp_id = " << kernel_language_extension.expression(symbolic::threadIdx_x())
                        << " / "
                        << kernel_language_extension.expression(get_target_level_dim(target_level, get_warp_size()))
                        << ";" << std::endl;
-        library_stream << "uint32_t lane = " << kernel_language_extension.expression(symbolic::threadIdx_x()) << " & ("
+        library_stream << type_thread << " lane = " << kernel_language_extension.expression(symbolic::threadIdx_x())
+                       << " & ("
                        << kernel_language_extension.expression(get_target_level_dim(target_level, get_warp_size()))
                        << " - 1);" << std::endl;
     }
+
+    // The indvar keeps its declared (container) width.
+    const auto& indvar_dtype = sdfg_.type(indvar->get_name());
+    const std::string type_index = kernel_language_extension.primitive_type(indvar_dtype.primitive_type());
 
     std::string coverage_dim = kernel_language_extension.expression(get_target_level_dim(target_level, get_warp_size())
     );
@@ -287,24 +298,72 @@ void GPUOffloadMapDispatcher::dispatch_kernel_body(
     // dispatcher via __shfl_xor_sync over the enclosing X_BLOCK lanes), so the
     // coverage loop must run once per iteration rather than once per warp_size.
     std::string coverage_count_dim = (target_level == TargetLevel::WARP) ? std::string("1") : coverage_dim;
-    // Cast the ceil-div to int: blockDim/gridDim are unsigned, and CUDA 12.9's max()
-    // overload set makes max(1, <unsigned>) ambiguous under clang-cuda.
-    library_stream << "for (int " << coverage_loop_var << " = 0; " << coverage_loop_var << " < "
-                   << "max(1, (int)((" << size << " + " << coverage_count_dim << " - 1) / " << coverage_count_dim
-                   << ")); " << coverage_loop_var << "++) {" << std::endl;
+
+    // Resolve the map trip and parallel size to constants (via assumptions for the
+    // symbolic min(N, base+block) tile trips) so the coverage-loop bound and the
+    // boundary guard become compile-time constants. Emitting the raw symbolic trip
+    // makes every worker iteration recompute a min/max/imod chain, which dominates
+    // a multi-tile persistent (Stream-K) walk; a constant bound lets it fold away.
+    long long resolved_trip = -1;
+    if (target_level != TargetLevel::WARP) {
+        auto trip = node_.num_iterations();
+        if (!trip.is_null() && SymEngine::is_a<SymEngine::Integer>(*trip)) {
+            resolved_trip = SymEngine::rcp_static_cast<const SymEngine::Integer>(trip)->as_int();
+        } else if (!trip.is_null()) {
+            auto& aa = analysis_manager_.get<analysis::AssumptionsAnalysis>();
+            const auto& assums = aa.get(node_.root(), true);
+            const auto& params = aa.parameters();
+            auto mx = symbolic::maximum(trip, params, assums, true);
+            auto mn = symbolic::minimum(trip, params, assums, true);
+            if (!mx.is_null() && !mn.is_null() && symbolic::eq(mx, mn) && SymEngine::is_a<SymEngine::Integer>(*mx)) {
+                resolved_trip = SymEngine::rcp_static_cast<const SymEngine::Integer>(mx)->as_int();
+            }
+        }
+    }
+    long long psize_int = -1;
+    {
+        auto psize = gpu::ScheduleType_GPU_Offload::parallel_size(node_.schedule_type());
+        if (!psize.is_null() && SymEngine::is_a<SymEngine::Integer>(*psize)) {
+            psize_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(psize)->as_int();
+        }
+    }
+
+    // Coverage counter type + bound. When the trip and parallel size are known
+    // constants the wave count is exact, so emit it as a literal (the loop folds to a
+    // single pass) and size the counter to that count -- a tiny int32 in practice.
+    // Otherwise fall back to the indvar's type (coverage in [0, ceil(trip/dim)), so
+    // coverage <= trip <= what the indvar holds) and cast both max() operands to it:
+    // blockDim/gridDim are unsigned and the bare 1 is signed, so max(1, <expr>) is
+    // otherwise ambiguous under clang-cuda.
+    std::string coverage_bound;
+    std::string type_coverage;
+    if (resolved_trip >= 0 && psize_int > 0) {
+        long long cov = (resolved_trip + psize_int - 1) / psize_int;
+        if (cov < 1) cov = 1;
+        coverage_bound = std::to_string(cov);
+        type_coverage = kernel_language_extension.primitive_type(
+            cov <= std::numeric_limits<int>::max() ? types::PrimitiveType::Int32 : types::PrimitiveType::Int64
+        );
+    } else {
+        type_coverage = type_index;
+        coverage_bound = "max((" + type_coverage + ")1, (" + type_coverage + ")((" + size + " + " + coverage_count_dim +
+                         " - 1) / " + coverage_count_dim + "))";
+    }
+    library_stream << "for (" << type_coverage << " " << coverage_loop_var << " = 0; " << coverage_loop_var << " < "
+                   << coverage_bound << "; " << coverage_loop_var << "++) {" << std::endl;
     library_stream.setIndent(library_stream.indent() + 4);
 
+    std::string indvar_name = indvar->get_name();
     if (target_level == TargetLevel::WARP) {
-        std::string indvar_name = indvar->get_name();
         auto x_block_parent = find_x_block_owning_warp_level(node_, analysis_manager_);
         if (!x_block_parent) {
             throw InvalidSDFGException("WARP level map must be nested within an X_BLOCK level map");
         }
 
         // Sequential per-thread iteration over the warp-level space.
-        library_stream << "size_t " << indvar_name << " = " << kernel_language_extension.expression(node_.init())
-                       << " + " << coverage_loop_var << " * " << kernel_language_extension.expression(node_.stride())
-                       << ";" << std::endl;
+        library_stream << type_index << " " << indvar_name << " = "
+                       << kernel_language_extension.expression(node_.init()) << " + " << coverage_loop_var << " * "
+                       << kernel_language_extension.expression(node_.stride()) << ";" << std::endl;
     } else {
         // 0-based parallel index across this dimension: `coverage` sweeps of `dim`
         // units plus this thread/block's index. The map's induction variable is
@@ -323,8 +382,8 @@ void GPUOffloadMapDispatcher::dispatch_kernel_body(
             offset = kernel_language_extension.expression(node_.stride()) + " * (" + parallel_index + ")";
         }
 
-        library_stream << "size_t " << indvar->get_name() << " = " << kernel_language_extension.expression(node_.init())
-                       << " + " << offset << ";" << std::endl;
+        library_stream << type_index << " " << indvar_name << " = "
+                       << kernel_language_extension.expression(node_.init()) << " + " << offset << ";" << std::endl;
     }
 
 
@@ -333,39 +392,12 @@ void GPUOffloadMapDispatcher::dispatch_kernel_body(
     // partial final wave (some threads overshoot the trip) exists ONLY when the
     // trip count is not a whole multiple of the parallel size. When
     // `trip % parallel_size == 0` every generated index is in range, so the loop
-    // condition holds for all threads and the per-thread guard is redundant —
+    // condition holds for all threads and the per-thread guard is redundant --
     // dropping it lets the body's cooperative loads/stores vectorize instead of
     // sitting under a predicate. WARP level is excluded (its sequential coverage
     // is handled separately). Sound: only fires on compile-time-constant trips.
-    bool guard_redundant = false;
-    if (target_level != TargetLevel::WARP) {
-        auto psize = gpu::ScheduleType_GPU_Offload::parallel_size(node_.schedule_type());
-        if (!psize.is_null() && SymEngine::is_a<SymEngine::Integer>(*psize)) {
-            auto p = SymEngine::rcp_static_cast<const SymEngine::Integer>(psize)->as_int();
-            if (p > 0) {
-                // Resolve the trip to a constant. Tile maps have a symbolic
-                // `min(N, base+block)` trip that the assumptions collapse to a
-                // constant (e.g. 16) once the parent tile's bound is known (the
-                // coupled `min(...)-base` cancellation lives in BoundAnalysis).
-                auto trip = node_.num_iterations();
-                long long t = -1;
-                if (!trip.is_null() && SymEngine::is_a<SymEngine::Integer>(*trip)) {
-                    t = SymEngine::rcp_static_cast<const SymEngine::Integer>(trip)->as_int();
-                } else if (!trip.is_null()) {
-                    auto& aa = analysis_manager_.get<analysis::AssumptionsAnalysis>();
-                    const auto& assums = aa.get(node_.root(), true);
-                    const auto& params = aa.parameters();
-                    auto mx = symbolic::maximum(trip, params, assums, true);
-                    auto mn = symbolic::minimum(trip, params, assums, true);
-                    if (!mx.is_null() && !mn.is_null() && symbolic::eq(mx, mn) &&
-                        SymEngine::is_a<SymEngine::Integer>(*mx)) {
-                        t = SymEngine::rcp_static_cast<const SymEngine::Integer>(mx)->as_int();
-                    }
-                }
-                guard_redundant = (t >= 0 && t % p == 0);
-            }
-        }
-    }
+    bool guard_redundant =
+        (target_level != TargetLevel::WARP && resolved_trip >= 0 && psize_int > 0 && resolved_trip % psize_int == 0);
     bool emit_guard = !gpu::ScheduleType_GPU_Offload::nested_sync(node_.schedule_type()) && !guard_redundant;
     if (emit_guard) {
         library_stream << "if (" << kernel_language_extension.expression(node_.condition()) << ") {" << std::endl;
