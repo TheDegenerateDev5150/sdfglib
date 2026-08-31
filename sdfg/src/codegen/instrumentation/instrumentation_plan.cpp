@@ -154,7 +154,7 @@ void InstrumentationPlan::end_instrumentation(
 
 void InstrumentationPlan::leaving_instrumentation_function(PrettyPrinter& stream, LanguageExtension& language_extension)
     const {
-    if (!this->is_empty()) {
+    if (!this->is_empty() && this->emit_finalize_all_) {
         stream << "__daisy_instrumentation_finalize_all();" << std::endl;
     }
 }
@@ -163,7 +163,8 @@ std::unique_ptr<InstrumentationPlan> InstrumentationPlan::none(StructuredSDFG& s
     return std::make_unique<InstrumentationPlan>(sdfg, std::unordered_set<const Element*>{});
 }
 
-std::unique_ptr<InstrumentationPlan> InstrumentationPlan::outermost_loops_plan(StructuredSDFG& sdfg) {
+std::unique_ptr<InstrumentationPlan> InstrumentationPlan::
+    outermost_loops_plan(StructuredSDFG& sdfg, bool emit_finalize_all) {
     analysis::AnalysisManager analysis_manager(sdfg);
     auto& loop_tree_analysis = analysis_manager.get<analysis::LoopAnalysis>();
     auto ols = loop_tree_analysis.outermost_loops();
@@ -174,7 +175,7 @@ std::unique_ptr<InstrumentationPlan> InstrumentationPlan::outermost_loops_plan(S
     }
 
     DEBUG_PRINTLN("Created instrumentation plan for " << nodes.size() << " nodes.");
-    return std::make_unique<InstrumentationPlan>(sdfg, nodes);
+    return std::make_unique<InstrumentationPlan>(sdfg, nodes, emit_finalize_all);
 }
 
 } // namespace codegen
