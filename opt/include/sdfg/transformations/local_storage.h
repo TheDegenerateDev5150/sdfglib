@@ -126,10 +126,18 @@ public:
         /// `[slot][coop]` stores land on distinct banks for both slot-fast and
         /// slot-slow tiles; 0 falls back to the next-odd (coprime-with-32) stride.
         size_t coop_warp_span = 0;
+        /// GPU-shared alternative to bank_padded: lay the per-slot block out at its
+        /// natural (unpadded) size and XOR-swizzle the inner index by the slot, so
+        /// a warp's per-slot accesses land on distinct banks without wasted columns.
+        /// Requires a constant power-of-two inner block. Mutually exclusive with
+        /// bank_padded.
+        bool swizzled = false;
         /// Per-slot inner block stride: tile_total_size() bumped to the next value
         /// coprime with 32 (i.e. odd) when bank_padded and the size is a constant;
         /// tile_total_size() otherwise.
         symbolic::Expression inner_stride() const;
+        /// Flat row-major index of @p slot_indices over slot_sizes (the swizzle key).
+        symbolic::Expression slot_linearize(const std::vector<symbolic::Expression>& slot_indices) const;
         /// Flat row-major offset of @p tile_indices within one per-slot block.
         symbolic::Expression tile_linearize(const std::vector<symbolic::Expression>& tile_indices) const;
     };
@@ -417,6 +425,7 @@ private:
     types::StorageType storage_type_; ///< Storage type for the local buffer (derived by can_be_applied)
     TileInfo tile_info_; ///< Populated by can_be_applied()
     LocalityPlan plan_; ///< Schedule classification (populated by can_be_applied)
+    bool swizzle_layout_ = false; ///< XOR-swizzle the NV_Shared inner index instead of padding it
     std::unordered_set<const data_flow::Memlet*> group_memlets_; ///< Memlets in the selected tile group
     std::vector<structured_control_flow::Reduce*> reduce_retargets_; ///< non-cooperative Reduce nodes to retarget in
                                                                      ///< apply()
@@ -501,10 +510,20 @@ public:
      *
      * The copy direction (in/out) and the storage space are both *derived* by
      * can_be_applied() from the dataflow and the enclosing parallel schedule.
+     *
+     * @param swizzle_layout When true, a bank-conflict-free NV_Shared tile uses an
+     *        XOR *swizzle* of the inner index instead of stride *padding* — no
+     *        wasted columns (saves shared) and the layout `ldmatrix` needs for
+     *        tensor cores. Requires a power-of-two inner block; falls back to
+     *        padding otherwise.
      */
-    LocalStorage(structured_control_flow::StructuredLoop& loop, const data_flow::AccessNode& access_node)
+    LocalStorage(
+        structured_control_flow::StructuredLoop& loop,
+        const data_flow::AccessNode& access_node,
+        bool swizzle_layout = false
+    )
         : loop_(loop), access_node_(access_node), container_(access_node.data()),
-          storage_type_(types::StorageType::CPU_Stack()) {}
+          storage_type_(types::StorageType::CPU_Stack()), swizzle_layout_(swizzle_layout) {}
 
     std::string name() const override { return "LocalStorage"; }
 

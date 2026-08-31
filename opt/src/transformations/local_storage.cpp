@@ -418,9 +418,29 @@ std::vector<symbolic::Expression> LocalStorage::TileBuffer::axes() const {
         out.push_back(inner_stride());
         return out;
     }
+    if (swizzled) {
+        // [slot dims][natural per-slot block]: no padding — the XOR swizzle in
+        // multi_subset() spreads the per-slot accesses across banks instead.
+        std::vector<symbolic::Expression> out = slot_sizes;
+        out.push_back(tile_total_size());
+        return out;
+    }
     std::vector<symbolic::Expression> out = slot_sizes;
     out.insert(out.end(), tile_sizes.begin(), tile_sizes.end());
     return out;
+}
+
+symbolic::Expression LocalStorage::TileBuffer::slot_linearize(const std::vector<symbolic::Expression>& slot_indices
+) const {
+    symbolic::Expression linear = symbolic::integer(0);
+    symbolic::Expression stride = symbolic::integer(1);
+    for (int i = static_cast<int>(slot_indices.size()) - 1; i >= 0; i--) {
+        linear = symbolic::add(linear, symbolic::mul(slot_indices[i], stride));
+        if (i < static_cast<int>(slot_sizes.size())) {
+            stride = symbolic::mul(stride, slot_sizes[i]);
+        }
+    }
+    return linear;
 }
 
 data_flow::Subset LocalStorage::TileBuffer::multi_subset(
@@ -430,6 +450,11 @@ data_flow::Subset LocalStorage::TileBuffer::multi_subset(
     if (bank_padded) {
         // Flatten the tile indices into the single padded inner dimension.
         subset.push_back(tile_linearize(tile_indices));
+    } else if (swizzled) {
+        // Flatten, then XOR-swizzle by the slot so per-slot accesses hit distinct
+        // banks. A bijection on the power-of-two inner range (applied identically
+        // to copy-in and reads, so it is a pure relabelling of where data lives).
+        subset.push_back(symbolic::bit_xor(tile_linearize(tile_indices), slot_linearize(slot_indices)));
     } else {
         subset.insert(subset.end(), tile_indices.begin(), tile_indices.end());
     }
@@ -1106,6 +1131,19 @@ void LocalStorage::apply(builder::StructuredSDFGBuilder& builder, analysis::Anal
     // to be coprime with 32, so a warp's per-slot accesses hit distinct banks (no
     // bank conflicts). CPU/private buffers keep the dense multi-dim layout.
     buffer.bank_padded = storage_type_.is_nv_shared() && !slot_sizes.empty();
+    // Swizzle mode: replace the stride padding with an XOR swizzle of the inner
+    // index. Needs a constant power-of-two inner block (so the XOR stays in range
+    // and is a bijection); otherwise keep padding.
+    if (buffer.bank_padded && swizzle_layout_) {
+        auto total = buffer.tile_total_size();
+        if (SymEngine::is_a<SymEngine::Integer>(*total)) {
+            auto n = SymEngine::rcp_static_cast<const SymEngine::Integer>(total)->as_int();
+            if (n > 0 && (n & (n - 1)) == 0) {
+                buffer.bank_padded = false;
+                buffer.swizzled = true;
+            }
+        }
+    }
     // Cooperative-store conflict avoidance: pad the inner stride to the coop axis's
     // per-warp thread count (mod 32). Compute it from the block dims + the coop
     // copy's axis (A tiles are coop over X, B over Y -> different spans, so a single
@@ -1546,6 +1584,7 @@ void LocalStorage::to_json(nlohmann::json& j) const {
     serializer::JSONSerializer serializer_full;
     j["parameters"]["storage_type"] = nlohmann::json::object();
     serializer_full.storage_type_to_json(j["parameters"]["storage_type"], storage_type_);
+    j["parameters"]["swizzle_layout"] = swizzle_layout_;
 
     serializer::JSONSerializer ser_flat(false);
     j["subgraph"] = nlohmann::json::object();
@@ -1579,7 +1618,12 @@ LocalStorage LocalStorage::from_json(builder::StructuredSDFGBuilder& builder, co
         );
     }
 
-    return LocalStorage(*loop, *access_node);
+    bool swizzle_layout = false;
+    if (desc.contains("parameters") && desc["parameters"].contains("swizzle_layout")) {
+        swizzle_layout = desc["parameters"]["swizzle_layout"].get<bool>();
+    }
+
+    return LocalStorage(*loop, *access_node, swizzle_layout);
 }
 
 } // namespace transformations

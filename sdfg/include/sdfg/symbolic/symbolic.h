@@ -352,6 +352,15 @@ Expression abs(const Expression expr);
 Expression mod(const Expression lhs, const Expression rhs);
 
 /**
+ * @brief Bitwise XOR operation (integer)
+ * @param lhs Left operand
+ * @param rhs Right operand
+ * @return Expression representing (lhs ^ rhs); lowered to `^` by codegen. Used by
+ *         swizzled shared-memory layouts (a bijection on a power-of-two range).
+ */
+Expression bit_xor(const Expression lhs, const Expression rhs);
+
+/**
  * @brief Function class for integer modulo operation
  *
  * This class represents the symbolic function for integer modulo.

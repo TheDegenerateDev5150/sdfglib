@@ -3056,6 +3056,29 @@ TEST(LocalStorageTest, TileBuffer_SlotOffset) {
                        symbolic::add(buf.slot_offset({s}), symbolic::add(symbolic::mul(i, symbolic::integer(4)), j))));
 }
 
+TEST(LocalStorageTest, TileBuffer_Swizzle) {
+    // [slot(2)][tile(2,4)]: tile_total = 8 (power of two). Swizzled layout uses a
+    // natural (unpadded) inner axis and XOR-swizzles the inner index by the slot.
+    LocalStorage::TileBuffer buf{{symbolic::integer(2)}, {symbolic::integer(2), symbolic::integer(4)}};
+    buf.swizzled = true;
+
+    // axes: [slot][natural inner] = [2][8] — no padding (vs bank_padded's +1/coop pad).
+    auto ax = buf.axes();
+    ASSERT_EQ(ax.size(), 2u);
+    EXPECT_TRUE(symbolic::eq(ax[0], symbolic::integer(2)));
+    EXPECT_TRUE(symbolic::eq(ax[1], symbolic::integer(8)));
+
+    // multi_subset: [slot, bit_xor(tile_linear, slot)].
+    auto s = symbolic::symbol("s");
+    auto i = symbolic::symbol("i");
+    auto j = symbolic::symbol("j");
+    auto sub = buf.multi_subset({s}, {i, j});
+    ASSERT_EQ(sub.size(), 2u);
+    EXPECT_TRUE(symbolic::eq(sub[0], s));
+    auto expected = symbolic::bit_xor(symbolic::add(symbolic::mul(i, symbolic::integer(4)), j), s);
+    EXPECT_TRUE(symbolic::eq(sub[1], expected));
+}
+
 /**
  * Apply_Cooperative_Mixed: a tile that is per-thread along one GPU block dim (i)
  * and cooperative along another (j) — shared-memory GEMM shape. The buffer gains
