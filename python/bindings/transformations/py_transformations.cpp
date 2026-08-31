@@ -24,6 +24,7 @@
 #include <sdfg/transformations/omp_transform.h>
 #include <sdfg/transformations/out_local_storage.h>
 #include <sdfg/transformations/recorder.h>
+#include <sdfg/transformations/software_pipelining.h>
 #include <sdfg/transformations/tile_fusion.h>
 #include <sdfg/transformations/transformation.h>
 #include <sdfg/transformations/unroll_transform.h>
@@ -391,6 +392,34 @@ void register_transformations(py::module& m) {
         .def("__repr__", [](const LoopPeeling& t) {
             std::ostringstream oss;
             oss << "<LoopPeeling name='" << t.name() << "'>";
+            return oss.str();
+        });
+
+    // SoftwarePipelining transformation (cp.async double-buffer a panel loop)
+    py::class_<SoftwarePipelining, Transformation>(m, "SoftwarePipelining")
+        .def(
+            py::init<StructuredLoop&, size_t, bool, bool>(),
+            py::arg("loop"),
+            py::arg("stages") = 2,
+            py::arg("single_operand") = false,
+            py::arg("vectorize") = false,
+            "Software-pipeline a sequential panel loop that cooperatively stages a\n"
+            "shared-memory tile each iteration, overlapping the next panel's global\n"
+            "load (via cp.async) with the current panel's compute.\n\n"
+            "Args:\n"
+            "    loop: The sequential panel loop (inside a GPU offload map).\n"
+            "    stages: Pipeline depth (buffers); 2 is the usual sweet spot.\n"
+            "    single_operand: Pipeline only the first (name-ordered) shared\n"
+            "        operand and keep the rest single-buffered + synchronous. Uses\n"
+            "        less shared memory, preserving occupancy when double-buffering\n"
+            "        every operand would drop a block per SM.\n"
+            "    vectorize: Emit 16-byte (float4) cp.async by striding the\n"
+            "        cooperative copy by 4. Only sound for contiguous, 16-byte\n"
+            "        aligned tiles; clang cannot widen the cp.async intrinsic."
+        )
+        .def("__repr__", [](const SoftwarePipelining& t) {
+            std::ostringstream oss;
+            oss << "<SoftwarePipelining name='" << t.name() << "'>";
             return oss.str();
         });
 
