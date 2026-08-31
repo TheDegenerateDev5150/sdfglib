@@ -73,14 +73,17 @@ symbolic::Assumptions build_copy_discharge_assumptions(
 std::unique_ptr<types::IType> make_nested_array(
     const std::vector<symbolic::Expression>& axes, const types::IType& scalar, const types::StorageType& storage
 ) {
+    // 16-byte alignment on shared tiles lets the cooperative float4 cp.async /
+    // LDS.128 addresses be provably aligned (emitted as __attribute__((aligned(16)))).
+    const size_t align = storage.is_nv_shared() ? 16 : 0;
     if (axes.empty()) {
-        return std::make_unique<types::Array>(storage, 0, "", scalar, symbolic::integer(1));
+        return std::make_unique<types::Array>(storage, align, "", scalar, symbolic::integer(1));
     }
     std::unique_ptr<types::IType> inner = scalar.clone();
     for (size_t a = axes.size() - 1; a >= 1; a--) {
         inner = std::make_unique<types::Array>(*inner, axes[a]);
     }
-    return std::make_unique<types::Array>(storage, 0, "", *inner, axes[0]);
+    return std::make_unique<types::Array>(storage, align, "", *inner, axes[0]);
 }
 
 /// Visit every Block reachable under @p node (recursing through sequences,
@@ -495,7 +498,13 @@ symbolic::Expression LocalStorage::TileBuffer::inner_stride() const {
     if (coop_warp_span > 0) {
         long target = static_cast<long>(coop_warp_span % 32);
         long add = ((target - (n % 32)) % 32 + 32) % 32;
-        return symbolic::integer(n + add);
+        // Round the padded stride up to a multiple of 4 (16 bytes) so a whole
+        // shared row is float4-addressable (cooperative cp.async / LDS.128). When
+        // coop_warp_span is itself a multiple of 4 (fast coop axis) this is a no-op
+        // and stays conflict-free; a slow coop axis trades the exact bank spread for
+        // 16-byte rows, which the vectorized cooperative copy more than recovers.
+        long padded = (n + add + 3) & ~3L;
+        return symbolic::integer(padded);
     }
     if (n % 2 == 0) {
         return symbolic::integer(n + 1);
@@ -1284,7 +1293,11 @@ void LocalStorage::emit_private_copy(
             "__daisy_ls_" + std::string(writeback ? "wb" : "ci") + "_" + container_ + "_d" +
             std::to_string(varying_dims[i])
         );
-        builder.add_container(name, types::Scalar(types::PrimitiveType::UInt64));
+        // Int32: this copy index sweeps [0, tile_dim), a compile-time-constant tile
+        // extent (can_be_applied enforces is_constant_bounded + max_tile_elements),
+        // so it always fits int32. In the global address it is added to a 64-bit
+        // base, so C promotion keeps that arithmetic 64-bit safe for any N.
+        builder.add_container(name, types::Scalar(types::PrimitiveType::Int32));
         auto indvar = symbolic::symbol(name);
         indvars.push_back(indvar);
         auto& map = builder.add_map(
@@ -1427,7 +1440,9 @@ void LocalStorage::emit_cooperative_copy_in(
     }
 
     auto c_name = builder.find_new_name("__daisy_ls_coop_" + container_);
-    builder.add_container(c_name, types::Scalar(types::PrimitiveType::UInt64));
+    // Int32: sweeps [0, tile_total_size), a constant-bounded tile extent under the
+    // max_tile_elements budget; added to 64-bit bases in the global address.
+    builder.add_container(c_name, types::Scalar(types::PrimitiveType::Int32));
     auto c = symbolic::symbol(c_name);
 
     // Each thread fills its own per-thread slot; the cooperative threads split the
@@ -1501,7 +1516,9 @@ void LocalStorage::emit_enclosing_cooperative_copy_in(
     auto& first = body.at(0);
 
     auto c_name = builder.find_new_name("__daisy_ls_coop_" + container_);
-    builder.add_container(c_name, types::Scalar(types::PrimitiveType::UInt64));
+    // Int32: sweeps [0, tile_total_size), a constant-bounded tile extent under the
+    // max_tile_elements budget; added to 64-bit bases in the global address.
+    builder.add_container(c_name, types::Scalar(types::PrimitiveType::Int32));
     auto c = symbolic::symbol(c_name);
 
     // Copy map: the block cooperatively splits the tile (one shared row, no slots).

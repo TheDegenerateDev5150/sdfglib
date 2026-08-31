@@ -2,6 +2,7 @@
 
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
+#include "sdfg/types/utils.h"
 
 namespace sdfg {
 namespace math {
@@ -169,9 +170,11 @@ passes::LibNodeExpander::ExpandOutcome GEMMNode::
     auto add_loop = [&](structured_control_flow::Sequence& scope, size_t dim, bool as_map
                     ) -> structured_control_flow::StructuredLoop& {
         std::string iv = builder.find_new_name(indvar_names[dim]);
-        builder.add_container(iv, types::Scalar(types::PrimitiveType::UInt64));
+        auto& indvar_end = indvar_ends[dim];
+        auto indvar_type = types::get_primitive_type_to_hold_expression(indvar_end);
+        builder.add_container(iv, types::Scalar(indvar_type));
         auto sym = symbolic::symbol(iv);
-        auto cond = symbolic::Lt(sym, indvar_ends[dim]);
+        auto cond = symbolic::Lt(sym, indvar_end);
         auto update = symbolic::add(sym, symbolic::one());
         if (as_map) {
             return builder.add_map(

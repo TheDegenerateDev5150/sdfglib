@@ -251,7 +251,7 @@ passes::LibNodeExpander::ExpandOutcome ConvNode::
     // Dimensions, i.e., 1D, 2D, 3D, ...
     size_t dims = this->kernel_shape_.size();
     symbolic::MultiExpression out_shape = this->get_out_shape();
-    types::Scalar indvar_type(types::PrimitiveType::Int64);
+    types::Scalar indvar_type(TensorLayout::get_tensor_indvar_type_for_shape(shape_));
 
     // Create nested map structure for convolution
     structured_control_flow::Sequence* current_seq = &new_sequence;
