@@ -305,13 +305,6 @@ passes::LibNodeExpander::ExpandOutcome MatMulNode::expand(passes::LibNodeExpande
 
         // Create maps for batch dimensions (using broadcasting)
         for (size_t i = 0; i < max_batch_dims; ++i) {
-            std::string indvar_str = builder.find_new_name("_b");
-            builder.add_container(indvar_str, types::Scalar(types::PrimitiveType::UInt64));
-
-            auto indvar = symbolic::symbol(indvar_str);
-            auto init = symbolic::zero();
-            auto update = symbolic::add(indvar, symbolic::one());
-
             // Determine the bound for this batch dimension (max of A and B for broadcasting)
             symbolic::Expression bound;
             size_t a_idx = batch_dims_a >= (max_batch_dims - i) ? i - (max_batch_dims - batch_dims_a) : SIZE_MAX;
@@ -325,6 +318,13 @@ passes::LibNodeExpander::ExpandOutcome MatMulNode::expand(passes::LibNodeExpande
             } else {
                 bound = layout_b_.get_dim(b_idx);
             }
+
+            std::string indvar_str = builder.find_new_name("_b");
+            builder.add_container(indvar_str, types::Scalar(TensorLayout::get_tensor_indvar_type_for_shape({bound})));
+
+            auto indvar = symbolic::symbol(indvar_str);
+            auto init = symbolic::zero();
+            auto update = symbolic::add(indvar, symbolic::one());
 
             auto condition = symbolic::Lt(indvar, bound);
             last_map = &builder.add_map(

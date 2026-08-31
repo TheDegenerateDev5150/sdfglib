@@ -253,5 +253,15 @@ bool is_contiguous_type(const types::IType& base_type, StructuredSDFG& sdfg) {
     return true;
 }
 
+PrimitiveType get_primitive_type_to_hold_expression(const symbolic::Expression& expr) {
+    static auto int32_bound = symbolic::integer(INT32_MAX);
+
+    if (symbolic::is_true(symbolic::Le(expr, int32_bound))) {
+        return Int32;
+    } else {
+        return Int64;
+    }
+}
+
 } // namespace types
 } // namespace sdfg

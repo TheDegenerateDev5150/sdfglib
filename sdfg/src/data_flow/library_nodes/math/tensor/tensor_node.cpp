@@ -1,6 +1,7 @@
 #include "sdfg/data_flow/library_nodes/math/tensor/tensor_node.h"
 
 #include "daisy_rtl/primitive_types.h"
+#include "sdfg/symbolic/extreme_values.h"
 #include "sdfg/types/tensor.h"
 
 namespace sdfg {

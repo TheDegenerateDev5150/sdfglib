@@ -126,5 +126,7 @@ const types::IType* peel_to_next_element(const types::IType& type);
  */
 bool is_contiguous_type(const types::IType& type, StructuredSDFG& sdfg);
 
+PrimitiveType get_primitive_type_to_hold_expression(const symbolic::Expression& expr);
+
 } // namespace types
 } // namespace sdfg

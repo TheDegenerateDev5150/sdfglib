@@ -152,6 +152,8 @@ TEST(MatMulTest, MatMul_3D_Batched) {
     builder.add_computational_memlet(block, b_node, matmul_node, "B", {}, input_tensor_b, block.debug_info());
     builder.add_computational_memlet(block, y_node, matmul_node, "Y", {}, output_tensor, block.debug_info());
 
+    dump_sdfg(sdfg, "0.init");
+
     // Check dimensions
     EXPECT_TRUE(symbolic::eq(matmul_node.m(), symbolic::integer(4)));
     EXPECT_TRUE(symbolic::eq(matmul_node.n(), symbolic::integer(6)));
@@ -162,6 +164,8 @@ TEST(MatMulTest, MatMul_3D_Batched) {
     // Test expansion
     analysis::AnalysisManager analysis_manager(sdfg);
     auto outcome = passes::expansion::expand_single_math_node(builder, block, matmul_node);
+
+    dump_sdfg(sdfg, "1.expanded");
     EXPECT_TRUE(outcome.expanded);
     EXPECT_TRUE(outcome.block_removed);
 
