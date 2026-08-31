@@ -166,7 +166,9 @@ void StreamK::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisM
     sym::Expression panel_step = sym::sub(reduce->update(), reduce->indvar());
 
     sym::Expression tiles = sym::integer(1);
-    for (auto& t : trips) tiles = sym::mul(tiles, t);
+    for (auto& t : trips) {
+        tiles = sym::mul(tiles, t);
+    }
     sym::Expression total = sym::mul(tiles, panels);
     sym::Integer nblocks = sym::integer(static_cast<int>(num_blocks_));
     sym::Expression one = sym::integer(1);
@@ -174,14 +176,27 @@ void StreamK::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisM
     auto bid = sym::symbol("__streamk_bid");
     auto t = sym::symbol("__streamk_tile");
     auto merge = sym::symbol("__streamk_merge");
-    // Signed: the segment decode subtracts (iter_begin - t*panels), which is
-    // negative for every tile past the block's first -- an unsigned type would
-    // underflow to a huge value and skip the segment (only the first tile of a
-    // block would run).
-    types::Scalar idx_type(types::PrimitiveType::Int64);
-    builder.add_container("__streamk_bid", idx_type);
-    builder.add_container("__streamk_tile", idx_type);
-    builder.add_container("__streamk_merge", idx_type);
+    // total and nblocks are compile-time constants here, so we can bound the
+    // worker decode arithmetic and narrow to a signed 32-bit int when it provably
+    // fits (fewer live registers -> higher occupancy). A 1<<30 ceiling leaves
+    // headroom for the intermediate products below.
+    auto fits_int32 = [](const sym::Expression& e) {
+        return SymEngine::is_a<SymEngine::Integer>(*e) &&
+               symbolic::is_true(symbolic::Le(e, symbolic::integer(1 << 30)));
+    };
+    // bid and merge only reach the K-panel range (<= K) or a 1-trip loop; their
+    // largest intermediate is (bid+1)*total <= nblocks*total, so gate on that.
+    // __streamk_tile stays Int64: it decodes the OUTPUT tile, which enters global
+    // addresses scaled by a leading dimension not visible here.
+    bool narrow_bid = fits_int32(sym::mul(total, nblocks));
+    // Signed: the segment decode subtracts (iter_begin - t*panels), negative for
+    // every tile past the block's first -- an unsigned type would underflow to a
+    // huge value and skip the segment (only the first tile of a block would run).
+    types::Scalar tile_type(types::PrimitiveType::Int64);
+    types::Scalar bid_type(narrow_bid ? types::PrimitiveType::Int32 : types::PrimitiveType::Int64);
+    builder.add_container("__streamk_bid", bid_type);
+    builder.add_container("__streamk_tile", tile_type);
+    builder.add_container("__streamk_merge", bid_type);
 
     // This block's equal contiguous slice of the flat (tile x panel) space. bid
     // is emitted with its signed container type (see idx_type), so the segment
