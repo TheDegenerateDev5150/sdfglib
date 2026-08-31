@@ -1,17 +1,60 @@
 #include "sdfg/transformations/offloading/gpu_condition_propagation.h"
+#include <symengine/integer.h>
 #include <vector>
+#include "sdfg/analysis/assumptions_analysis.h"
 #include "sdfg/analysis/users.h"
 #include "sdfg/data_flow/library_nodes/barrier_local_node.h"
 #include "sdfg/element.h"
 #include "sdfg/structured_control_flow/control_flow_node.h"
 #include "sdfg/structured_control_flow/map.h"
 #include "sdfg/structured_sdfg.h"
+#include "sdfg/symbolic/extreme_values.h"
 #include "sdfg/targets/gpu/gpu_map_utils.h"
 #include "sdfg/targets/gpu/gpu_schedule_type.h"
 #include "sdfg/visitor/structured_sdfg_visitor.h"
 
 namespace sdfg {
 namespace transformations {
+
+// A GPU offload map is "full" when its trip count is an exact multiple of the
+// parallel size (block/grid dimension). Then the coverage loop assigns every
+// thread only in-range indices — no thread overshoots — so the per-thread
+// boundary predicate (map_.condition()) is always true and need not be
+// propagated onto hoisted, barrier-free content. Ragged maps keep the guard.
+// Sound: only fires on compile-time-constant trip and parallel size.
+static bool map_is_full(structured_control_flow::Map& map, analysis::AnalysisManager& analysis_manager) {
+    const auto& sched = map.schedule_type();
+    if (sched.properties().find("parallel_size") == sched.properties().end()) {
+        return false;
+    }
+    auto psize = gpu::ScheduleType_GPU_Offload::parallel_size(sched);
+    if (psize.is_null() || !SymEngine::is_a<SymEngine::Integer>(*psize)) {
+        return false;
+    }
+    auto p = SymEngine::rcp_static_cast<const SymEngine::Integer>(psize)->as_int();
+    if (p <= 0) {
+        return false;
+    }
+    auto trip = map.num_iterations();
+    if (trip.is_null()) {
+        return false;
+    }
+    long long t = -1;
+    if (SymEngine::is_a<SymEngine::Integer>(*trip)) {
+        t = SymEngine::rcp_static_cast<const SymEngine::Integer>(trip)->as_int();
+    } else {
+        auto& aa = analysis_manager.get<analysis::AssumptionsAnalysis>();
+        const auto& assums = aa.get(map.root(), true);
+        const auto& params = aa.parameters();
+        auto mx = symbolic::maximum(trip, params, assums, true);
+        auto mn = symbolic::minimum(trip, params, assums, true);
+        if (mx.is_null() || mn.is_null() || !symbolic::eq(mx, mn) || !SymEngine::is_a<SymEngine::Integer>(*mx)) {
+            return false;
+        }
+        t = SymEngine::rcp_static_cast<const SymEngine::Integer>(mx)->as_int();
+    }
+    return t >= 0 && (t % p) == 0;
+}
 
 GPUConditionPropagation::GPUConditionPropagation(structured_control_flow::Map& map_) : map_(map_) {};
 
@@ -41,6 +84,14 @@ void GPUConditionPropagation::apply(builder::StructuredSDFGBuilder& builder, ana
     auto new_sched_type = map_.schedule_type();
     new_sched_type.set_property("nested_sync", "true");
     builder.update_schedule_type(map_, new_sched_type);
+
+    // A full map has no ragged threads: every thread's index satisfies the map
+    // condition, so the per-thread predicate is redundant and need not be
+    // propagated onto hoisted content. Barriers are still hit by all threads.
+    if (map_is_full(map_, analysis_manager)) {
+        analysis_manager.invalidate_all();
+        return;
+    }
 
     std::vector<structured_control_flow::ControlFlowNode*> nodes_to_visit;
     nodes_to_visit.push_back(&map_.root());

@@ -157,9 +157,14 @@ def test_loop_peeling_ragged_reduction(N, K, block, tile, predicate, tmp_path):
     output_dir.mkdir(parents=True, exist_ok=True)
     lib_path = sdfg._compile(str(output_dir), "cuda")
 
-    # Both modes emit a boundary check (hoisted then/else guard, or inner predicate).
+    # A ragged tile keeps a boundary check (hoisted then/else guard, or inner
+    # predicate); an exact-fit tile has its now-provably-redundant guard removed.
     generated = "\n".join(p.read_text() for p in output_dir.rglob("*.cu"))
-    assert "if" in generated, "boundary check not emitted"
+    exact_fit = (K % tile == 0) and (N % block == 0)
+    if exact_fit:
+        assert "if" not in generated, "exact-fit tile should not emit a boundary check"
+    else:
+        assert "if" in generated, "ragged boundary check not emitted"
 
     compiled = CompiledSDFG(lib_path, sdfg)
 
