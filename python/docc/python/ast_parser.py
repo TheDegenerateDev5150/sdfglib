@@ -19,9 +19,11 @@ from docc.python.ast_utils import (
     contains_ufunc_outer,
     normalize_negative_index,
 )
-from docc.python.types import (
+from docc.python.type_system import (
     sdfg_type_from_type,
     element_type_from_sdfg_type,
+    FLOAT_PRIMITIVE_TYPES,
+    TypeSystem,
 )
 from docc.python.functions.numpy import NumPyHandler
 from docc.python.functions.math import MathHandler
@@ -48,6 +50,9 @@ class ASTParser(ast.NodeVisitor):
         # Lookup tables for variables
         self.tensor_table = tensor_table
         self.container_table = container_table
+
+        # Single authority for scalar type inference, shared with all handlers.
+        self.type_system = TypeSystem(self.container_table, self.tensor_table)
 
         # Debug info
         self.filename = filename
@@ -288,9 +293,9 @@ class ASTParser(ast.NodeVisitor):
 
         left_is_int = self._is_int(left)
         right_is_int = self._is_int(right)
-        dtype = Scalar(PrimitiveType.Double)
-        if left_is_int and right_is_int and op not in ["/", "**"]:
-            dtype = Scalar(PrimitiveType.Int64)
+        # Result element type follows the shared TypeSystem (NEP 50 weak-scalar
+        # promotion), so every binary op infers types identically.
+        dtype = self.type_system.result_type(left, right, op)
 
         if not self.builder.exists(tmp_name):
             self.builder.add_container(tmp_name, dtype, False)
@@ -298,13 +303,11 @@ class ASTParser(ast.NodeVisitor):
 
         real_left = left
         real_right = right
-        if dtype.primitive_type == PrimitiveType.Double:
+        if dtype.primitive_type in FLOAT_PRIMITIVE_TYPES:
             if left_is_int:
                 left_cast = self.builder.find_new_name()
-                self.builder.add_container(
-                    left_cast, Scalar(PrimitiveType.Double), False
-                )
-                self.container_table[left_cast] = Scalar(PrimitiveType.Double)
+                self.builder.add_container(left_cast, dtype, False)
+                self.container_table[left_cast] = dtype
 
                 c_block = self.builder.add_block()
                 t_src, src_sub = self._add_read(c_block, left)
@@ -319,10 +322,8 @@ class ASTParser(ast.NodeVisitor):
 
             if right_is_int:
                 right_cast = self.builder.find_new_name()
-                self.builder.add_container(
-                    right_cast, Scalar(PrimitiveType.Double), False
-                )
-                self.container_table[right_cast] = Scalar(PrimitiveType.Double)
+                self.builder.add_container(right_cast, dtype, False)
+                self.container_table[right_cast] = dtype
 
                 c_block = self.builder.add_block()
                 t_src, src_sub = self._add_read(c_block, right)
@@ -1129,15 +1130,7 @@ class ASTParser(ast.NodeVisitor):
 
         if not self.builder.exists(target_name):
             if isinstance(node.value, ast.Constant):
-                val = node.value.value
-                if isinstance(val, int):
-                    dtype = Scalar(PrimitiveType.Int64)
-                elif isinstance(val, float):
-                    dtype = Scalar(PrimitiveType.Double)
-                elif isinstance(val, bool):
-                    dtype = Scalar(PrimitiveType.Bool)
-                else:
-                    raise NotImplementedError(f"Cannot infer type for {val}")
+                dtype = self.type_system.constant_type(node.value.value)
 
                 self.builder.add_container(target_name, dtype, False)
                 self.container_table[target_name] = dtype
@@ -1417,13 +1410,7 @@ class ASTParser(ast.NodeVisitor):
                     if res in self.container_table:
                         dtype = self.container_table[res]
                     elif isinstance(values[i], ast.Constant):
-                        val = values[i].value
-                        if isinstance(val, int):
-                            dtype = Scalar(PrimitiveType.Int64)
-                        elif isinstance(val, float):
-                            dtype = Scalar(PrimitiveType.Double)
-                        elif isinstance(val, bool):
-                            dtype = Scalar(PrimitiveType.Bool)
+                        dtype = self.type_system.constant_type(values[i].value)
 
                     # Wrap Scalar in Pointer. Keep Arrays/Pointers as is.
                     arg_type = dtype
@@ -3640,65 +3627,13 @@ class ASTParser(ast.NodeVisitor):
         return None
 
     def _element_type(self, name):
-        if name in self.container_table:
-            return element_type_from_sdfg_type(self.container_table[name])
-        else:  # Constant
-            if self._is_int(name):
-                return Scalar(PrimitiveType.Int64)
-            else:
-                return Scalar(PrimitiveType.Double)
+        return self.type_system.element_type(name)
+
+    def _is_weak_literal(self, operand):
+        return self.type_system.is_weak_literal(operand)
 
     def _is_int(self, operand):
-        try:
-            if operand.lstrip("-").isdigit():
-                return True
-        except ValueError:
-            pass
-
-        name = operand
-        if "(" in operand and operand.endswith(")"):
-            name = operand.split("(")[0]
-
-        if name in self.container_table:
-            t = self.container_table[name]
-
-            def is_int_ptype(pt):
-                return pt in [
-                    PrimitiveType.Int64,
-                    PrimitiveType.Int32,
-                    PrimitiveType.Int8,
-                    PrimitiveType.Int16,
-                    PrimitiveType.UInt64,
-                    PrimitiveType.UInt32,
-                    PrimitiveType.UInt8,
-                    PrimitiveType.UInt16,
-                ]
-
-            if isinstance(t, Scalar):
-                return is_int_ptype(t.primitive_type)
-
-            if type(t).__name__ == "Array" and hasattr(t, "element_type"):
-                et = t.element_type
-                if callable(et):
-                    et = et()
-                if isinstance(et, Scalar):
-                    return is_int_ptype(et.primitive_type)
-
-            if type(t).__name__ == "Pointer":
-                if hasattr(t, "pointee_type"):
-                    et = t.pointee_type
-                    if callable(et):
-                        et = et()
-                    if isinstance(et, Scalar):
-                        return is_int_ptype(et.primitive_type)
-                if hasattr(t, "element_type"):
-                    et = t.element_type
-                    if callable(et):
-                        et = et()
-                    if isinstance(et, Scalar):
-                        return is_int_ptype(et.primitive_type)
-
-        return False
+        return self.type_system.is_int(operand)
 
     def _add_read(self, block, expr_str, debug_info=None):
         try:
@@ -3738,11 +3673,7 @@ class ASTParser(ast.NodeVisitor):
                 pass
             return access, subset
 
-        dtype = Scalar(PrimitiveType.Double)
-        if self._is_int(expr_str):
-            dtype = Scalar(PrimitiveType.Int64)
-        elif expr_str == "true" or expr_str == "false":
-            dtype = Scalar(PrimitiveType.Bool)
+        dtype = self.type_system.literal_string_type(expr_str)
 
         const_node = self.builder.add_constant(block, expr_str, dtype, debug_info)
         try:

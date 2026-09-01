@@ -80,11 +80,12 @@ class MathHandler:
             raise NotImplementedError(f"Math function {func_name} not supported")
 
         args = [self.visit(arg) for arg in node.args]
+        # Result precision follows the first concrete operand; bare literals
+        # keep the default double (see TypeSystem for the shared rules).
         dtype = Scalar(PrimitiveType.Double)
         for arg in args:
-            if arg in self.container_table:
-                arg_dtype = self.container_table[arg]
-                dtype = Scalar(arg_dtype.primitive_type)
+            if not self._ev.type_system.is_weak_literal(arg):
+                dtype = self._ev.type_system.element_type(arg)
                 break
 
         tmp_name = self.builder.find_new_name("_tmp_")
