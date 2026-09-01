@@ -23,7 +23,7 @@ from docc.sdfg import (
     StructuredSDFGBuilder,
     DoccMetrics,
 )
-from docc.compiler.docc_program import DoccProgram
+from docc.compiler.docc_program import DoccProgram, DoccOptions
 from docc.compiler.compiled_sdfg import CompiledSDFG
 from docc.python.ast_parser import ASTParser
 from docc.python.type_system import element_type_from_sdfg_type, scalar_type_for_dtype
@@ -92,24 +92,10 @@ def _map_python_type(dtype):
 
 class PythonProgram(DoccProgram):
 
-    def __init__(
-        self,
-        func,
-        target: str = "none",
-        category: str = "server",
-        instrumentation_mode: Optional[str] = None,
-        capture_args: Optional[bool] = None,
-        remote_tuning: bool = False,
-        einsum_detection: bool = True,
-    ):
+    def __init__(self, func, options: Optional[DoccOptions] = None):
         super().__init__(
             name=func.__name__,
-            target=target,
-            category=category,
-            instrumentation_mode=instrumentation_mode,
-            capture_args=capture_args,
-            remote_tuning=remote_tuning,
-            einsum_detection=einsum_detection,
+            options=options or DoccOptions(),
         )
         self.func = func
         self._last_structure_member_info = {}
@@ -153,9 +139,6 @@ class PythonProgram(DoccProgram):
         self,
         *args: Any,
         output_folder: Optional[str] = None,
-        instrumentation_mode: Optional[str] = None,
-        capture_args: Optional[bool] = None,
-        remote_tuning: Optional[bool] = None,
     ) -> CompiledSDFG:
         original_output_folder = output_folder
 
@@ -164,20 +147,9 @@ class PythonProgram(DoccProgram):
         metrics.add_metric("function", self.name, "source")
         metrics.add_frontend_source_info("python")
 
-        # Resolve options
-        instrumentation_mode, capture_args, remote_tuning = (
-            self._resolve_compile_options(
-                instrumentation_mode, capture_args, remote_tuning
-            )
-        )
-
-        # When binary reuse is requested, the build run must persist the
-        # SDFG (py5.post_sched.json) so a later run can reload it without
-        # re-parsing/recompiling. Force the dump if instrumentation/capture
-        # would not already produce it.
-        docc_reuse_binaries = os.environ.get("DOCC_REUSE_BINARIES")
-        if docc_reuse_binaries and not self.debug_dump:
-            self.debug_dump = True
+        # Binary reuse (DOCC_REUSE_BINARIES) reloads a previously built .so and
+        # its persisted SDFG; DoccOptions forces the SDFG dump that produces it.
+        docc_reuse_binaries = self.options.reuse_binaries
 
         # 1. Analyze arguments and shapes
         arg_types = []
@@ -226,13 +198,11 @@ class PythonProgram(DoccProgram):
         # options, so repeated in-process compiles with different
         # instrumentation/arg-capture/remote-tuning do not alias to the first
         # built binary (the on-disk hash already accounts for these options).
-        mem_cache_key = (
-            f"{signature}|{capture_args}|{instrumentation_mode}|{remote_tuning}"
-        )
+        mem_cache_key = f"{signature}|{self.options.capture_args}|{self.options.instrumentation_mode}|{self.options.remote_tuning}"
 
         if output_folder is None:
             source_path = inspect.getsourcefile(self.func)
-            hash_input = f"{source_path}|{self.name}|{self.target}|{self.category}|{capture_args}|{instrumentation_mode}|{remote_tuning}|{signature}".encode(
+            hash_input = f"{source_path}|{self.name}|{self.options.target}|{self.options.category}|{self.options.capture_args}|{self.options.instrumentation_mode}|{self.options.remote_tuning}|{signature}".encode(
                 "utf-8"
             )
             stable_id = hashlib.sha256(hash_input).hexdigest()[:16]
@@ -240,9 +210,7 @@ class PythonProgram(DoccProgram):
 
             docc_tmp = os.environ.get("DOCC_TMP")
             if docc_tmp:
-                output_folder = (
-                    f"{docc_tmp}/{filename}-{self.name}-{self.target}-{stable_id}"
-                )
+                output_folder = f"{docc_tmp}/{filename}-{self.name}-{self.options.target}-{stable_id}"
             else:
                 user = os.getenv("USER")
                 if not user:
@@ -288,9 +256,6 @@ class PythonProgram(DoccProgram):
         lib_path = self.sdfg_pipe(
             sdfg,
             output_folder,
-            instrumentation_mode,
-            capture_args,
-            remote_tuning,
             metrics=metrics,
         )
 
@@ -310,7 +275,7 @@ class PythonProgram(DoccProgram):
             out_strides,
             device_resident=self._device_resident,
             device_backend=self._device_backend,
-            target=self.target,
+            target=self.options.target,
         )
 
         # Cache if using default output folder
@@ -416,7 +381,7 @@ class PythonProgram(DoccProgram):
             out_strides,
             device_resident=self._device_resident,
             device_backend=self._device_backend,
-            target=self.target,
+            target=self.options.target,
         )
 
     def to_sdfg(self, *args: Any) -> StructuredSDFG:
@@ -758,17 +723,12 @@ class PythonProgram(DoccProgram):
         )
 
 
-def native(
-    func=None,
-    *,
-    target="none",
-    category="server",
-    instrumentation_mode=None,
-    capture_args=None,
-    remote_tuning=False,
-    einsum_detection=True,
-):
+def native(func=None, **options: Any):
     """Decorator to create a PythonProgram from a Python function.
+
+    Keyword options are forwarded to :class:`DoccOptions` (e.g. ``target``,
+    ``category``, ``instrumentation_mode``, ``capture_args``, ``remote_tuning``,
+    ``einsum``).
 
     Example:
         @native
@@ -777,22 +737,7 @@ def native(
 
         result = my_function(np.array([1.0, 2.0, 3.0]))
     """
+    docc_options = DoccOptions.from_kwargs(**options)
     if func is None:
-        return lambda f: PythonProgram(
-            f,
-            target=target,
-            category=category,
-            instrumentation_mode=instrumentation_mode,
-            capture_args=capture_args,
-            remote_tuning=remote_tuning,
-            einsum_detection=einsum_detection,
-        )
-    return PythonProgram(
-        func,
-        target=target,
-        category=category,
-        instrumentation_mode=instrumentation_mode,
-        capture_args=capture_args,
-        remote_tuning=remote_tuning,
-        einsum_detection=einsum_detection,
-    )
+        return lambda f: PythonProgram(f, docc_options)
+    return PythonProgram(func, docc_options)

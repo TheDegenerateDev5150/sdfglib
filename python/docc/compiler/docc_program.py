@@ -1,10 +1,15 @@
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
 import sys
-from typing import Any, Dict, Optional
 import json
 import os
 import re
 import time
+import warnings
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, fields
+from typing import Any, Dict, Optional, get_args, get_type_hints
 
 from docc.sdfg import StructuredSDFG, TargetOptions, DoccMetrics
 from docc.sdfg._sdfg import (
@@ -21,30 +26,188 @@ from docc.compiler.target_registry import (
 )
 
 
-def _parse_docc_debug() -> dict[str, str]:
-    debug_env = os.environ.get("DOCC_DEBUG", "")
-    debug_dict = {}
-    if debug_env:
+@dataclass
+class DoccOptions:
+    """Compile options for a :class:`DoccProgram`.
+
+    Precedence (lowest to highest): field default < environment variable
+    (``DOCC_CI``, ``DOCC_DEBUG``) < explicit constructor argument.
+
+    Env-settable fields default to ``None`` ("unset") so an explicit value is
+    distinguishable from the default and wins over the environment. Everything
+    is resolved once in :meth:`__post_init__`.
+    """
+
+    # Optimization
+    target: Optional[str] = None
+    category: Optional[str] = None
+    remote_tuning: Optional[bool] = None
+
+    # Debug (settable via DOCC_DEBUG)
+    debug_dump: Optional[bool] = None
+    debug_build: Optional[bool] = None
+    build_thread_count: Optional[int] = None
+
+    # Instrumentation (settable via DOCC_CI)
+    instrumentation_mode: Optional[str] = None
+    capture_args: Optional[bool] = None
+
+    # Reuse (settable via DOCC_REUSE_BINARIES / DOCC_REUSE_SOURCES)
+    reuse_binaries: Optional[bool] = None
+    reuse_sources: Optional[bool] = None
+
+    # Compiler passes
+    einsum: Optional[bool] = None
+    normalize: Optional[bool] = None
+    device_residency: Optional[bool] = None
+
+    def __post_init__(self) -> None:
+        """Resolve default values for all unset values."""
+
+        # Environment fills only still-unset fields, so explicit args win over env.
+        self._resolve_docc_ci()
+        self._resolve_docc_debug()
+        self._resolve_docc_reuse()
+
+        # Optimization
+        if self.target is None:
+            self.target = "none"
+        if self.category is None:
+            self.category = "server"
+        if self.remote_tuning is None:
+            self.remote_tuning = False
+
+        # Debug
+        if self.debug_dump is None:
+            self.debug_dump = False
+        if self.debug_build is None:
+            self.debug_build = False
+        if self.build_thread_count is None:
+            self.build_thread_count = 0
+
+        # Instrumentation
+        if self.instrumentation_mode is None:
+            self.instrumentation_mode = ""
+        if self.capture_args is None:
+            self.capture_args = False
+
+        # Reuse
+        if self.reuse_binaries is None:
+            self.reuse_binaries = False
+        if self.reuse_sources is None:
+            self.reuse_sources = False
+
+        # Reuse reloads the persisted post-schedule SDFG (py5.post_sched.json),
+        # so the build that produces the cache must dump it.
+        if self.reuse_binaries or self.reuse_sources:
+            self.debug_dump = True
+
+        # Compiler Passes
+        if self.normalize is None:
+            self.normalize = self.target in ("sequential", "openmp")
+        if self.device_residency is None:
+            self.device_residency = self.target in ("cuda", "rocm")
+
+    @classmethod
+    def from_kwargs(cls, **kwargs: Any) -> DoccOptions:
+        """Build from arbitrary user kwargs.
+
+        Unknown keys are dropped with a warning; known values are coerced to the
+        field's declared type (raising ``TypeError`` if impossible). Use at
+        boundaries that accept free-form options (the ``@native`` decorator, the
+        torch.compile backend); direct construction stays strict.
+        """
+        known = {f.name for f in fields(cls)}
+        unknown = set(kwargs) - known
+        if unknown:
+            warnings.warn(
+                f"Ignoring unknown compile options: {', '.join(sorted(unknown))}"
+            )
+        return cls(**{k: cls._coerce(k, v) for k, v in kwargs.items() if k in known})
+
+    @classmethod
+    def _field_types(cls) -> Dict[str, type]:
+        """Concrete (non-``None``) declared type for each field."""
+        hints = get_type_hints(cls)
+        types: Dict[str, type] = {}
+        for f in fields(cls):
+            non_none = [a for a in get_args(hints[f.name]) if a is not type(None)]
+            types[f.name] = non_none[0] if non_none else hints[f.name]
+        return types
+
+    @classmethod
+    def _coerce(cls, name: str, value: Any) -> Any:
+        """Validate/convert ``value`` to the declared type of field ``name``."""
+        if value is None:
+            return None
+        target = cls._field_types()[name]
+        try:
+            if target is bool:
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, str):
+                    v = value.strip().lower()
+                    if v in ("1", "true", "yes", "on"):
+                        return True
+                    if v in ("0", "false", "no", "off", ""):
+                        return False
+                elif isinstance(value, (int, float)):
+                    return bool(value)
+                raise ValueError(f"cannot interpret {value!r} as a bool")
+            # bool is a subclass of int; don't silently accept True/False as an int.
+            if isinstance(value, target) and not (
+                target is int and isinstance(value, bool)
+            ):
+                return value
+            return target(value)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                f"compile option {name!r} expects {target.__name__}, got {value!r}"
+            ) from exc
+
+    def _resolve_docc_ci(self) -> None:
+        docc_ci = os.environ.get("DOCC_CI", "")
+        if not docc_ci:
+            return
+
+        # Fill only unset knobs; an explicit value overrides the environment.
+        if self.instrumentation_mode is None and docc_ci != "arg-capture":
+            self.instrumentation_mode = "ols"
+        if self.capture_args is None and docc_ci != "regions":
+            self.capture_args = True
+
+    def _resolve_docc_debug(self) -> None:
+        debug_env = os.environ.get("DOCC_DEBUG", "")
+        if not debug_env:
+            return
+
+        debug_flags = {}
         for entry in re.split(r"[;:]", debug_env):
             if not entry:
                 continue
             parts = entry.split("=", 1)
             key = parts[0].strip()
             value = parts[1].strip() if len(parts) > 1 else ""
-            debug_dict[key] = value
-    return debug_dict
+            debug_flags[key] = value
 
+        if self.debug_dump is None and "dump" in debug_flags:
+            self.debug_dump = True
+        if self.debug_build is None and "build" in debug_flags:
+            self.debug_build = True
+        if self.build_thread_count is None and "build_threads" in debug_flags:
+            self.build_thread_count = self._coerce(
+                "build_thread_count", debug_flags["build_threads"]
+            )
 
-def _is_debug_dump(flags: dict[str, str]) -> bool:
-    return "dump" in flags
-
-
-def _is_debug_compile(flags: dict[str, str]) -> bool:
-    return "build" in flags
-
-
-def _get_build_thread_count(flags: dict[str, str]) -> int:
-    return int(flags.get("build_threads", "0"))
+    def _resolve_docc_reuse(self) -> None:
+        # Proper boolean flags: yes/1/true enable, no/0/false (or empty) disable.
+        for field, env_var in (
+            ("reuse_binaries", "DOCC_REUSE_BINARIES"),
+            ("reuse_sources", "DOCC_REUSE_SOURCES"),
+        ):
+            raw = os.environ.get(env_var)
+            if raw is not None and getattr(self, field) is None:
+                setattr(self, field, self._coerce(field, raw))
 
 
 class DoccProgram(ABC):
@@ -52,45 +215,17 @@ class DoccProgram(ABC):
     def __init__(
         self,
         name: str,
-        target: str = "none",
-        category: str = "server",
-        instrumentation_mode: Optional[str] = None,
-        capture_args: Optional[bool] = None,
-        remote_tuning: bool = False,
-        einsum_detection: bool = True,
+        options: DoccOptions,
     ):
         self.name = name
-        self.target = target
-        self.category = category
-        self.remote_tuning = remote_tuning
-        self.einsum_detection = einsum_detection
+        # Options are fully resolved at construction (DoccOptions.__post_init__).
+        self.options = options
+
         self.last_sdfg: Optional[StructuredSDFG] = None
+        self.cache: dict = {}
+
         self._device_resident: bool = False
         self._device_backend: Optional[str] = None
-        self.cache: dict = {}
-        debug_flags = _parse_docc_debug()
-        self.debug_dump: bool = _is_debug_dump(debug_flags)
-        self.debug_build: bool = _is_debug_compile(debug_flags)
-        self.build_thread_count: int = _get_build_thread_count(debug_flags)
-
-        # Check environment variable DOCC_CI
-        docc_ci = os.environ.get("DOCC_CI", "")
-        if docc_ci:
-            if docc_ci == "regions":
-                if instrumentation_mode is None:
-                    instrumentation_mode = "ols"
-            elif docc_ci == "arg-capture":
-                if capture_args is None:
-                    capture_args = True
-            else:
-                # Full mode (or unknown value treated as full)
-                if instrumentation_mode is None:
-                    instrumentation_mode = "ols"
-                if capture_args is None:
-                    capture_args = True
-
-        self.instrumentation_mode = instrumentation_mode
-        self.capture_args = capture_args
 
     @abstractmethod
     def __call__(self, *args: Any) -> Any:
@@ -100,51 +235,10 @@ class DoccProgram(ABC):
     def compile(self, *args: Any, output_folder: Optional[str] = None) -> CompiledSDFG:
         pass
 
-    def _resolve_compile_options(
-        self,
-        instrumentation_mode: Optional[str] = None,
-        capture_args: Optional[bool] = None,
-        remote_tuning: Optional[bool] = None,
-    ) -> tuple[str, bool, bool]:
-        """Resolve compile-time options, falling back to instance defaults and env vars."""
-        if instrumentation_mode is None:
-            instrumentation_mode = self.instrumentation_mode
-        if capture_args is None:
-            capture_args = self.capture_args
-        if remote_tuning is None:
-            remote_tuning = self.remote_tuning
-
-        # Check environment variable DOCC_CI
-        docc_ci = os.environ.get("DOCC_CI", "")
-        if docc_ci:
-            if docc_ci == "regions":
-                if instrumentation_mode is None:
-                    instrumentation_mode = "ols"
-            elif docc_ci == "arg-capture":
-                if capture_args is None:
-                    capture_args = True
-            else:
-                # Full mode (or unknown value treated as full)
-                if instrumentation_mode is None:
-                    instrumentation_mode = "ols"
-                if capture_args is None:
-                    capture_args = True
-
-        # Defaults
-        if instrumentation_mode is None:
-            instrumentation_mode = ""
-        if capture_args is None:
-            capture_args = False
-
-        return instrumentation_mode, capture_args, remote_tuning
-
     def sdfg_pipe(
         self,
         sdfg: StructuredSDFG,
         output_folder: Optional[str],
-        instrumentation_mode: str,
-        capture_args: bool,
-        remote_tuning: Optional[bool] = None,
         reuse_sources: bool = False,
         metrics: Optional[DoccMetrics] = None,
     ) -> str:
@@ -152,7 +246,7 @@ class DoccProgram(ABC):
         start_time = time.perf_counter()
 
         if not reuse_sources and output_folder:
-            if self.debug_dump:
+            if self.options.debug_dump:
                 sdfg.dump(output_folder, "py0.parsed", dump_dot=True)
 
             if not output_folder is None:
@@ -165,41 +259,37 @@ class DoccProgram(ABC):
 
             sdfg.validate()
 
-            if remote_tuning is None:
-                remote_tuning = self.remote_tuning
-
             target_options = TargetOptions()
-            target_options.target = self.target
-            target_options.category = self.category
-            target_options.remote_tuning = remote_tuning
+            target_options.target = self.options.target
+            target_options.category = self.options.category
+            target_options.remote_tuning = self.options.remote_tuning
             metrics.add_target_options(target_options)
 
             # Einsum detection
-            if self.einsum_detection:
+            if self.options.einsum:
                 sdfg.einsum()
-                if self.debug_dump:
+                if self.options.debug_dump:
                     sdfg.dump(output_folder, "py1.einsum", dump_dot=True)
 
             # Tensor targets keep tensor nodes
-            custom_expand_fn = get_target_expand_fn(self.target)
+            custom_expand_fn = get_target_expand_fn(self.options.target)
             if custom_expand_fn is not None:
-                custom_expand_fn(sdfg, self.category, {})
+                custom_expand_fn(sdfg, self.options.category, {})
             else:
                 sdfg.expand(target_options)
-            if self.debug_dump:
+            if self.options.debug_dump:
                 sdfg.dump(output_folder, "py2.expanded", dump_dot=True)
 
             # Simplify pipelines
             sdfg.simplify()
-            if self.debug_dump:
+            if self.options.debug_dump:
                 sdfg.dump(output_folder, "py3.opt", dump_dot=True)
 
             # Normalization for scheduling
-            if self.target == "sequential" or self.target == "openmp":
+            if self.options.normalize:
                 sdfg.normalize()
                 target_options.already_normalized = True
-
-            if self.debug_dump:
+            if self.options.debug_dump:
                 sdfg.dump(
                     output_folder,
                     "py4.norm",
@@ -207,29 +297,36 @@ class DoccProgram(ABC):
                 )
 
             # Schedule if target is specified
-
-            custom_schedule_fn = get_target_schedule_fn(self.target)
+            custom_schedule_fn = get_target_schedule_fn(self.options.target)
             if custom_schedule_fn is not None:
                 custom_schedule_fn(
-                    sdfg, self.category, {"remote_tuning": remote_tuning}
+                    sdfg,
+                    self.options.category,
+                    {"remote_tuning": self.options.remote_tuning},
                 )
             else:
-                sdfg.schedule(target_options, not capture_args)
+                sdfg.schedule(target_options, not self.options.capture_args)
 
             # Promote pointer arguments to device residency when the whole program keeps
             # data on device. Communicated explicitly via the pass return value (bool),
             # not through SDFG metadata.
             self._device_resident = False
             self._device_backend = None
-            if self.target in ("cuda", "rocm"):
-                if sdfg.promote_device_residency(self.target == "rocm"):
-                    self._device_resident = True
-                    self._device_backend = self.target
+            if self.options.device_residency:
+                self._device_resident = sdfg.promote_device_residency(
+                    self.options.target == "rocm"
+                )
+
             sdfg.add_metadata("device_resident", "1" if self._device_resident else "0")
             if self._device_resident:
-                sdfg.add_metadata("device_backend", self.target)
+                self._device_backend = self.options.target
+                sdfg.add_metadata("device_backend", self.options.target)
 
-            if self.debug_dump or instrumentation_mode or capture_args:
+            if (
+                self.options.debug_dump
+                or self.options.instrumentation_mode
+                or self.options.capture_args
+            ):
                 sdfg.dump(
                     output_folder,
                     "py5.post_sched",
@@ -251,23 +348,26 @@ class DoccProgram(ABC):
                 "sdfg_compile_time_ms", round(sdfg_opt_time * 1000), "compile_times"
             )
 
-        custom_compile_fn = get_target_compile_fn(self.target)
+        custom_compile_fn = get_target_compile_fn(self.options.target)
         if custom_compile_fn is not None:
             lib_path = custom_compile_fn(
                 sdfg,
                 output_folder,
-                instrumentation_mode,
-                capture_args,
-                {"debug_build": self.debug_build, "threads": self.build_thread_count},
+                self.options.instrumentation_mode,
+                self.options.capture_args,
+                {
+                    "debug_build": self.options.debug_build,
+                    "threads": self.options.build_thread_count,
+                },
             )
         else:
             lib_path = sdfg._compile(
                 output_folder=output_folder,
-                target=self.target,
-                instrumentation_mode=instrumentation_mode,
-                capture_args=capture_args,
-                debug_build=self.debug_build,
-                threads=self.build_thread_count,
+                target=self.options.target,
+                instrumentation_mode=self.options.instrumentation_mode,
+                capture_args=self.options.capture_args,
+                debug_build=self.options.debug_build,
+                threads=self.options.build_thread_count,
                 reuse_sources=reuse_sources,
             )
 
