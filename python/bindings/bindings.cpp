@@ -24,6 +24,7 @@
 #include "sdfg/passes/rpc/rpc_context.h"
 #include "sdfg/passes/scheduler/scheduler_registry.h"
 #include "sdfg/structured_control_flow/block.h"
+#include "sdfg/symbolic/extreme_values.h"
 #include "sdfg/targets/cuda/plugin.h"
 #include "transformations/py_replayer.h"
 #include "transformations/py_transformations.h"
@@ -39,6 +40,7 @@
 #include <sdfg/types/type.h>
 
 #include <sdfg/codegen/dispatchers/node_dispatcher_registry.h>
+#include <sdfg/passes/expansion/library_node_expansion_pass.h>
 #include <sdfg/plugins/plugins.h>
 #include <sdfg/serializer/json_serializer.h>
 #include <sdfg/targets/cuda/plugin.h>
@@ -62,12 +64,29 @@
 namespace py = pybind11;
 using namespace sdfg::types;
 
+namespace sdfg {
+namespace passes {
+void register_core_passes(plugins::Context& context) {
+    LibraryNodeExpansionPass pass;
+    for (const auto& spec : pass.options()) {
+        context.option_registry().register_option(spec);
+    }
+    // Shared option consumed by BoundAnalysis across many analyses/passes.
+    context.option_registry()
+        .register_option(symbolic::BOUND_BUDGET
+                             .spec(symbolic::DEFAULT_BOUND_BUDGET, "Proof-search work budget for symbolic bound analysis")
+        );
+}
+} // namespace passes
+} // namespace sdfg
+
 PYBIND11_MODULE(_sdfg, m) {
     m.doc() = "A JIT compiler for Numpy-based Python programs targeting various hardware backends.";
 
     static sdfg::plugins::Context docc_context = sdfg::plugins::Context::global_context();
     sdfg::codegen::register_default_dispatchers();
     sdfg::serializer::register_default_serializers();
+    sdfg::passes::register_core_passes(docc_context);
     sdfg::omp::register_omp_plugin();
     sdfg::vectorize::register_vectorize_plugin();
     sdfg::cuda::register_cuda_plugin(docc_context);
@@ -77,6 +96,40 @@ PYBIND11_MODULE(_sdfg, m) {
     docc::target::et::register_plugin(docc_context);
 #endif
     docc::target::tenstorrent::register_plugin(docc_context);
+
+    // Discovery: enumerate registered options so the frontend (DoccOptions)
+    // can accept and validate them without hardcoding each one.
+    m.def(
+        "registered_options",
+        [&]() {
+            py::list out;
+            for (const auto& [key, spec] : docc_context.option_registry().options()) {
+                py::dict d;
+                d["key"] = spec.key;
+                const char* type_name = "string";
+                switch (spec.type) {
+                    case sdfg::OptionType::Bool:
+                        type_name = "bool";
+                        break;
+                    case sdfg::OptionType::Int:
+                        type_name = "int";
+                        break;
+                    case sdfg::OptionType::Double:
+                        type_name = "double";
+                        break;
+                    case sdfg::OptionType::String:
+                        type_name = "string";
+                        break;
+                }
+                d["type"] = type_name;
+                std::visit([&](auto&& v) { d["default"] = py::cast(v); }, spec.default_value);
+                d["doc"] = spec.doc;
+                out.append(d);
+            }
+            return out;
+        },
+        "List registered options (dicts with key, type, default, doc)"
+    );
 
     // last handler, to dump stacktraces of uncaught exceptions
     py::register_local_exception_translator([](std::exception_ptr p) {
@@ -191,7 +244,9 @@ PYBIND11_MODULE(_sdfg, m) {
         .def_readwrite<>("target", &docc::target::TargetOptions::target)
         .def_readwrite<>("category", &docc::target::TargetOptions::category)
         .def_readwrite<>("remote_tuning", &docc::target::TargetOptions::remote_tuning)
-        .def_readwrite<>("already_normalized", &docc::target::TargetOptions::already_normalized);
+        .def_readwrite<>("already_normalized", &docc::target::TargetOptions::already_normalized)
+        .def_readwrite<>("enable_fusion_in_normalize", &docc::target::TargetOptions::enable_fusion_in_normalize)
+        .def_readwrite<>("use_new_fusion_in_simplify", &docc::target::TargetOptions::use_new_fusion_in_simplify);
 
     // Register SDFG class
     py::class_<PyStructuredSDFG>(m, "StructuredSDFG")
@@ -208,6 +263,13 @@ PYBIND11_MODULE(_sdfg, m) {
             "Parse a StructuredSDFG from text"
         )
         .def_property_readonly("name", &PyStructuredSDFG::name)
+        .def(
+            "set_option",
+            &PyStructuredSDFG::set_option,
+            py::arg("key"),
+            py::arg("value"),
+            "Override a registered option for this SDFG"
+        )
         .def_property_readonly(
             "_ptr",
             [](PyStructuredSDFG& self) { return reinterpret_cast<uintptr_t>(&self.sdfg()); },
@@ -244,7 +306,12 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("options"),
             "Expand step"
         )
-        .def("simplify", &PyStructuredSDFG::simplify, "Simplify the SDFG")
+        .def(
+            "simplify",
+            &PyStructuredSDFG::simplify,
+            py::arg("options") = docc::target::TargetOptions{},
+            "Simplify the SDFG"
+        )
         .def(
             "dump",
             &PyStructuredSDFG::dump,
@@ -254,7 +321,12 @@ PYBIND11_MODULE(_sdfg, m) {
             py::arg("dump_json") = true,
             py::arg("record_for_instrumentation") = false
         )
-        .def("normalize", &PyStructuredSDFG::normalize, "Normalize the SDFG")
+        .def(
+            "normalize",
+            &PyStructuredSDFG::normalize,
+            py::arg("options") = docc::target::TargetOptions{},
+            "Normalize the SDFG"
+        )
         .def(
             "schedule",
             static_cast<

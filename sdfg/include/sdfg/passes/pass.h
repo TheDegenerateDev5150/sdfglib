@@ -3,6 +3,7 @@
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/sdfg_builder.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
+#include "sdfg/options.h"
 
 namespace sdfg {
 namespace passes {
@@ -13,17 +14,36 @@ public:
 
     virtual std::string name() = 0;
 
+    // Registrable option specs for this pass; default: none.
+    virtual std::vector<OptionSpec> options() { return {}; }
+
     bool run(builder::SDFGBuilder& builder, bool create_report = false);
 
     bool
     run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, bool create_report = false
     );
 
+    bool
+    run(builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
+        const Options& options,
+        bool create_report = false);
+
     virtual bool run_pass(builder::SDFGBuilder& builder);
 
     virtual bool run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
 
     virtual void invalidates(analysis::AnalysisManager& analysis_manager, bool applied);
+
+protected:
+    template<class T>
+    T option(const OptionKey<T>& key) const {
+        return options_->get(key);
+    }
+
+private:
+    // Staged options for run_pass()
+    const Options* options_ = &Options::empty();
 };
 
 template<typename T>

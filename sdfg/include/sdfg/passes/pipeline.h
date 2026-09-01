@@ -40,6 +40,9 @@ public:
 
     virtual bool run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
 
+    virtual bool
+    run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, const Options& options);
+
     template<class T, typename... Args>
     void register_pass(Args&&... args) {
         this->passes_.push_back(std::make_unique<T>(std::forward<Args>(args)...));

@@ -54,8 +54,11 @@ struct Context {
     passes::scheduler::SchedulerRegistry& scheduler_registry;
     passes::scheduler::SchedulerRegistry& get_scheduler_registry() { return scheduler_registry; }
 
+    OptionRegistry& option_registry() { return option_registry_; }
+
 protected:
     std::unordered_map<std::string, docc::target::DoccTarget*> available_targets;
+    OptionRegistry option_registry_;
 
 public:
     /// @deprecated

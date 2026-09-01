@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sdfg/options.h"
 #include "sdfg/passes/statistics.h"
 #include "sdfg/structured_sdfg.h"
 
@@ -32,6 +33,7 @@ class AnalysisManager {
 private:
     StructuredSDFG& sdfg_;
     symbolic::Assumptions additional_assumptions_;
+    const Options* options_ = &Options::empty();
 
     std::unordered_map<std::type_index, std::unique_ptr<Analysis>> cache_;
 
@@ -39,10 +41,20 @@ private:
 
 public:
     AnalysisManager(StructuredSDFG& sdfg);
+    AnalysisManager(StructuredSDFG& sdfg, const Options& options);
     AnalysisManager(StructuredSDFG& sdfg, const symbolic::Assumptions& additional_assumptions);
+    AnalysisManager(StructuredSDFG& sdfg, const symbolic::Assumptions& additional_assumptions, const Options& options);
 
     AnalysisManager(const AnalysisManager& am) = delete;
     AnalysisManager& operator=(const AnalysisManager&) = delete;
+
+    // Options visible to every analysis (analyses read via option()/options()).
+    const Options& options() const { return *options_; }
+
+    template<class T>
+    T option(const OptionKey<T>& key) const {
+        return options_->get(key);
+    }
 
     template<class T>
     T& get() {

@@ -9,9 +9,10 @@ import warnings
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
+from functools import lru_cache
 from typing import Any, Dict, Optional, get_args, get_type_hints
 
-from docc.sdfg import StructuredSDFG, TargetOptions, DoccMetrics
+from docc.sdfg import StructuredSDFG, TargetOptions, DoccMetrics, registered_options
 from docc.sdfg._sdfg import (
     _enable_statistics,
     _statistics_mode_by_env,
@@ -24,6 +25,34 @@ from docc.compiler.target_registry import (
     get_target_expand_fn,
     register_target_overrides,
 )
+
+
+@lru_cache(maxsize=1)
+def _pass_option_specs() -> Dict[str, dict]:
+    """Registered pass options keyed by full key (empty if unavailable)."""
+    return {spec["key"]: spec for spec in registered_options()}
+
+
+def _coerce_pass_option(spec: dict, value: Any) -> Any:
+    """Coerce a value to a registered pass option's declared type."""
+    kind = spec["type"]
+    if kind == "bool":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            v = value.strip().lower()
+            if v in ("1", "true", "yes", "on"):
+                return True
+            if v in ("0", "false", "no", "off", ""):
+                return False
+        elif isinstance(value, (int, float)):
+            return bool(value)
+        raise TypeError(f"pass option {spec['key']!r} expects bool, got {value!r}")
+    if kind == "int":
+        return int(value)
+    if kind == "double":
+        return float(value)
+    return str(value)
 
 
 @dataclass
@@ -60,6 +89,10 @@ class DoccOptions:
     einsum: Optional[bool] = None
     normalize: Optional[bool] = None
     device_residency: Optional[bool] = None
+
+    # Overrides for registered options ({full_key: value}); see
+    # registered_options(). Forwarded to the SDFG in sdfg_pipe.
+    pass_options: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         """Resolve default values for all unset values."""
@@ -108,22 +141,49 @@ class DoccOptions:
         if self.device_residency is None:
             self.device_residency = self.target in ("cuda", "rocm")
 
+        if self.pass_options is None:
+            self.pass_options = {}
+
     @classmethod
     def from_kwargs(cls, **kwargs: Any) -> DoccOptions:
         """Build from arbitrary user kwargs.
 
-        Unknown keys are dropped with a warning; known values are coerced to the
-        field's declared type (raising ``TypeError`` if impossible). Use at
-        boundaries that accept free-form options (the ``@native`` decorator, the
-        torch.compile backend); direct construction stays strict.
+        Field kwargs are coerced to their declared type. Keys matching a
+        registered option (see ``registered_options()``) are routed
+        into ``pass_options`` and coerced to the option's type. Anything else is
+        dropped with a warning. Use at boundaries that accept free-form options
+        (the ``@native`` decorator, the torch.compile backend); direct
+        construction stays strict.
         """
         known = {f.name for f in fields(cls)}
-        unknown = set(kwargs) - known
+        pass_specs = _pass_option_specs()
+
+        # Explicit pass_options dict plus any flat registered keys collected below.
+        pass_opts: Dict[str, Any] = dict(kwargs.pop("pass_options", None) or {})
+        field_kwargs: Dict[str, Any] = {}
+        unknown = []
+        for key, value in kwargs.items():
+            if key in known:
+                field_kwargs[key] = cls._coerce(key, value)
+            elif key in pass_specs:
+                pass_opts[key] = value
+            else:
+                unknown.append(key)
         if unknown:
             warnings.warn(
                 f"Ignoring unknown compile options: {', '.join(sorted(unknown))}"
             )
-        return cls(**{k: cls._coerce(k, v) for k, v in kwargs.items() if k in known})
+
+        resolved: Dict[str, Any] = {}
+        for key, value in pass_opts.items():
+            spec = pass_specs.get(key)
+            if spec is None:
+                warnings.warn(f"Ignoring unknown pass option: {key}")
+                continue
+            resolved[key] = _coerce_pass_option(spec, value)
+        field_kwargs["pass_options"] = resolved
+
+        return cls(**field_kwargs)
 
     @classmethod
     def _field_types(cls) -> Dict[str, type]:
@@ -259,6 +319,10 @@ class DoccProgram(ABC):
 
             sdfg.validate()
 
+            # Forward user-set pass options before running any pass.
+            for key, value in self.options.pass_options.items():
+                sdfg.set_option(key, value)
+
             target_options = TargetOptions()
             target_options.target = self.options.target
             target_options.category = self.options.category
@@ -305,7 +369,10 @@ class DoccProgram(ABC):
                     {"remote_tuning": self.options.remote_tuning},
                 )
             else:
-                sdfg.schedule(target_options, not self.options.capture_args)
+                sdfg.schedule(
+                    target_options,
+                    not self.options.capture_args,
+                )
 
             # Promote pointer arguments to device residency when the whole program keeps
             # data on device. Communicated explicitly via the pass return value (bool),

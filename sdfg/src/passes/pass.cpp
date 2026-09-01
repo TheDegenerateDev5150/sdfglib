@@ -36,6 +36,21 @@ bool Pass::run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManage
     return applied;
 };
 
+bool Pass::
+    run(builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
+        const Options& options,
+        bool create_report) {
+    // Stash options for the duration of run_pass; reset even on exception.
+    struct Scope {
+        const Options*& slot;
+        Scope(const Options*& s, const Options& o) : slot(s) { slot = &o; }
+        ~Scope() { slot = &Options::empty(); }
+    } scope(this->options_, options);
+
+    return this->run(builder, analysis_manager, create_report);
+};
+
 bool Pass::run_pass(builder::SDFGBuilder& builder) { throw std::logic_error("Not implemented"); };
 
 bool Pass::run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {

@@ -29,6 +29,7 @@
 
 #pragma once
 
+#include "sdfg/options.h"
 #include "sdfg/symbolic/assumptions.h"
 #include "sdfg/symbolic/polynomials.h"
 #include "sdfg/symbolic/symbolic.h"
@@ -37,6 +38,15 @@
 
 namespace sdfg {
 namespace symbolic {
+
+// Default proof-search work budget (node visits per top-level query). Some
+// queries over deeply-nested tile nests fan out into many fruitless sub-proofs;
+// the cap bails them early with a conservative "unknown".
+inline constexpr int64_t DEFAULT_BOUND_BUDGET = 50000;
+
+// Discoverable, threadable override for the budget above; shared by any analysis
+// or pass that constructs a BoundAnalysis.
+inline constexpr OptionKey<int64_t> BOUND_BUDGET{"symbolic.bound_budget"};
 
 /**
  * @brief Result of bounding an expression: an interval [lower, upper]
@@ -81,7 +91,12 @@ struct Interval {
  */
 class BoundAnalysis {
 public:
-    BoundAnalysis(const SymbolSet& parameters, const Assumptions& assumptions, bool use_tight_assumptions);
+    BoundAnalysis(
+        const SymbolSet& parameters,
+        const Assumptions& assumptions,
+        bool use_tight_assumptions,
+        int64_t budget = DEFAULT_BOUND_BUDGET
+    );
 
     /** @brief Compute both lower and upper bounds of an expression */
     Interval bound(const Expression& expr);
@@ -99,6 +114,7 @@ private:
     const SymbolSet& parameters_;
     const Assumptions& assumptions_;
     bool use_tight_;
+    int64_t budget_;
 
     // Cycle detection: symbols currently being bounded
     SymbolSet visiting_;

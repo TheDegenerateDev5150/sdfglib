@@ -438,8 +438,9 @@ void MemoryLayoutAnalysis::merge_scope_layouts(
     // Per-scope BoundAnalysis pair (tight + loose-fallback). Both instances
     // memoize their results, so repeated expressions and shared subterms
     // across all per-element lower/upper queries below hit the cache.
-    symbolic::BoundAnalysis ba_tight(parameters, assumptions, true);
-    symbolic::BoundAnalysis ba_loose(parameters, assumptions, false);
+    const int64_t bound_budget = analysis_manager.options().get(symbolic::BOUND_BUDGET, symbolic::DEFAULT_BOUND_BUDGET);
+    symbolic::BoundAnalysis ba_tight(parameters, assumptions, true, bound_budget);
+    symbolic::BoundAnalysis ba_loose(parameters, assumptions, false, bound_budget);
     auto bound_lb = [&](const symbolic::Expression& e) -> symbolic::Expression {
         auto r = ba_tight.lower_bound(e);
         if (r.is_null()) r = ba_loose.lower_bound(e);

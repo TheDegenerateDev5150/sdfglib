@@ -46,6 +46,11 @@ bool Pipeline::run(builder::SDFGBuilder& builder) {
 };
 
 bool Pipeline::run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+    return this->run(builder, analysis_manager, Options::empty());
+}
+
+bool Pipeline::
+    run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, const Options& options) {
     CompileStatistics::enter_pipeline_if_enabled(name_);
 
     static uint32_t runs = 0;
@@ -75,7 +80,7 @@ bool Pipeline::run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisMa
                                  pass->name() + "_" + std::to_string(pass_iterations) + ".sdfg.dot")
                         );
                 }
-                applied_pass = pass->run(builder, analysis_manager);
+                applied_pass = pass->run(builder, analysis_manager, options);
                 applied_pipeline |= applied_pass;
                 ++pass_iterations;
             } while (applied_pass);

@@ -18,6 +18,12 @@ AnalysisManager::AnalysisManager(StructuredSDFG& sdfg, const symbolic::Assumptio
 
       };
 
+AnalysisManager::AnalysisManager(StructuredSDFG& sdfg, const Options& options) : sdfg_(sdfg), options_(&options) {};
+
+AnalysisManager::
+    AnalysisManager(StructuredSDFG& sdfg, const symbolic::Assumptions& additional_assumptions, const Options& options)
+    : sdfg_(sdfg), additional_assumptions_(additional_assumptions), options_(&options) {};
+
 void AnalysisManager::invalidate_all() {
     if (cache_.empty()) {
         return;

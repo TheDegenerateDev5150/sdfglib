@@ -58,8 +58,10 @@ bool is_type_lower_sentinel(const Expression& e) {
 // BoundAnalysis implementation
 // ============================================================================
 
-BoundAnalysis::BoundAnalysis(const SymbolSet& parameters, const Assumptions& assumptions, bool use_tight_assumptions)
-    : parameters_(parameters), assumptions_(assumptions), use_tight_(use_tight_assumptions) {}
+BoundAnalysis::BoundAnalysis(
+    const SymbolSet& parameters, const Assumptions& assumptions, bool use_tight_assumptions, int64_t budget
+)
+    : parameters_(parameters), assumptions_(assumptions), use_tight_(use_tight_assumptions), budget_(budget) {}
 
 Interval BoundAnalysis::bound(const Expression& expr) { return visit(expr, 0); }
 
@@ -78,18 +80,8 @@ Expression BoundAnalysis::upper_bound(const Expression& expr) { return visit(exp
 // with the same (conservative "unknown") result, keeping analysis time bounded.
 // Tunable via DOCC_BOUND_BUDGET for diagnostics.
 namespace {
-thread_local size_t g_bound_work = 0;
+thread_local int64_t g_bound_work = 0;
 thread_local int g_bound_depth = 0;
-
-size_t bound_budget() {
-    static const size_t budget = [] {
-        if (const char* e = std::getenv("DOCC_BOUND_BUDGET")) {
-            return static_cast<size_t>(std::strtoull(e, nullptr, 10));
-        }
-        return static_cast<size_t>(50000);
-    }();
-    return budget;
-}
 
 // Resets the work counter on the outermost top-level query only.
 struct BoundWorkGuard {
@@ -104,9 +96,9 @@ Interval BoundAnalysis::visit(const Expression& expr, size_t depth) {
     if (depth > MAX_DEPTH) {
         return Interval::failure();
     }
-    // Global work budget across the whole top-level proof (shared by every
-    // BoundAnalysis instance spawned during Min/Max descent).
-    if (g_bound_depth > 0 && ++g_bound_work > bound_budget()) {
+    // Work budget across the whole top-level proof; per-instance limit, shared
+    // transient counter (thread_local) so nested descent accumulates correctly.
+    if (g_bound_depth > 0 && ++g_bound_work > budget_) {
         return Interval::failure();
     }
 
