@@ -45,7 +45,7 @@ def test_type_inference_from_object():
     from docc.python import PythonProgram
 
     point = Point2D(3.0, 4.0)
-    program = PythonProgram(lambda p: p, target="none")
+    program = PythonProgram(lambda p: p)
 
     inferred_type = program._infer_type(point)
     assert isinstance(inferred_type, Pointer)

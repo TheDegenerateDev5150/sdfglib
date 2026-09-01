@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional, List
 import time
 import numpy as np
 
-from docc.compiler import CompiledSDFG, DoccProgram
+from docc.compiler import CompiledSDFG, DoccProgram, DoccOptions
 from docc.compiler.target_registry import reset_target_registry
 from docc.sdfg import StructuredSDFG, DoccMetrics
 from docc.mlir import MLIRModule
@@ -156,11 +156,7 @@ class TorchProgram(DoccProgram):
         self,
         model,
         example_input: Any = None,
-        target: str = "none",
-        category: str = "server",
-        remote_tuning: bool = False,
-        instrumentation_mode: Optional[str] = None,
-        capture_args: Optional[bool] = None,
+        options: Optional[DoccOptions] = None,
         force_rebuild: bool = False,
         name: Optional[str] = None,
     ):
@@ -178,11 +174,7 @@ class TorchProgram(DoccProgram):
 
         super().__init__(
             name=name,
-            target=target,
-            category=category,
-            remote_tuning=remote_tuning,
-            instrumentation_mode=instrumentation_mode,
-            capture_args=capture_args,
+            options=options or DoccOptions(),
         )
 
         self.model = model
@@ -243,9 +235,6 @@ class TorchProgram(DoccProgram):
     def compile(
         self,
         output_folder: Optional[str] = None,
-        instrumentation_mode: Optional[str] = None,
-        capture_args: Optional[bool] = None,
-        remote_tuning: Optional[bool] = None,
     ) -> CompiledSDFG:
         original_output_folder = output_folder
 
@@ -253,13 +242,6 @@ class TorchProgram(DoccProgram):
         compile_start_time = time.perf_counter()
         metrics.add_frontend_source_info("torch-mlir")
         metrics.add_metric("model_name", self.name, "source")
-
-        # Resolve options
-        instrumentation_mode, capture_args, remote_tuning = (
-            self._resolve_compile_options(
-                instrumentation_mode, capture_args, remote_tuning
-            )
-        )
 
         # Determine example input
         if self.example_input is None:
@@ -275,9 +257,7 @@ class TorchProgram(DoccProgram):
         # options, so repeated in-process compiles with different
         # instrumentation/arg-capture/remote-tuning do not alias to the first
         # built binary (the on-disk hash already accounts for these options).
-        mem_cache_key = (
-            f"{cache_key}|{capture_args}|{instrumentation_mode}|{remote_tuning}"
-        )
+        mem_cache_key = f"{cache_key}|{self.options.capture_args}|{self.options.instrumentation_mode}|{self.options.remote_tuning}"
 
         cached_available = mem_cache_key in self.cache
 
@@ -307,7 +287,7 @@ class TorchProgram(DoccProgram):
                 except Exception:
                     pass
 
-            hash_input = f"{self.name}|{self.target}|{self.category}|{cache_key}|{model_code}|{capture_args}|{instrumentation_mode}|{remote_tuning}".encode(
+            hash_input = f"{self.name}|{self.options.target}|{self.options.category}|{cache_key}|{model_code}|{self.options.capture_args}|{self.options.instrumentation_mode}|{self.options.remote_tuning}".encode(
                 "utf-8"
             )
             stable_id = hashlib.sha256(hash_input).hexdigest()[:16]
@@ -322,15 +302,12 @@ class TorchProgram(DoccProgram):
                 output_folder = f"/tmp/{user}/DOCC/{self.name}-{stable_id}"
 
         # Reuse already built binaries
-        docc_reuse_binaries = os.environ.get("DOCC_REUSE_BINARIES")
+        docc_reuse_binaries = self.options.reuse_binaries
 
         # Reuse already generated sources (recompile without regenerating them).
         # Unlike binary reuse this still runs the full pipeline, but the build
         # step recompiles the existing source files instead of overwriting them.
-        docc_reuse_sources = os.environ.get("DOCC_REUSE_SOURCES")
-
-        if (docc_reuse_binaries or docc_reuse_sources) and not self.debug_dump:
-            self.debug_dump = True  # Required for source reuse
+        docc_reuse_sources = self.options.reuse_sources
 
         if not os.path.exists(output_folder) and docc_reuse_sources:
             docc_reuse_sources = None
@@ -400,9 +377,6 @@ class TorchProgram(DoccProgram):
             lib_path = self.sdfg_pipe(
                 sdfg,
                 output_folder,
-                instrumentation_mode,
-                capture_args,
-                remote_tuning,
                 reuse_sources=True,
             )
         else:
@@ -420,9 +394,6 @@ class TorchProgram(DoccProgram):
             lib_path = self.sdfg_pipe(
                 sdfg,
                 output_folder,
-                instrumentation_mode,
-                capture_args,
-                remote_tuning,
                 metrics=metrics,
             )
 
@@ -466,7 +437,7 @@ class TorchProgram(DoccProgram):
             output_shapes=output_shapes,
             device_resident=self._device_resident,
             device_backend=self._device_backend,
-            target=self.target,
+            target=self.options.target,
         )
 
         # Cache
@@ -548,7 +519,7 @@ class TorchProgram(DoccProgram):
         torch_mlir = str(torch_mlir)
 
         # Dump the MLIR code to a file for inspection
-        if self.debug_dump and output_folder is not None:
+        if self.options.debug_dump and output_folder is not None:
             os.makedirs(output_folder, exist_ok=True)
             with open(f"{output_folder}/{self.name}_imported.mlir", "w") as f:
                 f.write(torch_mlir)
@@ -558,7 +529,7 @@ class TorchProgram(DoccProgram):
         mlir_module.convert()
 
         # Dump the MLIR code to a file for inspection after conversion
-        if self.debug_dump and output_folder is not None:
+        if self.options.debug_dump and output_folder is not None:
             torch_mlir_converted = mlir_module.to_string()
             with open(f"{output_folder}/{self.name}_converted.mlir", "w") as f:
                 f.write(torch_mlir_converted)
@@ -690,9 +661,9 @@ def compile_torch(
     return TorchProgram(
         model,
         example_input=example_input,
-        target=target,
-        category=category,
-        remote_tuning=remote_tuning,
+        options=DoccOptions(
+            target=target, category=category, remote_tuning=remote_tuning
+        ),
         force_rebuild=force_rebuild,
     )
 
@@ -704,27 +675,18 @@ def compile_torch(
 
 def _docc_get_backend_options(
     options: None | dict[str, Any],
-) -> tuple[str, str, bool, Optional[Callable[[dict], None]]]:
-    target = "none"
-    category = "server"
-    remote_tuning = False
-    on_compile: Optional[Callable[[dict], None]] = None
-    if options:
-        if "target" in options:
-            target = options["target"]
-        if "category" in options:
-            category = options["category"]
-        if "remote_tuning" in options:
-            remote_tuning = options["remote_tuning"]
-        if "on_compile" in options:
-            on_compile = options["on_compile"]
-            if on_compile is not None and not callable(on_compile):
-                raise TypeError("backend option 'on_compile' must be callable")
-    return target, category, remote_tuning, on_compile
+) -> tuple[DoccOptions, Optional[Callable[[dict], Any]]]:
+    """Split a torch.compile options dict into a :class:`DoccOptions` and the
+    backend-only ``on_compile`` callback."""
+    opts = dict(options or {})
+    on_compile = opts.pop("on_compile", None)
+    if on_compile is not None and not callable(on_compile):
+        raise TypeError("backend option 'on_compile' must be callable")
+    return DoccOptions.from_kwargs(**opts), on_compile
 
 
 def _invoke_on_compile(
-    on_compile: Optional[Callable[[dict], None]],
+    on_compile: Optional[Callable[[dict], Any]],
     program: "TorchProgram",
     graph: str,
 ) -> None:
@@ -742,8 +704,8 @@ def _invoke_on_compile(
         {
             "name": program.name,
             "graph": graph,
-            "target": program.target,
-            "category": program.category,
+            "target": program.options.target,
+            "category": program.options.category,
             "device_resident": compiled.device_resident,
             "device_backend": compiled.device_backend,
             "sdfg": program._sdfg,
@@ -774,15 +736,11 @@ def _docc_dynamo_compiler(gm, example_inputs, backend_options):
     else:
         example_input = tuple(example_inputs)
 
-    target, category, remote_tuning, on_compile = _docc_get_backend_options(
-        backend_options
-    )
+    docc_options, on_compile = _docc_get_backend_options(backend_options)
     program = TorchProgram(
         gm,
         example_input=example_input,
-        target=target,
-        category=category,
-        remote_tuning=remote_tuning,
+        options=docc_options,
     )
 
     # Compile eagerly: torch backends receive example inputs precisely so the
@@ -801,10 +759,8 @@ def _docc_dynamo_compiler(gm, example_inputs, backend_options):
 
 
 def _docc_aot_compiler_wrapper(
-    target: str,
-    category: str,
-    remote_tuning: bool,
-    on_compile: Optional[Callable[[dict], None]] = None,
+    docc_options: DoccOptions,
+    on_compile: Optional[Callable[[dict], Any]] = None,
     graph: str = "forward",
 ):
     def _docc_aot_compiler(gm, example_inputs):
@@ -830,9 +786,7 @@ def _docc_aot_compiler_wrapper(
         program = TorchProgram(
             gm,
             example_input=example_input,
-            target=target,
-            category=category,
-            remote_tuning=remote_tuning,
+            options=docc_options,
         )
 
         # Compile eagerly so the resolved calling convention (e.g. device
@@ -879,13 +833,11 @@ def _docc_backend(gm, example_inputs, *, options=None):
     if _needs_autograd(gm, example_inputs):
         from torch._dynamo.backends.common import aot_autograd
 
-        target, category, remote_tuning, on_compile = _docc_get_backend_options(options)
+        docc_options, on_compile = _docc_get_backend_options(options)
         aot_backend = aot_autograd(
-            fw_compiler=_docc_aot_compiler_wrapper(
-                target, category, remote_tuning, on_compile, "forward"
-            ),
+            fw_compiler=_docc_aot_compiler_wrapper(docc_options, on_compile, "forward"),
             bw_compiler=_docc_aot_compiler_wrapper(
-                target, category, remote_tuning, on_compile, "backward"
+                docc_options, on_compile, "backward"
             ),
         )
         return aot_backend(gm, example_inputs)
