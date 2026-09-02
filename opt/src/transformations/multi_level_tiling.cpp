@@ -32,65 +32,13 @@ void MultiLevelTiling::apply(builder::StructuredSDFGBuilder& builder, analysis::
     // First apply single-level tiling
     LoopTiling::apply(builder, analysis_manager);
 
-    auto& sdfg = builder.subject();
-
-    // Now tile the inner (point) loop again with tile_size_2_
+    // Now tile the inner (point) loop again with tile_size_2_. Reuse the shared
+    // tiling logic so that behaviour (schedule handling, Map sequentialization,
+    // etc.) stays consistent with single-level tiling.
     auto& inner = *inner_loop_;
-    auto inner_indvar2 = inner.indvar();
-
-    auto middle_indvar_str = builder.find_new_name(inner_indvar2->get_name() + "_tile");
-    builder.add_container(middle_indvar_str, sdfg.type(inner_indvar2->get_name()));
-
-    auto middle_indvar = symbolic::symbol(middle_indvar_str);
-    auto middle_condition = symbolic::subs(inner.condition(), inner_indvar2, middle_indvar);
-    auto middle_update = symbolic::add(middle_indvar, symbolic::integer(this->tile_size_2_));
-
-    auto parent2 = static_cast<structured_control_flow::Sequence*>(inner.get_parent());
-    size_t index2 = parent2->index(inner);
-
-    structured_control_flow::StructuredLoop* middle_loop = nullptr;
-    if (auto map = dyn_cast<structured_control_flow::Map*>(&inner)) {
-        middle_loop = &builder.add_map_before(
-            *parent2,
-            inner,
-            middle_indvar,
-            middle_condition,
-            inner.init(),
-            middle_update,
-            map->schedule_type(),
-            inner.debug_info()
-        );
-    } else if (auto reduce = dyn_cast<structured_control_flow::Reduce*>(&inner)) {
-        middle_loop = &builder.add_reduce_before(
-            *parent2,
-            inner,
-            middle_indvar,
-            middle_condition,
-            inner.init(),
-            middle_update,
-            reduce->reductions(),
-            reduce->schedule_type(),
-            inner.debug_info()
-        );
-    } else {
-        middle_loop = &builder.add_for_before(
-            *parent2, inner, middle_indvar, middle_condition, inner.init(), middle_update, inner.debug_info()
-        );
-    }
-
-    // Redefine the innermost loop
-    auto innermost_init = middle_indvar;
-    auto innermost_condition_tile =
-        symbolic::Lt(inner_indvar2, symbolic::add(middle_indvar, symbolic::integer(this->tile_size_2_)));
-    symbolic::Condition innermost_condition = symbolic::And(innermost_condition_tile, inner.condition());
-    auto innermost_update = symbolic::add(inner_indvar2, symbolic::integer(1));
-    builder.update_loop(inner, inner_indvar2, innermost_condition, innermost_init, innermost_update);
-
-    // Move inner loop into middle loop
-    builder.move_child(*parent2, index2 + 1, middle_loop->root());
+    middle_loop_ = &tile_loop(builder, inner, this->tile_size_2_);
 
     analysis_manager.invalidate_all();
-    middle_loop_ = middle_loop;
     inner_loop_ = &inner;
 };
 

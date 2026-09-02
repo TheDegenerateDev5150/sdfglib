@@ -20,75 +20,81 @@ bool LoopTiling::can_be_applied(builder::StructuredSDFGBuilder& builder, analysi
 };
 
 void LoopTiling::apply(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
+    outer_loop_ = &tile_loop(builder, loop_, this->tile_size_);
+    inner_loop_ = &loop_;
+
+    analysis_manager.invalidate_all();
+    applied_ = true;
+};
+
+structured_control_flow::StructuredLoop& LoopTiling::tile_loop(
+    builder::StructuredSDFGBuilder& builder, structured_control_flow::StructuredLoop& loop, size_t tile_size
+) {
     auto& sdfg = builder.subject();
 
-    auto parent = static_cast<structured_control_flow::Sequence*>(loop_.get_parent());
-    size_t index = parent->index(loop_);
+    auto parent = static_cast<structured_control_flow::Sequence*>(loop.get_parent());
+    size_t index = parent->index(loop);
 
-    auto indvar = loop_.indvar();
+    auto indvar = loop.indvar();
 
     // Step 1: Define new outer loop
     auto outer_indvar_str = builder.find_new_name(indvar->get_name() + "_tile");
-    builder.add_container(outer_indvar_str, sdfg.type(loop_.indvar()->get_name()));
+    builder.add_container(outer_indvar_str, sdfg.type(loop.indvar()->get_name()));
     auto outer_indvar = symbolic::symbol(outer_indvar_str);
-    auto outer_condition = symbolic::subs(loop_.condition(), indvar, outer_indvar);
-    auto outer_update = symbolic::add(outer_indvar, symbolic::integer(this->tile_size_));
+    auto outer_condition = symbolic::subs(loop.condition(), indvar, outer_indvar);
+    auto outer_update = symbolic::add(outer_indvar, symbolic::integer(tile_size));
 
     structured_control_flow::StructuredLoop* outer_loop = nullptr;
-    if (auto map = dyn_cast<structured_control_flow::Map*>(&loop_)) {
+    if (auto map = dyn_cast<structured_control_flow::Map*>(&loop)) {
         outer_loop = &builder.add_map_before(
             *parent,
-            loop_,
+            loop,
             outer_indvar,
             outer_condition,
-            loop_.init(),
+            loop.init(),
             outer_update,
             map->schedule_type(),
-            loop_.debug_info()
+            loop.debug_info()
         );
-    } else if (auto reduce = dyn_cast<structured_control_flow::Reduce*>(&loop_)) {
+    } else if (auto reduce = dyn_cast<structured_control_flow::Reduce*>(&loop)) {
         outer_loop = &builder.add_reduce_before(
             *parent,
-            loop_,
+            loop,
             outer_indvar,
             outer_condition,
-            loop_.init(),
+            loop.init(),
             outer_update,
             reduce->reductions(),
             reduce->schedule_type(),
-            loop_.debug_info()
+            loop.debug_info()
         );
     } else {
         outer_loop = &builder.add_for_before(
-            *parent, loop_, outer_indvar, outer_condition, loop_.init(), outer_update, loop_.debug_info()
+            *parent, loop, outer_indvar, outer_condition, loop.init(), outer_update, loop.debug_info()
         );
     }
 
     // Step 2: Redefine inner loop
     auto inner_indvar = indvar;
     auto inner_init = outer_indvar;
-    auto inner_condition_tile =
-        symbolic::Lt(inner_indvar, symbolic::add(outer_indvar, symbolic::integer(this->tile_size_)));
+    auto inner_condition_tile = symbolic::Lt(inner_indvar, symbolic::add(outer_indvar, symbolic::integer(tile_size)));
 
-    symbolic::Condition inner_condition = symbolic::And(inner_condition_tile, loop_.condition());
+    symbolic::Condition inner_condition = symbolic::And(inner_condition_tile, loop.condition());
 
     auto inner_update = symbolic::add(inner_indvar, symbolic::integer(1));
-    builder.update_loop(loop_, inner_indvar, inner_condition, inner_init, inner_update);
+    builder.update_loop(loop, inner_indvar, inner_condition, inner_init, inner_update);
 
     // When tiling a Map, the outer tile loop inherits the schedule (created above
     // via add_map_before), but the inner element loop must become sequential.
     // Otherwise nested GPU Maps end up with repeated dimensions.
-    if (dyn_cast<structured_control_flow::Map*>(&loop_)) {
-        builder.update_schedule_type(loop_, structured_control_flow::ScheduleType_Sequential::create());
+    if (dyn_cast<structured_control_flow::Map*>(&loop)) {
+        builder.update_schedule_type(loop, structured_control_flow::ScheduleType_Sequential::create());
     }
 
     // Step 3: Move loop into tiling loop
     builder.move_child(*parent, index + 1, outer_loop->root());
 
-    analysis_manager.invalidate_all();
-    applied_ = true;
-    inner_loop_ = &loop_;
-    outer_loop_ = outer_loop;
+    return *outer_loop;
 };
 
 void LoopTiling::to_json(nlohmann::json& j) const {
