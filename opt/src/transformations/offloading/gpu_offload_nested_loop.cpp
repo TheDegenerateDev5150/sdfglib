@@ -318,6 +318,7 @@ void GPUOffloadNestedLoop<GPUType>::to_json(nlohmann::json& j) const {
     j["parameters"] = nlohmann::json::object();
     j["parameters"]["target_level"] = to_string(target_level_);
     j["parameters"]["parallel_size"] = serializer::JSONSerializer::expression(parallel_size_);
+    j["parameters"]["gpu_type"] = GPUType::value();
 
 
     serializer::JSONSerializer ser_flat(false);
@@ -329,15 +330,14 @@ void GPUOffloadNestedLoop<GPUType>::to_json(nlohmann::json& j) const {
 template<typename GPUType>
 GPUOffloadNestedLoop<GPUType> GPUOffloadNestedLoop<
     GPUType>::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& j) {
-    // Prefer the embedding-compatible representation (subgraph/parameters),
-    // but fall back to legacy fields (loop/block_size) if needed.
     const auto& subgraph = j.at("subgraph");
     const auto& node_desc = subgraph.at("0");
     size_t loop_id = node_desc.at("element_id").get<size_t>();
-    auto target_level = gpu::target_level_from_string(node_desc["parameters"]["target_level"].get<std::string>());
+    const auto& parameters = j.at("parameters");
+    auto target_level = gpu::target_level_from_string(parameters["target_level"].get<std::string>());
 
     symbolic::Integer parallel_size =
-        SymEngine::rcp_static_cast<const SymEngine::Integer>(symbolic::parse(node_desc["parameters"]["parallel_size"]));
+        SymEngine::rcp_static_cast<const SymEngine::Integer>(symbolic::parse(parameters["parallel_size"]));
     auto loop = dynamic_cast<structured_control_flow::StructuredLoop*>(builder.find_element_by_id(loop_id));
     if (!loop) {
         throw InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " is not a loop.");
