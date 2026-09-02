@@ -166,7 +166,6 @@ void ArgumentsAnalysis::collect_arg_sizes(
                 }
             }
             size = symbolic::mul(size, elem_size);
-            DEBUG_PRINTLN("Size of " << argument << " is " << size->__str__());
 
             argument_sizes_.at(&node).insert({argument, size});
             argument_element_sizes_.at(&node).insert({argument, elem_size});
@@ -180,9 +179,7 @@ void ArgumentsAnalysis::collect_arg_sizes(
                     throw std::runtime_error("Could not infer type for argument: " + argument);
                 }
             }
-            DEBUG_PRINTLN("type of argument: " << type->print());
             auto size = types::get_contiguous_element_size(*type);
-            DEBUG_PRINTLN("Size of " << argument << " is " << size->__str__());
             argument_sizes_.at(&node).insert({argument, size});
             argument_element_sizes_.at(&node).insert({argument, size});
         }
