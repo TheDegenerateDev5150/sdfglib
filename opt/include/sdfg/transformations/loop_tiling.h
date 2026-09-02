@@ -25,6 +25,22 @@ protected:
     structured_control_flow::StructuredLoop* inner_loop_ = nullptr;
     structured_control_flow::StructuredLoop* outer_loop_ = nullptr;
 
+    /**
+     * @brief Tile a single loop into an outer tile loop and an inner element loop
+     *
+     * Splits @p loop in place: @p loop becomes the inner (element) loop and a new
+     * outer loop iterating over tiles is created before it. Map/Reduce loops
+     * preserve their schedule/reductions on the outer loop, while a tiled Map's
+     * inner loop is converted to a sequential schedule to avoid repeated GPU
+     * dimensions.
+     *
+     * @param builder The SDFG builder
+     * @param loop The loop to tile (becomes the inner loop)
+     * @param tile_size The size of each tile (must be > 1)
+     * @return The newly created outer tile loop
+     */
+    static structured_control_flow::StructuredLoop&
+    tile_loop(builder::StructuredSDFGBuilder& builder, structured_control_flow::StructuredLoop& loop, size_t tile_size);
 
 public:
     /**
