@@ -111,6 +111,8 @@ public:
     static constexpr OptionKey<bool> FORCE_EXPAND{"library_node_expansion.force_expand"};
 
     LibraryNodeExpansionPass() : expander_(std::make_shared<MathNodeExpander>()) {}
+    explicit LibraryNodeExpansionPass(const Options& options)
+        : Pass(options), expander_(std::make_shared<MathNodeExpander>()) {}
     LibraryNodeExpansionPass(std::shared_ptr<LibNodeExpansionVisitor::Expanders> expander)
         : expander_(std::move(expander)) {}
 

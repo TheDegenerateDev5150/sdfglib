@@ -15,11 +15,20 @@ class Analysis {
 protected:
     StructuredSDFG& sdfg_;
     symbolic::Assumptions additional_assumptions_;
+    // Options this analysis was constructed for (non-owning).
+    const Options* options_ = &Options::empty();
 
     virtual void run(analysis::AnalysisManager& analysis_manager) = 0;
 
+    template<class T>
+    T option(const OptionKey<T>& key, T fallback = T{}) const {
+        return options_->get(key, fallback);
+    }
+
 public:
     Analysis(StructuredSDFG& sdfg);
+    // Opt-in: an analysis declaring this constructor is built for a set of options.
+    Analysis(StructuredSDFG& sdfg, const Options& options);
 
     virtual ~Analysis() = default;
 
@@ -66,8 +75,12 @@ public:
             return *static_cast<T*>(it->second.get());
         }
 
-        // Run a new analysis
-        cache_[type] = std::make_unique<T>(this->sdfg_);
+        // Run a new analysis; forward options to analyses that opt in via constructor.
+        if constexpr (std::is_constructible_v<T, StructuredSDFG&, const Options&>) {
+            cache_[type] = std::make_unique<T>(this->sdfg_, *this->options_);
+        } else {
+            cache_[type] = std::make_unique<T>(this->sdfg_);
+        }
         cache_[type]->additional_assumptions_ = this->additional_assumptions_;
 
         passes::CompileStatistics* stats = nullptr;

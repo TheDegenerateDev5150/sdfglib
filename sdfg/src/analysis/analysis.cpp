@@ -8,6 +8,8 @@ Analysis::Analysis(StructuredSDFG& sdfg)
 
       };
 
+Analysis::Analysis(StructuredSDFG& sdfg, const Options& options) : sdfg_(sdfg), options_(&options) {};
+
 AnalysisManager::AnalysisManager(StructuredSDFG& sdfg)
     : sdfg_(sdfg) {
 

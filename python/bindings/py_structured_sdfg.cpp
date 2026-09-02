@@ -220,8 +220,8 @@ void PyStructuredSDFG::expand(const docc::target::TargetOptions& options) {
     einsum_expand_pipe.run(builder_opt, analysis_manager);
 
     // Expand Math library nodes
-    sdfg::passes::LibraryNodeExpansionPass math_expand;
-    math_expand.run(builder_opt, analysis_manager, options_);
+    sdfg::passes::LibraryNodeExpansionPass math_expand(options_);
+    math_expand.run(builder_opt, analysis_manager);
 
     sdfg::passes::TensorToPointerConversionPass tensor_to_pointer_conversion_pass;
     tensor_to_pointer_conversion_pass.run(builder_opt, analysis_manager);

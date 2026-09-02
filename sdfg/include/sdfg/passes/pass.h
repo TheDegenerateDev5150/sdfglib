@@ -10,6 +10,10 @@ namespace passes {
 
 class Pass {
 public:
+    Pass() = default;
+    // A pass is constructed for a specific set of options (non-owning; caller keeps them alive).
+    explicit Pass(const Options& options) : options_(&options) {}
+
     virtual ~Pass() = default;
 
     virtual std::string name() = 0;
@@ -23,12 +27,6 @@ public:
     run(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, bool create_report = false
     );
 
-    bool
-    run(builder::StructuredSDFGBuilder& builder,
-        analysis::AnalysisManager& analysis_manager,
-        const Options& options,
-        bool create_report = false);
-
     virtual bool run_pass(builder::SDFGBuilder& builder);
 
     virtual bool run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager);
@@ -37,12 +35,12 @@ public:
 
 protected:
     template<class T>
-    T option(const OptionKey<T>& key) const {
-        return options_->get(key);
+    T option(const OptionKey<T>& key, T fallback = T{}) const {
+        return options_->get(key, fallback);
     }
 
 private:
-    // Staged options for run_pass()
+    // Options this pass was constructed for (non-owning).
     const Options* options_ = &Options::empty();
 };
 
