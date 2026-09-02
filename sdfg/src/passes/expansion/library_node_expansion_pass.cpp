@@ -32,10 +32,13 @@ LibNodeExpansionVisitor::NodeOutcome LibNodeExpansionVisitor::
 }
 
 LibNodeExpansionVisitor::LibNodeExpansionVisitor(
-    builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, Expanders& expander
+    builder::StructuredSDFGBuilder& builder,
+    analysis::AnalysisManager& analysis_manager,
+    Expanders& expander,
+    bool force_expand
 )
     : visitor::ActualStructuredSDFGVisitor(), builder_(builder), analysis_manager_(analysis_manager),
-      expander_(expander) {}
+      expander_(expander), force_expand_(force_expand) {}
 
 bool LibNodeExpansionVisitor::visit(sdfg::structured_control_flow::Sequence& seq) {
     bool may_contain_libnodes = true;
@@ -85,6 +88,8 @@ LibNodeExpansionVisitor::BlockOutcome LibNodeExpansionVisitor::
     bool may_contain_lib_nodes = true;
     bool handled_any = false;
 
+    const bool force_expand = force_expand_;
+
     do {
         // expansion may change the contents of this block or even remove it.
         // to ensure stable order, order by element_id
@@ -94,8 +99,8 @@ LibNodeExpansionVisitor::BlockOutcome LibNodeExpansionVisitor::
         auto libnodes = dataflow.nodes() |
                         std::views::transform([](auto& n) { return dynamic_cast<const data_flow::LibraryNode*>(&n); }) |
                         std::views::filter([](auto* n) { return n != nullptr; }) |
-                        std::views::filter([last_element_id](auto* n) {
-                            return n->implementation_type() == data_flow::ImplementationType_NONE &&
+                        std::views::filter([last_element_id, force_expand](auto* n) {
+                            return (force_expand || n->implementation_type() == data_flow::ImplementationType_NONE) &&
                                    n->element_id() > last_element_id;
                         });
         std::vector<const data_flow::LibraryNode*> sorted_nodes(libnodes.begin(), libnodes.end());
@@ -133,7 +138,7 @@ LibNodeExpansionVisitor::BlockOutcome LibNodeExpansionVisitor::
 
 bool LibraryNodeExpansionPass::
     run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) {
-    LibNodeExpansionVisitor v(builder, analysis_manager, *expander_.get());
+    LibNodeExpansionVisitor v(builder, analysis_manager, *expander_.get(), this->option(FORCE_EXPAND));
 
     v.dispatch(builder.subject().root());
 

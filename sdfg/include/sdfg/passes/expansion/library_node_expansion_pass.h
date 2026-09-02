@@ -74,6 +74,7 @@ private:
     analysis::AnalysisManager& analysis_manager_;
     bool expanded_any_ = false;
     Expanders& expander_;
+    bool force_expand_;
 
 
     NodeOutcome try_expand(Sequence& parent, size_t child_idx, Block& block, sdfg::data_flow::LibraryNode& node);
@@ -85,7 +86,10 @@ public:
      * @param analysis_manager Analysis manager for querying properties
      */
     LibNodeExpansionVisitor(
-        builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager, Expanders& expander
+        builder::StructuredSDFGBuilder& builder,
+        analysis::AnalysisManager& analysis_manager,
+        Expanders& expander,
+        bool force_expand
     );
 
     bool visit(sdfg::structured_control_flow::Sequence& seq) override;
@@ -103,11 +107,20 @@ class LibraryNodeExpansionPass : public Pass {
     std::shared_ptr<LibNodeExpansionVisitor::Expanders> expander_;
 
 public:
+    static constexpr std::string_view NAME{"library_node_expansion"};
+    static constexpr OptionKey<bool> FORCE_EXPAND{"library_node_expansion.force_expand"};
+
     LibraryNodeExpansionPass() : expander_(std::make_shared<MathNodeExpander>()) {}
+    explicit LibraryNodeExpansionPass(const Options& options)
+        : Pass(options), expander_(std::make_shared<MathNodeExpander>()) {}
     LibraryNodeExpansionPass(std::shared_ptr<LibNodeExpansionVisitor::Expanders> expander)
         : expander_(std::move(expander)) {}
 
-    std::string name() override { return "LibraryNodeExpansionPass"; }
+    std::string name() override { return std::string(NAME); }
+
+    std::vector<OptionSpec> options() override {
+        return {FORCE_EXPAND.spec(false, "Also lower all library nodes that already have an implementation type")};
+    }
 
     bool run_pass(builder::StructuredSDFGBuilder& builder, analysis::AnalysisManager& analysis_manager) override;
 };

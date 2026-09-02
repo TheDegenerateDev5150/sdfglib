@@ -90,3 +90,32 @@ def test_invalid_annotation():
 
     with pytest.raises(ValueError, match="Unsupported argument type"):
         invalid_type.compile("string")  # str is not supported yet
+
+
+def test_pass_options():
+    # `A @ B` lowers to a GEMM library node. Forcing BLAS expansion replaces it
+    # with explicit loop nests: an init nest (i, j) plus a matmul nest (i, j, k),
+    # so loop analysis should report 5 loops in total.
+    @native(target="sequential", **{"library_node_expansion.force_expand": True})
+    def matmul_op(a, b):
+        return a @ b
+
+    a = np.random.rand(8, 8)
+    b = np.random.rand(8, 8)
+    res = matmul_op(a, b)
+    assert np.allclose(res, a @ b)
+
+    sdfg = matmul_op.last_sdfg
+    assert isinstance(sdfg, docc.sdfg.StructuredSDFG)
+
+    analysis = docc.sdfg.AnalysisManager(sdfg)
+    loop_analysis = analysis.loop_analysis()
+
+    loops = loop_analysis.loops()
+    assert len(loops) == 5
+
+    # Two outermost nests: init (2 loops) + matmul (3 loops).
+    outermost = loop_analysis.outermost_loops()
+    assert len(outermost) == 2
+    total_loops = sum(loop_analysis.loop_info(loop).num_loops for loop in outermost)
+    assert total_loops == 5

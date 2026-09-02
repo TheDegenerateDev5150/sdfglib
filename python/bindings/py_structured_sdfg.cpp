@@ -82,7 +82,32 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 PyStructuredSDFG::PyStructuredSDFG(sdfg::plugins::Context& ctx, std::unique_ptr<sdfg::StructuredSDFG>& sdfg)
-    : docc_context_(ctx), sdfg_(std::move(sdfg)), use_new_fusion_in_simplify_(true), enable_fusion_in_normalize_(true) {
+    : docc_context_(ctx), sdfg_(std::move(sdfg)) {
+    // Seed options with the registered defaults; the frontend overrides via set_option.
+    for (const auto& [key, spec] : docc_context_.option_registry().options()) {
+        options_.set(key, spec.default_value);
+    }
+}
+
+void PyStructuredSDFG::set_option(const std::string& key, pybind11::object value) {
+    const auto* spec = docc_context_.option_registry().find_option(key);
+    if (spec == nullptr) {
+        throw std::runtime_error("Unknown option: " + key);
+    }
+    switch (spec->type) {
+        case sdfg::OptionType::Bool:
+            options_.set(key, sdfg::OptionValue{value.cast<bool>()});
+            break;
+        case sdfg::OptionType::Int:
+            options_.set(key, sdfg::OptionValue{value.cast<int64_t>()});
+            break;
+        case sdfg::OptionType::Double:
+            options_.set(key, sdfg::OptionValue{value.cast<double>()});
+            break;
+        case sdfg::OptionType::String:
+            options_.set(key, sdfg::OptionValue{value.cast<std::string>()});
+            break;
+    }
 }
 
 PyStructuredSDFG PyStructuredSDFG::parse(sdfg::plugins::Context& ctx, const std::string& sdfg_text) {
@@ -144,7 +169,7 @@ void PyStructuredSDFG::validate() { sdfg_->validate(); }
 void PyStructuredSDFG::einsum() {
     sdfg::passes::CompileStatistics::enter_stage_if_enabled("einsum");
     sdfg::builder::StructuredSDFGBuilder builder_opt(*sdfg_);
-    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_, options_);
 
     // Promote tasklets into symbolic assignments
     sdfg::passes::SymbolPromotion symbol_promotion_pass;
@@ -177,7 +202,7 @@ void PyStructuredSDFG::expand(const std::string& target, const std::string& cate
 void PyStructuredSDFG::expand(const docc::target::TargetOptions& options) {
     sdfg::passes::CompileStatistics::enter_stage_if_enabled("expand");
     sdfg::builder::StructuredSDFGBuilder builder_opt(*sdfg_);
-    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_, options_);
 
     if (auto* target = docc_context_.get_target_handler(options.target)) {
         if (auto target_expand = target->safe_apply_expand_time_mapping_fn_get()) {
@@ -195,7 +220,7 @@ void PyStructuredSDFG::expand(const docc::target::TargetOptions& options) {
     einsum_expand_pipe.run(builder_opt, analysis_manager);
 
     // Expand Math library nodes
-    sdfg::passes::LibraryNodeExpansionPass math_expand;
+    sdfg::passes::LibraryNodeExpansionPass math_expand(options_);
     math_expand.run(builder_opt, analysis_manager);
 
     sdfg::passes::TensorToPointerConversionPass tensor_to_pointer_conversion_pass;
@@ -208,10 +233,10 @@ void PyStructuredSDFG::expand(const docc::target::TargetOptions& options) {
 }
 
 
-void PyStructuredSDFG::simplify() {
+void PyStructuredSDFG::simplify(const docc::target::TargetOptions& options) {
     sdfg::passes::CompileStatistics::enter_stage_if_enabled("simplify");
     sdfg::builder::StructuredSDFGBuilder builder_opt(*sdfg_);
-    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_, options_);
 
     // Optimization Pipelines
     sdfg::passes::Pipeline dataflow_simplification = sdfg::passes::Pipeline::dataflow_simplification();
@@ -329,7 +354,7 @@ void PyStructuredSDFG::simplify() {
     ce.run(builder_opt, analysis_manager);
     dataflow_simplification.run(builder_opt, analysis_manager);
 
-    if (use_new_fusion_in_simplify_) {
+    if (options.use_new_fusion_in_simplify) {
         dump_debug("py3.1.pre-fusion");
 
         // New Map Fusion, simpler than previous, but what it can do should be cheaper to do
@@ -416,7 +441,9 @@ void PyStructuredSDFG::dump(
     }
 }
 
-void PyStructuredSDFG::normalize() { sdfg::passes::normalization::normalize(*sdfg_, enable_fusion_in_normalize_); }
+void PyStructuredSDFG::normalize(const docc::target::TargetOptions& options) {
+    sdfg::passes::normalization::normalize(*sdfg_, options.enable_fusion_in_normalize);
+}
 
 void PyStructuredSDFG::schedule(const std::string& target, const std::string& category, bool remote_tuning) {
     docc::target::TargetOptions topts = {.target = target, .category = category, .remote_tuning = remote_tuning};
@@ -429,7 +456,7 @@ void PyStructuredSDFG::schedule(const docc::target::TargetOptions& options, bool
     }
 
     sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
-    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_, options_);
 
     docc::plugins::apply_lib_node_target_mapping(docc_context_, builder, analysis_manager, options);
 
@@ -447,7 +474,7 @@ void PyStructuredSDFG::schedule(const docc::target::TargetOptions& options, bool
         std::shared_ptr<sdfg::passes::rpc::RpcContext> context =
             sdfg::passes::rpc::DaisytunerRpcContext::from_docc_config();
         sdfg::passes::scheduler::RpcOptimizationPass
-            rpc_optimization_pass(context, options, enable_fusion_in_normalize_, schedule_loops);
+            rpc_optimization_pass(context, options, options.enable_fusion_in_normalize, schedule_loops);
         rpc_optimization_pass.run(builder, analysis_manager);
     }
 
@@ -546,7 +573,7 @@ std::string PyStructuredSDFG::compile(
     fs::path header_path = build_path / (sdfg_->name() + ".h");
     fs::path source_path = build_path / (sdfg_->name() + ".cpp");
 
-    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_, options_);
 
     sdfg::builder::StructuredSDFGBuilder builder_opt(*sdfg_);
 
@@ -661,7 +688,7 @@ void PyStructuredSDFG::add_metadata(const std::string& key, const std::string& v
 
 pybind11::dict PyStructuredSDFG::loop_report() const {
     sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
-    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_, options_);
 
     sdfg::codegen::LoopReport report_visitor(builder, analysis_manager);
     report_visitor.visit();
@@ -688,7 +715,7 @@ std::string PyStructuredSDFG::to_dot() const {
 
 std::string PyStructuredSDFG::to_cpp() const {
     sdfg::builder::StructuredSDFGBuilder builder(*sdfg_);
-    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_);
+    sdfg::analysis::AnalysisManager analysis_manager(*sdfg_, options_);
 
     auto instrumentation_plan = sdfg::codegen::InstrumentationPlan::none(*sdfg_);
     auto arg_capture_plan = sdfg::codegen::ArgCapturePlan::none(*sdfg_);

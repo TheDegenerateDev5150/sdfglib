@@ -118,6 +118,7 @@ protected:
 
 public:
     MemoryLayoutAnalysis(StructuredSDFG& sdfg);
+    MemoryLayoutAnalysis(StructuredSDFG& sdfg, const Options& options);
 
     std::string name() const override { return "MemoryLayoutAnalysis"; }
 

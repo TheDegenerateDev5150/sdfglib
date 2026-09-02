@@ -16,8 +16,7 @@ class PyStructuredSDFG {
 private:
     sdfg::plugins::Context& docc_context_;
     std::unique_ptr<sdfg::StructuredSDFG> sdfg_;
-    bool use_new_fusion_in_simplify_;
-    bool enable_fusion_in_normalize_;
+    sdfg::Options options_;
 
     PyStructuredSDFG(sdfg::plugins::Context& ctx, std::unique_ptr<sdfg::StructuredSDFG>& sdfg);
 
@@ -37,6 +36,8 @@ public:
     std::string name() const;
 
     void set_output_dir(const std::filesystem::path& dir);
+
+    void set_option(const std::string& key, pybind11::object value);
 
     sdfg::plugins::Context& docc_context() const;
 
@@ -67,7 +68,7 @@ public:
     void expand(const std::string& target, const std::string& category);
     void expand(const docc::target::TargetOptions& options);
 
-    void simplify();
+    void simplify(const docc::target::TargetOptions& options = {});
 
     void dump_debug(const std::string& type, bool dump_dot = true, bool dump_json = true);
 
@@ -79,9 +80,10 @@ public:
         bool record_for_instrumentation = false
     );
 
-    void normalize();
+    void normalize(const docc::target::TargetOptions& options = {});
 
     void schedule(const std::string& target, const std::string& category, bool remote_tuning = false);
+
     void schedule(const docc::target::TargetOptions& options, bool schedule_loops = true);
 
     /**

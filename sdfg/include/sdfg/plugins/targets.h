@@ -16,6 +16,8 @@ struct TargetOptions {
     std::string category;
     bool remote_tuning;
     bool already_normalized = false;
+    bool enable_fusion_in_normalize = true;
+    bool use_new_fusion_in_simplify = true;
 };
 
 struct DoccTarget {
