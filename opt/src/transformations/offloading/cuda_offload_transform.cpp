@@ -1,5 +1,6 @@
 #include "sdfg/transformations/offloading/cuda_offload_transform.h"
 
+#include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
 #include "sdfg/transformations/transformation.h"
@@ -15,7 +16,6 @@ CUDAOffloadTransform CUDAOffloadTransform::from_json(builder::StructuredSDFGBuil
     auto target_level = gpu::target_level_from_string(desc["parameters"]["target_level"].get<std::string>());
     symbolic::Integer parallel_size =
         SymEngine::rcp_static_cast<const SymEngine::Integer>(symbolic::parse(desc["parameters"]["parallel_size"]));
-
     auto element = builder.find_element_by_id(loop_id);
     if (!element) {
         throw transformations::
