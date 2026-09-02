@@ -1,12 +1,35 @@
 #include "sdfg/transformations/offloading/cuda_offload_transform.h"
 
+#include "sdfg/symbolic/symbolic.h"
 #include "sdfg/targets/cuda/cuda.h"
+#include "sdfg/transformations/transformation.h"
 #include "symengine/symengine_rcp.h"
 
 namespace sdfg {
 namespace cuda {
 
 std::string CUDAOffloadTransform::name() const { return "CUDAOffloadTransform"; }
+
+CUDAOffloadTransform CUDAOffloadTransform::from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc) {
+    auto loop_id = desc["subgraph"]["0"]["element_id"].get<size_t>();
+    auto target_level = gpu::target_level_from_string(desc["parameters"]["target_level"].get<std::string>());
+    symbolic::Integer parallel_size =
+        SymEngine::rcp_static_cast<const SymEngine::Integer>(symbolic::parse(desc["parameters"]["parallel_size"]));
+
+    auto element = builder.find_element_by_id(loop_id);
+    if (!element) {
+        throw transformations::
+            InvalidTransformationDescriptionException("Element with ID " + std::to_string(loop_id) + " not found.");
+    }
+    auto loop = dyn_cast<structured_control_flow::StructuredLoop*>(element);
+    if (!loop) {
+        throw transformations::InvalidTransformationDescriptionException(
+            "Element with ID " + std::to_string(loop_id) + " is not a StructuredLoop."
+        );
+    }
+
+    return CUDAOffloadTransform(*loop, parallel_size, target_level);
+}
 
 types::StorageType CUDAOffloadTransform::local_device_storage_type() {
     return types::StorageType(

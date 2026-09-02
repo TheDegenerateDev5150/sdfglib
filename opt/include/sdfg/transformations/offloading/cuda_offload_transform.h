@@ -21,6 +21,8 @@ public:
 
     std::string name() const override;
 
+    static CUDAOffloadTransform from_json(builder::StructuredSDFGBuilder& builder, const nlohmann::json& desc);
+
 protected:
     types::StorageType local_device_storage_type() override;
 
