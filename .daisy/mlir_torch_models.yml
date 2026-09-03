@@ -51,7 +51,7 @@ steps:
   run:
     resnet18:
       energy: true
-      control: true
+      mode: "control"
       measurements: 3
       env:
         DOCC_REUSE_BINARIES: 1
@@ -79,7 +79,7 @@ steps:
           metrics: ["cuda:::flop_fp64", "cuda:::flop_fp32", "cuda:::flop_fp16", "cuda:::flop_tensor_fp16", "cuda:::l1_volume", "cuda:::l2_volume", "cuda:::dram_volume", "cuda:::occupancy", "cuda:::stalls"]
     segformer:
       energy: true
-      control: true
+      mode: "control"
       measurements: 3
       env:
         DOCC_REUSE_BINARIES: 1

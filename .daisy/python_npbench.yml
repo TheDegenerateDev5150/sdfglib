@@ -130,7 +130,7 @@ steps:
     adi:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -162,7 +162,7 @@ steps:
     atax:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -194,7 +194,7 @@ steps:
     gemm:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -226,7 +226,7 @@ steps:
     gesummv:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -258,7 +258,7 @@ steps:
     gemver:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -290,7 +290,7 @@ steps:
     k2mm:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -322,7 +322,7 @@ steps:
     k3mm:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -354,7 +354,7 @@ steps:
     mvt:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -386,7 +386,7 @@ steps:
     symm:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -418,7 +418,7 @@ steps:
     syr2k:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -450,7 +450,7 @@ steps:
     syrk:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
@@ -482,7 +482,7 @@ steps:
     trmm:
       energy: true
       measurements: 10
-      control: true
+      mode: "control"
       env:
         DOCC_REUSE_BINARIES: 1
         DOCC_CUDA_ARCH: sm_86
