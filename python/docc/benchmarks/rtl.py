@@ -57,6 +57,7 @@ __all__ = [
     "InstrumentationNotReady",
     "total_stats",
     "RtlTotalStats",
+    "configure_rtl_compiler_env",
 ]
 
 PER_INVOCATION_CAT = "region,daisy"
@@ -119,6 +120,60 @@ def _candidate_lib_dirs() -> List[Path]:
             seen.add(key)
             unique.append(d)
     return unique
+
+
+def _candidate_include_dirs() -> List[Path]:
+    """RTL header search dirs, from the same DefaultDoccPaths as the libraries."""
+    dirs: List[Path] = []
+    try:
+        from docc.sdfg._sdfg import _default_include_paths  # noqa: PLC0415
+
+        for p in _default_include_paths():
+            dirs.append(Path(p))
+    except Exception:
+        pass
+
+    seen = set()
+    unique: List[Path] = []
+    for d in dirs:
+        key = str(d)
+        if key not in seen:
+            seen.add(key)
+            unique.append(d)
+    return unique
+
+
+def _prepend_env_paths(env_var: str, new_paths: Sequence[Path]) -> None:
+    """Prepend paths to a ``os.pathsep``-separated env var, without duplicates."""
+    existing = [e for e in os.environ.get(env_var, "").split(os.pathsep) if e]
+    seen = set(existing)
+    prepend = [str(p) for p in new_paths if str(p) and str(p) not in seen]
+    if not prepend:
+        return
+    os.environ[env_var] = os.pathsep.join(prepend + existing)
+
+
+def configure_rtl_compiler_env() -> None:
+    """Make the packaged daisy RTL findable by out-of-process compiler invocations.
+
+    Points a compiler and loader at the RTL that ships with this docc install (resolved via DefaultDoccPaths)
+    so no global RTL installation is required. Idempotent; safe to call repeatedly.
+    """
+    include_dirs = _candidate_include_dirs()
+    lib_dirs = _candidate_lib_dirs()
+
+    if include_dirs:
+        _prepend_env_paths("CPLUS_INCLUDE_PATH", include_dirs)
+        _prepend_env_paths("CPATH", include_dirs)
+
+    if lib_dirs:
+        # LIBRARY_PATH: link-time -ldaisy_rtl resolution.
+        # LD_LIBRARY_PATH: runtime load of libdaisy_rtl.so by the built binary.
+        _prepend_env_paths("LIBRARY_PATH", lib_dirs)
+        loader_var = (
+            "DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"
+        )
+        _prepend_env_paths(loader_var, lib_dirs)
 
 
 def _find_rtl_lib() -> Optional[Path]:
