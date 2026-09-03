@@ -14,12 +14,14 @@
 #include <sdfg/transformations/loop_tiling.h>
 #include <sdfg/transformations/map_collapse.h>
 #include <sdfg/transformations/multi_level_tiling.h>
+#include <sdfg/transformations/offloading/cuda_offload_transform.h>
 #include <sdfg/transformations/offloading/cuda_parallelize_nested_map.h>
 #include <sdfg/transformations/offloading/cuda_transform.h>
 #include <sdfg/transformations/offloading/gpu_condition_propagation.h>
 #include <sdfg/transformations/offloading/gpu_loop_reordering.h>
 #include <sdfg/transformations/offloading/gpu_tiling.h>
 #include <sdfg/transformations/offloading/kernel_local_storage.h>
+#include <sdfg/transformations/offloading/rocm_offload_transform.h>
 #include <sdfg/transformations/offloading/rocm_parallelize_nested_map.h>
 #include <sdfg/transformations/offloading/rocm_transform.h>
 #include <sdfg/transformations/omp_transform.h>
@@ -83,8 +85,12 @@ void Replayer::replay(
         } else if (transformation_name == "CUDAParallelizeNestedMap") {
             this->apply<
                 transformations::CUDAParallelizeNestedMap>(builder, analysis_manager, desc, skip_if_not_applicable);
+        } else if (transformation_name == "CUDAOffloadTransform") {
+            this->apply<cuda::CUDAOffloadTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "ROCMTransform") {
             this->apply<rocm::ROCMTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
+        } else if (transformation_name == "ROCMOffloadTransform") {
+            this->apply<rocm::ROCMOffloadTransform>(builder, analysis_manager, desc, skip_if_not_applicable);
         } else if (transformation_name == "ROCMParallelizeNestedMap") {
             this->apply<
                 transformations::ROCMParallelizeNestedMap>(builder, analysis_manager, desc, skip_if_not_applicable);
