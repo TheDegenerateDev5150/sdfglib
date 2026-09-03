@@ -770,13 +770,23 @@ bool LocalStorage::collect_reduction_owners(
     };
 
     // An ancestor Reduce accumulates across iterations *outside* the localized
-    // scope, so a buffer created at loop_ cannot span the accumulator's lifetime.
-    // Exception: a grid-parallel ancestor reduce merges per-block partials via an
-    // atomic writeback, so LocalStorage may privatize the partial into a register
-    // tile and take over the cross-block merge (not retargeted here).
+    // scope. Whether a buffer at loop_ is still legal depends on how its
+    // per-outer-iteration writeback composes:
+    //   - grid-parallel (GPU) ancestor: per-block partials merge via an atomic
+    //     writeback; LocalStorage privatizes the partial and owns the merge (not
+    //     retargeted here).
+    //   - sequential (non-GPU) ancestor: outer iterations are barrier-separated, so
+    //     a read-modify-write copy-in/out around loop_ carries the accumulation
+    //     through the global container each iteration (classical BLIS pc loop). A
+    //     racy cooperative-CPU writeback is rejected downstream by derive_storage.
+    //   - any other (GPU block/warp cooperative) ancestor is combined by the reduce
+    //     dispatcher and cannot be localized here.
     for (auto* node : loop_analysis.ancestors(&loop)) {
         if (auto* reduce = owns(node)) {
             if (is_grid_parallel_reduce(reduce)) {
+                continue;
+            }
+            if (!gpu::is_gpu_schedule(reduce->schedule_type())) {
                 continue;
             }
             return false;
@@ -843,9 +853,13 @@ std::vector<structured_control_flow::Reduce*> LocalStorage::collect_grid_reducti
 
 LocalStorage::Locality LocalStorage::derive_storage(const LocalityPlan& plan, bool container_written) {
     using Level = LocalityPlan::Level;
-    // A cooperative CPU-parallel dim would need threads to share a stack — impossible.
+    // A cooperative CPU-parallel dim means the tile is invariant across the parallel
+    // threads (a shared operand, e.g. BLIS ~B). CPU has no shared staging, but a
+    // read-only tile is safe by replication: each thread stages its own private copy
+    // of the identical tile (redundant packing, no sharing). A written cooperative
+    // tile is a genuine cross-thread reduction/race and must reject.
     if (plan.has_cpu_cooperative()) {
-        return Locality::Reject;
+        return container_written ? Locality::Reject : Locality::Private;
     }
     // Enclosing-scope staging: a per-block shared row loaded once, reused by the
     // block consumers below. A cooperative write is a reduction (Reduce owns it).
