@@ -15,6 +15,7 @@ from docc.benchmarks.rtl import (
     start_instrumentation,
     stop_instrumentation,
     instrumentation_enabled,
+    configure_rtl_compiler_env,
     total_stats,
     validate,
 )
@@ -37,5 +38,6 @@ __all__ = [
     "start_instrumentation",
     "stop_instrumentation",
     "instrumentation_enabled",
+    "configure_rtl_compiler_env",
     "total_stats",
 ]

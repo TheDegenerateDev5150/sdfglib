@@ -1245,4 +1245,19 @@ PYBIND11_MODULE(_sdfg, m) {
         },
         "Default runtime library search paths, matching the native compiler driver"
     );
+
+    // Companion to _default_library_paths for the RTL headers (e.g.
+    // <daisy_rtl/daisy_rtl.h>), resolved from the same DefaultDoccPaths.
+    m.def(
+        "_default_include_paths",
+        []() {
+            auto paths = docc::util::DefaultDoccPaths::from_lib_location(docc::util::find_lib_location());
+            std::vector<std::string> result;
+            for (const auto& p : paths->get_default_include_paths()) {
+                result.push_back(p.string());
+            }
+            return result;
+        },
+        "Default include search paths, matching the native compiler driver"
+    );
 }
