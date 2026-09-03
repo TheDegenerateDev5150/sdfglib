@@ -617,6 +617,7 @@ std::string PyStructuredSDFG::compile(
         .add_common_option("-fno-strict-aliasing")
         .add_common_option("-march=native")
         .add_common_option("-mtune=native")
+        .add_common_option("-mprefer-vector-width=512")
         .add_common_option("-ffp-contract=fast")
         .add_common_option("-fassociative-math")
         .add_common_option("-freciprocal-math")
