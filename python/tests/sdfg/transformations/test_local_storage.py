@@ -339,16 +339,7 @@ def test_local_storage_omp_per_thread(N, K, tmp_path):
     np.testing.assert_allclose(out, A.sum(axis=1), rtol=1e-5, atol=1e-5)
 
 
-# ---------------------------------------------------------------------------
-# OpenMP: a tile that is cooperative across the parallel dim is rejected.
-#   out[i] = sum_{k=0}^{K-1} B[k]   for i in 0..N   (i is OMP-parallel)
-# Localizing B at the inner k loop would share one buffer across all threads
-# (its base is independent of i) -> a private stack cannot serve it, so
-# derive_storage rejects it.
-# ---------------------------------------------------------------------------
-
-
-def test_local_storage_omp_cooperative_rejected():
+def test_local_storage_omp_cooperative_readonly():
     K = 8
     builder = StructuredSDFGBuilder("ls_omp_coop")
     builder.add_container("N", U, is_argument=True)
@@ -372,9 +363,9 @@ def test_local_storage_omp_cooperative_rejected():
 
     analysis_manager = AnalysisManager(builder)
     xform = LocalStorage(inner, b_in)
-    assert not xform.can_be_applied(
+    assert xform.can_be_applied(
         builder, analysis_manager
-    ), "cooperative tile across an OMP-parallel dim must be rejected"
+    ), "readonly cooperative tile across an OMP-parallel dim must be accepted"
 
 
 # ---------------------------------------------------------------------------

@@ -355,8 +355,10 @@ public:
     /**
      * @brief Derive the required storage space from the schedule.
      *
-     * - A cooperative non-GPU parallel dim cannot be served by a private stack
-     *   → Reject.
+     * - A cooperative non-GPU parallel dim (a tile invariant across CPU threads,
+     *   e.g. a shared operand) is served by per-thread *replication* when read-only
+     *   (each thread stages its own private copy); a *written* cooperative tile is a
+     *   cross-thread reduction/race → Reject.
      * - A cooperative *write* is a reduction owned by the Reduce node + reduce
      *   dispatcher → Reject (only read-only cooperative tiles localize here).
      * - A cooperative GPU read tile inside a kernel (and not the outermost loop)
@@ -391,10 +393,14 @@ public:
      *        descendant) that reduce into @p container, for accumulator
      *        privatization.
      *
-     * @return false if a *cooperative* (GPU-combined) Reduce or an *ancestor*
-     *         Reduce owns @p container — those cannot be safely localized at
-     *         @p loop and must reject. Otherwise fills @p out with the owning
-     *         non-cooperative Reduce nodes (possibly empty) and returns true.
+     * @return false if a *cooperative* (GPU-combined) Reduce at/below @p loop, or a
+     *         GPU block/warp-cooperative *ancestor* Reduce, owns @p container —
+     *         those are combined by the reduce dispatcher and cannot be localized
+     *         here. A sequential (non-GPU) or grid-parallel ancestor Reduce is
+     *         permitted (its per-outer-iteration writeback is a plain RMW resp. an
+     *         atomic merge) and is *not* added to @p out. Otherwise fills @p out
+     *         with the owning non-cooperative Reduce nodes (possibly empty) and
+     *         returns true.
      */
     static bool collect_reduction_owners(
         structured_control_flow::StructuredLoop& loop,

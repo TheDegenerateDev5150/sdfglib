@@ -1905,10 +1905,13 @@ TEST(LocalStorageTest, Derive_Empty_Private) {
     EXPECT_EQ(LocalStorage::derive_storage(plan, true), LocalStorage::Locality::Private);
 }
 
-TEST(LocalStorageTest, Derive_CpuCooperative_Reject) {
+// A cooperative CPU-parallel dim (tile invariant across threads, e.g. shared ~B):
+// a read-only tile replicates per-thread (Private); a written one is a cross-thread
+// reduction/race and rejects.
+TEST(LocalStorageTest, Derive_CpuCooperative_ReadReplicates_WriteRejects) {
     LocalStorage::LocalityPlan plan;
     plan.dims.push_back(make_cpu_dim(/*cooperative*/ true));
-    EXPECT_EQ(LocalStorage::derive_storage(plan, false), LocalStorage::Locality::Reject);
+    EXPECT_EQ(LocalStorage::derive_storage(plan, false), LocalStorage::Locality::Private);
     EXPECT_EQ(LocalStorage::derive_storage(plan, true), LocalStorage::Locality::Reject);
 }
 
@@ -2311,10 +2314,12 @@ TEST(LocalStorageTest, CollectReductionOwners_CooperativeRejects) {
     EXPECT_FALSE(LocalStorage::collect_reduction_owners(reduce_j, "acc", am, owners));
 }
 
-// collect_reduction_owners: an *ancestor* Reduce accumulates across iterations
-// outside the localized scope — a buffer created at loop_ cannot span it — reject.
-TEST(LocalStorageTest, CollectReductionOwners_AncestorRejects) {
-    builder::StructuredSDFGBuilder builder("ls_collect_ancestor", FunctionType_CPU);
+// collect_reduction_owners: a *sequential* ancestor Reduce is accepted — its outer
+// iterations are barrier-separated, so a read-modify-write copy-in/out around loop_
+// carries the accumulation through the global container each iteration (classical
+// BLIS pc loop). The ancestor is not retargeted (owners stays empty here).
+TEST(LocalStorageTest, CollectReductionOwners_SequentialAncestorAccepts) {
+    builder::StructuredSDFGBuilder builder("ls_collect_ancestor_seq", FunctionType_CPU);
     auto& seq = builder.subject().root();
     types::Scalar loop_var(types::PrimitiveType::Int32);
     types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
@@ -2336,6 +2341,45 @@ TEST(LocalStorageTest, CollectReductionOwners_AncestorRejects) {
         symbolic::add(j, symbolic::integer(1)),
         {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
         structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& loop_k =
+        builder
+            .add_for(reduce_j.root(), k, symbolic::Lt(k, K), symbolic::integer(0), symbolic::add(k, symbolic::integer(1)));
+
+    analysis::AnalysisManager am(builder.subject());
+    std::vector<structured_control_flow::Reduce*> owners;
+    EXPECT_TRUE(LocalStorage::collect_reduction_owners(loop_k, "acc", am, owners));
+    EXPECT_TRUE(owners.empty());
+}
+
+// collect_reduction_owners: a GPU block-cooperative ancestor Reduce is combined by
+// the reduce dispatcher (not an atomic-merge grid reduce), so localizing its
+// accumulator at an inner loop is rejected.
+TEST(LocalStorageTest, CollectReductionOwners_GpuBlockAncestorRejects) {
+    builder::StructuredSDFGBuilder builder("ls_collect_ancestor_block", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", types::Scalar(types::PrimitiveType::Float));
+    auto j = symbolic::symbol("j");
+    auto k = symbolic::symbol("k");
+    auto N = symbolic::symbol("N");
+    auto K = symbolic::symbol("K");
+    builder.add_container("N", loop_var, true);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("j", loop_var);
+    builder.add_container("k", loop_var);
+    builder.add_container("acc", ptr);
+
+    auto block = gpu::ScheduleType_GPU_Offload::create<
+        cuda::ScheduleType_CUDA_Offload>(gpu::TargetLevel::X_BLOCK, symbolic::integer(32));
+    auto& reduce_j = builder.add_reduce(
+        seq,
+        j,
+        symbolic::Lt(j, N),
+        symbolic::integer(0),
+        symbolic::add(j, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        block
     );
     auto& loop_k =
         builder
@@ -2456,6 +2500,78 @@ TEST(LocalStorageTest, Apply_ReductionAccumulator_Sequential) {
     ASSERT_NE(body, nullptr);
     EXPECT_TRUE(block_uses(*body, buf));
     EXPECT_FALSE(block_uses(*body, "y"));
+}
+
+// Accumulator staging under a *sequential ancestor* Reduce (classical BLIS pc):
+// an outer reduce over ko accumulates acc[ki]; localizing acc at the inner ki loop
+// stages the tile in a Private buffer with a read-modify-write copy-in/out that
+// brackets the inner loop *inside* the ancestor reduce, so the accumulation is
+// carried through global acc each ko iteration. The ancestor reduce is NOT
+// retargeted (LocalStorage does not own it — its writeback is the plain RMW).
+TEST(LocalStorageTest, Apply_SequentialAncestorReduce_RMW) {
+    builder::StructuredSDFGBuilder builder("ls_reduce_ancestor_rmw", FunctionType_CPU);
+    auto& seq = builder.subject().root();
+    types::Scalar loop_var(types::PrimitiveType::Int32);
+    types::Scalar elem(types::PrimitiveType::Float);
+    types::Pointer ptr(types::StorageType::NV_Generic(), 0, "", elem);
+    auto ko = symbolic::symbol("ko");
+    auto ki = symbolic::symbol("ki");
+    auto K = symbolic::symbol("K");
+    auto CY = symbolic::integer(4);
+    builder.add_container("K", loop_var, true);
+    builder.add_container("x", ptr, true);
+    builder.add_container("acc", ptr, true);
+    builder.add_container("ko", loop_var);
+    builder.add_container("ki", loop_var);
+
+    // Outer sequential reduce over ko, inner ki loop reducing acc[ki] += x[ko*CY+ki].
+    auto& reduce_ko = builder.add_reduce(
+        seq,
+        ko,
+        symbolic::Lt(ko, K),
+        symbolic::integer(0),
+        symbolic::add(ko, symbolic::integer(1)),
+        {structured_control_flow::ReductionInfo{structured_control_flow::ReductionOperation::Add, "acc"}},
+        structured_control_flow::ScheduleType_Sequential::create()
+    );
+    auto& for_ki = builder.add_for(
+        reduce_ko.root(), ki, symbolic::Lt(ki, CY), symbolic::integer(0), symbolic::add(ki, symbolic::integer(1))
+    );
+    auto& blk = builder.add_block(for_ki.root());
+    auto& acc_in = builder.add_access(blk, "acc");
+    auto& x_in = builder.add_access(blk, "x");
+    auto& acc_out = builder.add_access(blk, "acc");
+    auto& t = builder.add_tasklet(blk, data_flow::TaskletCode::fp_add, "_out", {"_in1", "_in2"});
+    builder.add_computational_memlet(blk, acc_in, t, "_in1", {ki}, ptr);
+    builder.add_computational_memlet(blk, x_in, t, "_in2", {symbolic::add(symbolic::mul(ko, CY), ki)}, ptr);
+    builder.add_computational_memlet(blk, t, "_out", acc_out, {ki}, ptr);
+
+    analysis::AnalysisManager am(builder.subject());
+    // Ancestor reduce owns acc, so it is detected as a reduction accumulator...
+    EXPECT_TRUE(LocalStorage::is_reduction_accumulator(for_ki, "acc", am));
+    // ...but a sequential ancestor is now localizable at the inner loop.
+    LocalStorage xform(for_ki, acc_out);
+    ASSERT_TRUE(xform.can_be_applied(builder, am));
+    EXPECT_TRUE(xform.storage_type().is_cpu_stack());
+    xform.apply(builder, am);
+
+    auto buf = xform.local_container();
+    ASSERT_TRUE(builder.subject().exists(buf));
+
+    // RMW: the inner loop is bracketed by a copy-in and a copy-out inside the
+    // ancestor reduce body (so the accumulation carries through acc per ko iter).
+    ASSERT_EQ(reduce_ko.root().size(), 3u);
+    EXPECT_EQ(&reduce_ko.root().at(1), &for_ki);
+
+    // The ancestor Reduce is NOT retargeted: it still reduces the global acc.
+    ASSERT_EQ(reduce_ko.reductions().size(), 1u);
+    EXPECT_EQ(reduce_ko.reductions().front().container, "acc");
+
+    // The body reads/writes the buffer, not acc.
+    auto* body = dyn_cast<structured_control_flow::Block*>(&for_ki.root().at(0));
+    ASSERT_NE(body, nullptr);
+    EXPECT_TRUE(block_uses(*body, buf));
+    EXPECT_FALSE(block_uses(*body, "acc"));
 }
 
 // A cooperatively-combined (GPU-offloaded) reduction accumulator is left to the
