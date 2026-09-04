@@ -207,6 +207,11 @@ void register_control_flow(py::module& m) {
             "Get the loop condition"
         )
         .def_property_readonly(
+            "num_iterations",
+            [](const StructuredLoop& loop) { return loop.num_iterations()->__str__(); },
+            "Get the number of iterations of the loop"
+        )
+        .def_property_readonly(
             "body",
             [](StructuredLoop& loop) -> Sequence& { return loop.root(); },
             py::return_value_policy::reference,
