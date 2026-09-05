@@ -310,29 +310,65 @@ void convert_copy_block_to_async(
     types::Pointer dst_ptr_t(dst_leaf);
     const size_t elem_bytes = types::bit_width(out_m->base_type().primitive_type()) / 8;
 
-    // Decide float4 widening: both the shared destination and the global source
-    // must be provably contiguous (unit stride) in the cooperative indvar over a
-    // 4-aligned run, the shared rows 16-byte aligned, and the copy count/init a
-    // multiple of 4. Then stride the coop map by 4 and copy 16 bytes.
+    // cp.async only moves 4-, 8-, or 16-byte transfers. Coalesce `factor` contiguous
+    // elements per thread into one transfer of `factor * elem_bytes` bytes: both the
+    // shared destination and the global source must be unit-stride in the cooperative
+    // indvar, the shared row `factor`-aligned, and the copy count/init a multiple of
+    // `factor`. Then stride the coop map by `factor`.
     size_t bytes = elem_bytes;
+    auto* cmap = enclosing_thread_map(block);
+    const size_t row = innermost_array_extent(out_m->base_type());
+    auto try_widen = [&](size_t factor) -> bool {
+        const size_t width = factor * elem_bytes;
+        if (width != 4 && width != 8 && width != 16) {
+            return false;
+        }
+        if (cmap == nullptr || cmap->stride().is_null() || cmap->stride()->as_int() != 1 || row % factor != 0) {
+            return false;
+        }
+        auto coop = cmap->indvar();
+        auto dst_stride = subset_run_stride(dst_subset, coop);
+        auto src_stride = subset_run_stride(src_subset, coop);
+        auto trip = cmap->num_iterations();
+        auto* n = trip.is_null() ? nullptr : dynamic_cast<const SymEngine::Integer*>(trip.get());
+        auto* init_i = dynamic_cast<const SymEngine::Integer*>(cmap->init().get());
+        if (!(dst_stride.has_value() && *dst_stride == 1 && src_stride.has_value() && *src_stride == 1 &&
+              n != nullptr && n->as_int() % static_cast<int>(factor) == 0 && init_i != nullptr &&
+              init_i->as_int() % static_cast<int>(factor) == 0)) {
+            return false;
+        }
+        builder.update_loop(
+            *cmap,
+            coop,
+            cmap->condition(),
+            cmap->init(),
+            symbolic::add(coop, symbolic::integer(static_cast<int>(factor)))
+        );
+        bytes = width;
+        return true;
+    };
+
+    // fp32 keeps its float4 (16-byte) path, gated by `vectorize`. Narrow elements
+    // (fp16/int8) must coalesce to reach a legal >=4-byte width even without
+    // `vectorize`, since a scalar sub-4-byte cp.async is illegal; pick the widest
+    // legal transfer (16B, then 8B, then 4B).
     if (vectorize && elem_bytes == 4) {
-        auto* cmap = enclosing_thread_map(block);
-        const size_t row = innermost_array_extent(out_m->base_type());
-        if (cmap != nullptr && !cmap->stride().is_null() && cmap->stride()->as_int() == 1 && row % 4 == 0) {
-            auto coop = cmap->indvar();
-            auto dst_stride = subset_run_stride(dst_subset, coop);
-            auto src_stride = subset_run_stride(src_subset, coop);
-            auto trip = cmap->num_iterations();
-            auto* n = trip.is_null() ? nullptr : dynamic_cast<const SymEngine::Integer*>(trip.get());
-            auto* init_i = dynamic_cast<const SymEngine::Integer*>(cmap->init().get());
-            if (dst_stride.has_value() && *dst_stride == 1 && src_stride.has_value() && *src_stride == 1 &&
-                n != nullptr && n->as_int() % 4 == 0 && init_i != nullptr && init_i->as_int() % 4 == 0) {
-                // Coalesce four contiguous elements per thread into one cp.async.
-                builder
-                    .update_loop(*cmap, coop, cmap->condition(), cmap->init(), symbolic::add(coop, symbolic::integer(4)));
-                bytes = 4 * elem_bytes;
+        try_widen(4);
+    } else if (elem_bytes > 0 && elem_bytes < 4) {
+        const size_t max_factor = (vectorize ? 16u : 4u) / elem_bytes;
+        for (size_t width : {size_t{16}, size_t{8}, size_t{4}}) {
+            const size_t factor = width / elem_bytes;
+            if (width % elem_bytes == 0 && factor > 1 && factor <= max_factor && try_widen(factor)) {
+                break;
             }
         }
+    }
+
+    // cp.async has no legal sub-4-byte transfer. If a narrow copy could not be
+    // widened (e.g. non-contiguous), keep the synchronous copy block rather than
+    // emitting an illegal cp.async.
+    if (bytes != 4 && bytes != 8 && bytes != 16) {
+        return;
     }
 
     auto* pseq = dynamic_cast<structured_control_flow::Sequence*>(block.get_parent());
