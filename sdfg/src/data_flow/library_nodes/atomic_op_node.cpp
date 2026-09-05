@@ -342,7 +342,9 @@ void AtomicScalarOpGPUNodeDispatcher::dispatch_code_with_edges(
     std::string src = inputs.at(1).expr;
 
     if (node.data_type() == types::PrimitiveType::Half) {
-        src = "__half(" + src + ")";
+        // Route through float: __half(_Float16) is an ambiguous functional cast
+        // (_Float16 converts to both float and double), so name the float ctor.
+        src = "__half(static_cast<float>(" + src + "))";
         dst = "reinterpret_cast<__half*>(" + dst + ")";
     }
 
