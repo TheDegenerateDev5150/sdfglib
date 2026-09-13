@@ -4,8 +4,32 @@
 #include "sdfg/structured_control_flow/structured_loop.h"
 #include "sdfg/symbolic/symbolic.h"
 
+#include <symengine/integer.h>
+
 namespace sdfg {
 namespace transformations {
+
+namespace {
+
+/// A unit-stride loop whose exact trip is a positive integer multiple of `tile_size` fills every
+/// tile, so the original bound is redundant after tiling and can be dropped. Cheap constant check
+/// (no assumptions analysis); works progressively -- a first cut that drops its bound makes the
+/// inner extent a constant, so a second (MultiLevelTiling) cut divides cleanly too.
+bool tile_evenly_divides(const structured_control_flow::StructuredLoop& loop, size_t tile_size) {
+    auto stride = loop.stride();
+    if (stride.is_null() || !SymEngine::is_a<SymEngine::Integer>(*stride) ||
+        SymEngine::rcp_static_cast<const SymEngine::Integer>(stride)->as_int() != 1) {
+        return false;
+    }
+    auto trip = loop.num_iterations();
+    if (trip.is_null() || !SymEngine::is_a<SymEngine::Integer>(*trip)) {
+        return false;
+    }
+    long long trip_int = SymEngine::rcp_static_cast<const SymEngine::Integer>(trip)->as_int();
+    return trip_int > 0 && (trip_int % static_cast<long long>(tile_size)) == 0;
+}
+
+} // namespace
 
 LoopTiling::LoopTiling(structured_control_flow::StructuredLoop& loop, size_t tile_size)
     : loop_(loop), tile_size_(tile_size) {};
@@ -36,6 +60,9 @@ structured_control_flow::StructuredLoop& LoopTiling::tile_loop(
     size_t index = parent->index(loop);
 
     auto indvar = loop.indvar();
+
+    // Whether the tile evenly divides this loop's (original) trip -- computed before tiling mutates it.
+    bool drop_original_bound = tile_evenly_divides(loop, tile_size);
 
     // Step 1: Define new outer loop
     auto outer_indvar_str = builder.find_new_name(indvar->get_name() + "_tile");
@@ -79,7 +106,10 @@ structured_control_flow::StructuredLoop& LoopTiling::tile_loop(
     auto inner_init = outer_indvar;
     auto inner_condition_tile = symbolic::Lt(inner_indvar, symbolic::add(outer_indvar, symbolic::integer(tile_size)));
 
-    symbolic::Condition inner_condition = symbolic::And(inner_condition_tile, loop.condition());
+    // Drop the redundant original bound for a perfectly dividing tile: the inner loop is then a clean
+    // constant-trip tile that unrolls/vectorizes; otherwise keep the guard for the ragged remainder.
+    symbolic::Condition inner_condition = drop_original_bound ? inner_condition_tile
+                                                              : symbolic::And(inner_condition_tile, loop.condition());
 
     auto inner_update = symbolic::add(inner_indvar, symbolic::integer(1));
     builder.update_loop(loop, inner_indvar, inner_condition, inner_init, inner_update);
