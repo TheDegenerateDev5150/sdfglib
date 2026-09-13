@@ -23,7 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Mark GitHub Actions workdir as safe

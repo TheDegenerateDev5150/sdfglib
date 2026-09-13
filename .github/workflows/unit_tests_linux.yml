@@ -23,7 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Mark GitHub Actions workdir as safe
@@ -156,7 +155,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Create virtual environment
@@ -236,7 +234,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Mark GitHub Actions workdir as safe
@@ -321,7 +318,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -405,7 +401,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -566,7 +561,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -658,7 +652,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -752,7 +745,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          token: ${{ secrets.BENCHMARK_TESTS_TOKEN }}
           submodules: recursive
 
       - name: Set up Python ${{ matrix.python-version }}
