@@ -67,11 +67,11 @@ TEST(LoopTilingTest, For_Integer) {
     EXPECT_EQ(inner_loop, &orig_loop);
     EXPECT_EQ(inner_loop->indvar()->get_name(), "i");
     EXPECT_TRUE(symbolic::eq(inner_loop->init(), loop.indvar()));
+    // tile 4 evenly divides the extent 64, so the redundant global bound is dropped and the inner
+    // loop is a clean constant-trip tile (enables unrolling/vectorization).
     EXPECT_TRUE(symbolic::
                     eq(inner_loop->condition(),
-                       symbolic::
-                           And(symbolic::Lt(inner_loop->indvar(), symbolic::add(loop.indvar(), symbolic::integer(4))),
-                               symbolic::Lt(inner_loop->indvar(), bound))));
+                       symbolic::Lt(inner_loop->indvar(), symbolic::add(loop.indvar(), symbolic::integer(4)))));
     EXPECT_TRUE(symbolic::eq(inner_loop->update(), symbolic::add(inner_loop->indvar(), symbolic::integer(1))));
 
     EXPECT_EQ(inner_loop->root().size(), 1);

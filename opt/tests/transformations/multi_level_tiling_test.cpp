@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <symengine/integer.h>
+
 #include "sdfg/analysis/analysis.h"
 #include "sdfg/builder/structured_sdfg_builder.h"
 #include "sdfg/passes/structured_control_flow/dead_cfg_elimination.h"
@@ -111,6 +113,105 @@ TEST(MultiLevelTilingTest, TwoLevelTiling) {
     EXPECT_EQ(transformation.outer_loop(), outer_loop);
     EXPECT_EQ(transformation.middle_loop(), middle_loop);
     EXPECT_EQ(transformation.inner_loop(), inner_loop);
+}
+
+// A constant extent that both tile levels evenly divide: the redundant original bound is dropped at
+// each cut (progressively -- the first cut makes the inner extent a constant for the second), so the
+// middle and inner loops become clean constant-trip tiles that unroll/vectorize.
+TEST(MultiLevelTilingTest, ConstantExtentDropsRedundantBounds) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Pointer desc(base_desc);
+    types::Pointer opaque_desc;
+    builder.add_container("A", opaque_desc, true);
+    types::Scalar sym_desc(types::PrimitiveType::Int64);
+    builder.add_container("i", sym_desc);
+
+    auto indvar = symbolic::symbol("i");
+    auto& orig_loop = builder.add_for(
+        root,
+        indvar,
+        symbolic::Lt(indvar, symbolic::integer(64)),
+        symbolic::integer(0),
+        symbolic::add(indvar, symbolic::integer(1))
+    );
+    auto& block = builder.add_block(orig_loop.root());
+    auto& A_in = builder.add_access(block, "A");
+    auto& A_out = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, A_in, tasklet, "_in", {indvar}, desc);
+    builder.add_computational_memlet(block, tasklet, "_out", A_out, {indvar}, desc);
+
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    transformations::MultiLevelTiling transformation(orig_loop, 32, 8);
+    ASSERT_TRUE(transformation.can_be_applied(builder, analysis_manager));
+    transformation.apply(builder, analysis_manager);
+
+    auto* outer = transformation.outer_loop();
+    auto* middle = transformation.middle_loop();
+    auto* inner = transformation.inner_loop();
+    ASSERT_NE(outer, nullptr);
+    ASSERT_NE(middle, nullptr);
+    ASSERT_NE(inner, nullptr);
+
+    // Middle and inner drop the global `i < 64` guard, keeping only their tile bound.
+    EXPECT_TRUE(symbolic::
+                    eq(middle->condition(),
+                       symbolic::Lt(middle->indvar(), symbolic::add(outer->indvar(), symbolic::integer(32)))));
+    EXPECT_TRUE(symbolic::
+                    eq(inner->condition(),
+                       symbolic::Lt(inner->indvar(), symbolic::add(middle->indvar(), symbolic::integer(8)))));
+
+    // The point loop therefore has a constant trip (unroll-ready).
+    auto trip = inner->num_iterations();
+    ASSERT_FALSE(trip.is_null());
+    EXPECT_TRUE(symbolic::eq(trip, symbolic::integer(8)));
+}
+
+// A ragged (non-evenly-dividing) extent: the tile can truncate, so the original bound is kept and
+// the point loop keeps a dynamic (`min`-bounded) trip.
+TEST(MultiLevelTilingTest, RaggedExtentKeepsBound) {
+    builder::StructuredSDFGBuilder builder("sdfg_test", FunctionType_CPU);
+    auto& sdfg = builder.subject();
+    auto& root = sdfg.root();
+
+    types::Scalar base_desc(types::PrimitiveType::Float);
+    types::Pointer desc(base_desc);
+    types::Pointer opaque_desc;
+    builder.add_container("A", opaque_desc, true);
+    types::Scalar sym_desc(types::PrimitiveType::Int64);
+    builder.add_container("i", sym_desc);
+
+    auto indvar = symbolic::symbol("i");
+    auto& orig_loop = builder.add_for(
+        root,
+        indvar,
+        symbolic::Lt(indvar, symbolic::integer(100)), // 100 is not a multiple of 64
+        symbolic::integer(0),
+        symbolic::add(indvar, symbolic::integer(1))
+    );
+    auto& block = builder.add_block(orig_loop.root());
+    auto& A_in = builder.add_access(block, "A");
+    auto& A_out = builder.add_access(block, "A");
+    auto& tasklet = builder.add_tasklet(block, data_flow::TaskletCode::assign, "_out", {"_in"});
+    builder.add_computational_memlet(block, A_in, tasklet, "_in", {indvar}, desc);
+    builder.add_computational_memlet(block, tasklet, "_out", A_out, {indvar}, desc);
+
+    analysis::AnalysisManager analysis_manager(builder.subject());
+    transformations::MultiLevelTiling transformation(orig_loop, 64, 8);
+    ASSERT_TRUE(transformation.can_be_applied(builder, analysis_manager));
+    transformation.apply(builder, analysis_manager);
+
+    auto* inner = transformation.inner_loop();
+    ASSERT_NE(inner, nullptr);
+
+    // The guard is kept, so the point loop's exact trip is not a plain integer constant.
+    auto trip = inner->num_iterations();
+    ASSERT_FALSE(trip.is_null());
+    EXPECT_FALSE(SymEngine::is_a<SymEngine::Integer>(*trip));
 }
 
 TEST(MultiLevelTilingTest, TwoLevelTilingSerialization) {
