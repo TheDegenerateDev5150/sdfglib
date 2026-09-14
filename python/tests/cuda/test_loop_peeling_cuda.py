@@ -138,18 +138,26 @@ def test_loop_peeling_ragged_reduction(N, K, block, tile, predicate, tmp_path):
     builder, inner = _build(N, K, block)
     am = AnalysisManager(builder)
 
-    # Tiling the reduction loop yields the compound inner condition
-    # `k < K && k < k_tile + tile` that LoopPeeling targets.
+    # Tiling the reduction loop yields the inner condition `k < k_tile + tile`, plus a redundant
+    # `k < K` guard only when the tile does not evenly divide K (a ragged remainder to peel).
     tiling = LoopTiling(inner, tile)
     assert tiling.can_be_applied(builder, am)
     tiling.apply(builder, am)
     tiled_inner = tiling.inner_loop
 
     pb = LoopPeeling(tiled_inner, predicate=predicate)
-    assert pb.can_be_applied(
-        builder, am
-    ), "tiled inner loop should have a predicable compound boundary"
-    pb.apply(builder, am)
+    inner_clean = (
+        K % tile == 0
+    )  # evenly-dividing tile: LoopTiling already dropped the `k < K` guard
+    if inner_clean:
+        assert not pb.can_be_applied(
+            builder, am
+        ), "evenly-dividing tile is already clean -- nothing to peel"
+    else:
+        assert pb.can_be_applied(
+            builder, am
+        ), "tiled inner loop should have a predicable compound boundary"
+        pb.apply(builder, am)
 
     sdfg = builder.move()
     sdfg.validate()
