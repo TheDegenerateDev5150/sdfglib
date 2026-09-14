@@ -140,7 +140,8 @@ def test_loop_peeling_ragged_reduction(N, K, block, tile, predicate, tmp_path):
 
     # Tiling the reduction loop yields the inner condition `k < k_tile + tile`, plus a redundant
     # `k < K` guard only when the tile does not evenly divide K (a ragged remainder to peel).
-    tiling = LoopTiling(inner, tile)
+    # simplify_bounds=True opts into dropping that guard for evenly-dividing tiles.
+    tiling = LoopTiling(inner, tile, simplify_bounds=True)
     assert tiling.can_be_applied(builder, am)
     tiling.apply(builder, am)
     tiled_inner = tiling.inner_loop
