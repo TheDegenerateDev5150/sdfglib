@@ -1456,12 +1456,16 @@ void StructuredSDFGBuilder::add_dataflow(const data_flow::DataFlowGraph& from, B
     auto& to_dataflow = to.dataflow();
 
     std::vector<const data_flow::DataFlowNode*> nodes;
-    for (const auto& node : from.nodes()) nodes.push_back(&node);
+    for (const auto& node : from.nodes()) {
+        nodes.push_back(&node);
+    }
     std::sort(nodes.begin(), nodes.end(), [](const auto* left, const auto* right) {
         return left->element_id() < right->element_id();
     });
     std::vector<const data_flow::Memlet*> edges;
-    for (const auto& edge : from.edges()) edges.push_back(&edge);
+    for (const auto& edge : from.edges()) {
+        edges.push_back(&edge);
+    }
     std::sort(edges.begin(), edges.end(), [](const auto* left, const auto* right) {
         return left->element_id() < right->element_id();
     });
