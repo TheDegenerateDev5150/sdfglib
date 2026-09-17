@@ -2,7 +2,6 @@
 
 #include <unordered_map>
 #include "sdfg/analysis/analysis.h"
-#include "sdfg/analysis/flop_analysis.h"
 #include "sdfg/codegen/instrumentation/instrumentation_info.h"
 #include "sdfg/codegen/language_extension.h"
 #include "sdfg/codegen/utils.h"
