@@ -5,7 +5,6 @@
 #include <vector>
 
 #include <sdfg/analysis/analysis.h>
-#include <sdfg/analysis/flop_analysis.h>
 #include <sdfg/analysis/loop_analysis.h>
 #include <sdfg/helpers/helpers.h>
 
@@ -78,15 +77,7 @@ codegen::InstrumentationInfo ROCMOffloadReduceDispatcher::instrumentation_info()
     auto& loop_analysis = analysis_manager_.get<analysis::LoopAnalysis>();
     analysis::LoopInfo loop_info = loop_analysis.loop_info(&node_);
 
-    // Perform FlopAnalysis
     std::unordered_map<std::string, std::string> metrics;
-    auto& flop_analysis = analysis_manager_.get<analysis::FlopAnalysis>();
-    auto flop = flop_analysis.get_if_available_for_codegen(&node_);
-    if (!flop.is_null()) {
-        std::string flop_str = language_extension_.expression(flop);
-        metrics.insert({"flop", flop_str});
-    }
-
     return codegen::InstrumentationInfo(
         node_.element_id(),
         node_.element_type(),
