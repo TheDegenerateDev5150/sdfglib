@@ -130,6 +130,9 @@ void InstrumentationPlan::begin_instrumentation(
     // end_instrumentation), so the region body runs once per sample.
     if (info.sampling()) {
         stream << "while (true) {" << std::endl;
+        // Cold sampling (no-op unless DOCC_MEASURE_COLD): evict the working set so
+        // each sample re-incurs cold-start misses at the L3/DRAM level.
+        stream << "__daisy_instrumentation_flush_caches();" << std::endl;
     }
 
     // Enter region

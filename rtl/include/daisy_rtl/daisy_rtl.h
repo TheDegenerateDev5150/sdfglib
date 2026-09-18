@@ -88,6 +88,11 @@ bool __daisy_instrumentation_stats(size_t region_id, double* mean_us, double* va
 // single measurement. Only meaningful in __DAISY_INSTRUMENTATION_MODE=aggregate.
 bool __daisy_instrumentation_should_continue(size_t region_id);
 
+// Cold-sampling primitive: evict the working set from every cache level (streaming
+// writes through a >LLC buffer) so the next sample re-incurs cold-start misses. No-op
+// unless DOCC_MEASURE_COLD is set. Buffer size is DOCC_MEASURE_FLUSH_BYTES (default 128MB).
+void __daisy_instrumentation_flush_caches(void);
+
 // Aggregate running runtime stats over ALL regions (aggregate mode): per-iteration
 // mean is the sum of the regions' means (mirrors the trace's summed durations),
 // variance the sum of variances, count the min sample count across regions.
