@@ -3,25 +3,23 @@
 #include <string>
 #include <vector>
 
-#include "sdfg/analysis/analysis.h"
-#include "sdfg/codegen/instrumentation/instrumentation_info.h"
+#include "sdfg/codegen/language_extension.h"
 #include "sdfg/codegen/language_extensions/cuda_language_extension.h"
-#include "sdfg/structured_control_flow/map.h"
 #include "sdfg/symbolic/symbolic.h"
-#include "sdfg/targets/gpu/gpu_offload_reduce_dispatcher.h"
+#include "sdfg/targets/gpu/gpu_offload_base_dispatcher.h"
 
 
 namespace sdfg {
 namespace cuda {
 
 /**
- * @brief CUDA specialization of @ref gpu::GPUOffloadReduceDispatcher.
+ * @brief CUDA specialization of @ref gpu::GPUOffloadMapDispatcher.
  *
- * Supplies the CUDA-specific policy for the multi-level reduction offload lowering:
+ * Supplies the CUDA-specific policy for the shared coverage-loop offload lowering:
  * the device language extension, the `<<<...>>>` kernel launch and launch-error check.
  */
-class CUDAOffloadReduceDispatcher : public gpu::GPUOffloadReduceDispatcher {
-protected:
+class CUDAOffloadDispatcherStrategy : public gpu::GPUOffloadDispatcherStrategy {
+public:
     codegen::CUDALanguageExtension kernel_language_extension_;
 
     codegen::LanguageExtension& create_kernel_language_extension() override;
@@ -29,6 +27,7 @@ protected:
     void dispatch_kernel_call(
         codegen::PrettyPrinter& main_stream,
         const std::string& kernel_name,
+        codegen::LanguageExtension& host_language_ext,
         symbolic::Expression& num_blocks_x,
         symbolic::Expression& num_blocks_y,
         symbolic::Expression& num_blocks_z,
@@ -38,29 +37,27 @@ protected:
         std::vector<std::string>& arguments_device
     ) override;
 
-public:
-    CUDAOffloadReduceDispatcher(
-        codegen::LanguageExtension& language_extension,
-        StructuredSDFG& sdfg,
-        analysis::AnalysisManager& analysis_manager,
-        structured_control_flow::Reduce& node,
-        codegen::InstrumentationPlan& instrumentation_plan,
-        codegen::ArgCapturePlan& arg_capture_plan
-    );
+    void emit_target_header_declarations(codegen::PrettyPrinter& kernel_header_stream) override;
+
+    CUDAOffloadDispatcherStrategy(StructuredSDFG& sdfg);
 
     void dispatch_kernel_launch_error_check(
-        codegen::PrettyPrinter& stream, const codegen::LanguageExtension& language_extension, bool instrumented
-    ) override;
-
-    codegen::InstrumentationInfo instrumentation_info() const override;
+        codegen::PrettyPrinter& stream, const codegen::LanguageExtension& language_extension
+    );
 
     int get_warp_size() const override;
 
     bool is_device_pointer_storage(const types::StorageType& storage) const override;
 
+    constexpr static const char* KERNEL_SNIPPET_FILE_EXT = "cu";
+    constexpr static const char* KERNEL_SNIPPET_HEADER_EXT = "cu.h";
+
     std::string kernel_file_extension() const override;
+    std::string kernel_header_file_extension() const override;
 
     std::string warp_shuffle_xor(const std::string& value, const std::string& lane_mask) const override;
+
+    codegen::TargetType get_instrumentation_kernel_target_type() const override;
 };
 
 } // namespace cuda
