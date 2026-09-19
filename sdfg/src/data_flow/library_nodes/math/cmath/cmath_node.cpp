@@ -322,7 +322,7 @@ std::unique_ptr<data_flow::DataFlowNode> CMathNode::
     );
 }
 
-symbolic::Expression CMathNode::flop() const { return symbolic::one(); }
+symbolic::Expression CMathNode::flop() const { return symbolic::integer(cmath_function_to_flop(this->function_)); }
 
 std::string CMathNode::toStr() const {
     return LibraryNode::toStr() + "(" + get_cmath_intrinsic_name(this->function_, this->primitive_type_) + ")";
