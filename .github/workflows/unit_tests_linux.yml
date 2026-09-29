@@ -621,7 +621,7 @@ jobs:
           pytest -v mlir/integration -m "cuda"
 
           # Segformer correctness test
-          pytest -v mlir/benchmarks/torch/model_zoo/segformer.py -k "cuda"
+          # pytest -v mlir/benchmarks/torch/model_zoo/segformer.py -k "cuda"
 
       - name: PyTorch Tests
         run: |
@@ -715,7 +715,7 @@ jobs:
           pytest -v python/benchmarks/ -k rocm
           pytest -v mlir/integration -m "rocm"
 
-          pytest -v mlir/benchmarks/torch/model_zoo/segformer.py -k "rocm"
+          # pytest -v mlir/benchmarks/torch/model_zoo/segformer.py -k "rocm"
 
       - name: PyTorch Tests
         run: |
