@@ -30,6 +30,7 @@ def test_reduce_half(target, tmp_path):
             "cuda",
             f"--cuda-path={toolkit}",
             f"--cuda-gpu-arch={architecture}",
+            f"--cuda-include-ptx={architecture}",
             f"-L{toolkit / 'lib64'}",
             "-lcudart",
         ]

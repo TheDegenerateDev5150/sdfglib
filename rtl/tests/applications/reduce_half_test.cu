@@ -6,6 +6,8 @@
 #define gpuMemcpyHostToDevice hipMemcpyHostToDevice
 #define gpuMemcpyDeviceToHost hipMemcpyDeviceToHost
 #define gpuDeviceSynchronize hipDeviceSynchronize
+#define gpuGetLastError hipGetLastError
+#define gpuGetErrorString hipGetErrorString
 #define gpuFree hipFree
 #else
 #include <cuda_runtime.h>
@@ -15,6 +17,8 @@
 #define gpuMemcpyHostToDevice cudaMemcpyHostToDevice
 #define gpuMemcpyDeviceToHost cudaMemcpyDeviceToHost
 #define gpuDeviceSynchronize cudaDeviceSynchronize
+#define gpuGetLastError cudaGetLastError
+#define gpuGetErrorString cudaGetErrorString
 #define gpuFree cudaFree
 #endif
 
@@ -109,8 +113,18 @@ int main() {
             result = 1;
             break;
         }
-        combine_half<<<blocks, threads>>>(device + 1, test.operation, test.update[0], test.update[1]);
-        combine_half<<<blocks, threads>>>(device + 4, test.operation, test.update[0], test.update[1]);
+        for (int offset : {1, 4}) {
+            combine_half<<<blocks, threads>>>(device + offset, test.operation, test.update[0], test.update[1]);
+            auto launch_error = gpuGetLastError();
+            if (launch_error != 0) {
+                std::fprintf(stderr, "%s launch failed: %s\n", test.name, gpuGetErrorString(launch_error));
+                result = 1;
+                break;
+            }
+        }
+        if (result != 0) {
+            break;
+        }
         if (gpuDeviceSynchronize() != 0 || gpuMemcpy(values, device, sizeof(values), gpuMemcpyDeviceToHost) != 0) {
             result = 1;
             break;
