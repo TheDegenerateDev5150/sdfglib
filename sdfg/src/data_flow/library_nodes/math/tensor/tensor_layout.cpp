@@ -111,8 +111,7 @@ symbolic::MultiExpression TensorLayout::linear_strides() const {
     return std::move(linear_strides(shape_));
 }
 
-symbolic::Expression TensorLayout::resolve_element(const symbolic::MultiExpression& indices, bool require_to_element)
-    const {
+symbolic::Expression TensorLayout::resolve_element(const symbolic::MultiExpression& indices, bool require_to_element) const {
     auto resolve_dims = indices.size();
     if (resolve_dims != shape_.size() && require_to_element) {
         throw std::invalid_argument(

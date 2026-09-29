@@ -29,8 +29,8 @@ public:
     virtual ~GpuMmaExpander() = default;
     const LibNodeExpander* for_lib_node(const data_flow::LibraryNode& node) const override;
 
-    virtual void set_implementation_type_mma(math::tensor::MatMulNode& mat_mul_node, const GpuMmaTiling& mma_tiling)
-        const = 0;
+    virtual void
+    set_implementation_type_mma(math::tensor::MatMulNode& mat_mul_node, const GpuMmaTiling& mma_tiling) const = 0;
 
     LibNodeExpander::ExpandOutcome handle_expand(
         LibNodeExpander::ExpandContext& context, structured_control_flow::Block& block, math::tensor::MatMulNode& node

@@ -221,8 +221,7 @@ types::PrimitiveType MatMulNode::quantization(const data_flow::DataFlowGraph& da
     }
 }
 
-std::optional<types::PrimitiveType> MatMulNode::uniform_quantization(const data_flow::DataFlowGraph& data_flow_graph
-) const {
+std::optional<types::PrimitiveType> MatMulNode::uniform_quantization(const data_flow::DataFlowGraph& data_flow_graph) const {
     if (fixed_quantization_ != QUANTIZATION_MATCH_INPUTS) {
         auto inferred = this->primitive_type(data_flow_graph);
         if (inferred == fixed_quantization_ || inferred == types::PrimitiveType::Void) {

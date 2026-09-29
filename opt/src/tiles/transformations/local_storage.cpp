@@ -225,13 +225,13 @@ tiles::Layout LocalStorage::TileInfo::source_layout() const {
     return tiles::Layout(shape, stride, folded_offset);
 }
 
-std::vector<symbolic::Expression> LocalStorage::TileInfo::original_subset(const std::vector<symbolic::Expression>&
-                                                                              tile_indices) const {
+std::vector<symbolic::Expression> LocalStorage::TileInfo::
+    original_subset(const std::vector<symbolic::Expression>& tile_indices) const {
     return {source_layout().resolve_element(tile_indices, /*require_to_element=*/false)};
 }
 
-std::vector<symbolic::Expression> LocalStorage::TileInfo::local_index(const std::vector<symbolic::Expression>&
-                                                                          access_subset) const {
+std::vector<symbolic::Expression> LocalStorage::TileInfo::
+    local_index(const std::vector<symbolic::Expression>& access_subset) const {
     std::vector<symbolic::Expression> local;
     for (size_t d = 0; d < dimensions.size(); d++) {
         if (!symbolic::eq(dimensions.at(d), symbolic::integer(1))) {
