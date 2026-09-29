@@ -180,8 +180,7 @@ public:
 
     /// The tile's placement in the enclosing parallel nest at @p loop — its axes
     /// plus loop-context flags, the basis for deriving storage and synchronization.
-    LocalityPlan placement(structured_control_flow::StructuredLoop& loop, analysis::AnalysisManager& analysis_manager)
-        const;
+    LocalityPlan placement(structured_control_flow::StructuredLoop& loop, analysis::AnalysisManager& analysis_manager) const;
 };
 
 } // namespace tiles

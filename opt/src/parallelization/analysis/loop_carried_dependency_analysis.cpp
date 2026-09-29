@@ -625,8 +625,8 @@ const std::unordered_map<std::string, LoopCarriedDependencyInfo>& LoopCarriedDep
     return it->second;
 }
 
-const std::vector<LoopCarriedDependencyPair>& LoopCarriedDependencyAnalysis::pairs(structured_control_flow::StructuredLoop&
-                                                                                       loop) const {
+const std::vector<LoopCarriedDependencyPair>& LoopCarriedDependencyAnalysis::
+    pairs(structured_control_flow::StructuredLoop& loop) const {
     auto it = pairs_.find(&loop);
     assert(it != pairs_.end() && "LoopCarriedDependencyAnalysis: loop not analyzed");
     return it->second;

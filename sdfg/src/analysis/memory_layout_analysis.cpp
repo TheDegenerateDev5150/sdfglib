@@ -998,9 +998,8 @@ const MemoryTileGroup* MemoryLayoutAnalysis::
 symbolic::MultiExpression MemoryTile::extents() const {
     symbolic::MultiExpression result;
     for (size_t d = 0; d < min_subset.size(); ++d) {
-        auto ext =
-            symbolic::simplify(symbolic::expand(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one())
-            ));
+        auto ext = symbolic::
+            simplify(symbolic::expand(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one())));
         // Defensive: subset values are always proven-bounded, so this should never trigger
         // for row-major layouts. Guards future custom layouts whose subsets could pick up
         // the unbounded sentinel.
@@ -1016,9 +1015,11 @@ symbolic::MultiExpression MemoryTile::extents() const {
 symbolic::MultiExpression MemoryTile::extents_approx() const {
     symbolic::MultiExpression result;
     for (size_t d = 0; d < min_subset.size(); ++d) {
-        auto ext = symbolic::simplify(symbolic::expand(
-            symbolic::overapproximate(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one()))
-        ));
+        auto ext = symbolic::simplify(
+            symbolic::expand(
+                symbolic::overapproximate(symbolic::add(symbolic::sub(max_subset[d], min_subset[d]), symbolic::one()))
+            )
+        );
         if (depends_on_unbounded(ext)) {
             result.push_back(SymEngine::null);
         } else {

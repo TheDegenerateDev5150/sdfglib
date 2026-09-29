@@ -99,20 +99,20 @@ passes::LibNodeExpander::ExpandOutcome GpuMmaExpander::handle_expand(
         if (mma_tiling.macro_blocks_m > 1 || mma_tiling.macro_blocks_n > 1) {
             symbolic::Expression add = symbolic::zero();
             if (mma_tiling.macro_blocks_m > 1) {
-                add = symbolic::
-                    add(add,
-                        symbolic::
-                            mul(row_inner,
-                                symbolic::mul(node.layout_y().get_stride(0), symbolic::integer(mma_tiling.mma_block_m)))
-                    );
+                add = symbolic::add(
+                    add,
+                    symbolic::
+                        mul(row_inner,
+                            symbolic::mul(node.layout_y().get_stride(0), symbolic::integer(mma_tiling.mma_block_m)))
+                );
             }
             if (mma_tiling.macro_blocks_n > 1) {
-                add = symbolic::
-                    add(add,
-                        symbolic::
-                            mul(col_inner,
-                                symbolic::mul(node.layout_y().get_stride(1), symbolic::integer(mma_tiling.mma_block_n)))
-                    );
+                add = symbolic::add(
+                    add,
+                    symbolic::
+                        mul(col_inner,
+                            symbolic::mul(node.layout_y().get_stride(1), symbolic::integer(mma_tiling.mma_block_n)))
+                );
             }
             inner_node.layout_y() = add_to_offset(node.layout_y(), add);
         }
